@@ -1,0 +1,1 @@
+This folder contains python notebooks that convert the pdf originals to OSIS
