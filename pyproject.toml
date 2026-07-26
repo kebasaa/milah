@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "milah-pdf2osis"
+version = "0.1.0"
+description = "Convert the Project Truth Ministries Cochin PDFs to OSIS."
+requires-python = ">=3.11"
+dependencies = [
+    "PyMuPDF>=1.23,<2",
+    "lxml>=6,<7",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8,<9"]
+
+[project.scripts]
+pdf2osis = "pdf2osis.cli:main"
+
+[tool.setuptools]
+package-dir = {"" = "python"}
+
+[tool.setuptools.packages.find]
+where = ["python"]
+
+[tool.setuptools.package-data]
+pdf2osis = ["schema/*.xsd"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
