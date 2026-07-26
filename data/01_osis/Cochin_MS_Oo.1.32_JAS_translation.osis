@@ -1,135 +1,147 @@
 <?xml version='1.0' encoding='UTF-8'?>
-<osis xmlns="http://www.bibletechnologies.net/2003/OSIS/namespace" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.bibletechnologies.net/2003/OSIS/namespace http://www.bibletechnologies.net/osisCore.2.1.1.xsd">
-  <osisText osisIDWork="JAS" osisRefWork="bible" xml:lang="en">
+<osis xmlns="http://www.bibletechnologies.net/2003/OSIS/namespace" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:alt="https://projecttruthministries.org/studies/cochin-james/" xsi:schemaLocation="http://www.bibletechnologies.net/2003/OSIS/namespace http://www.bibletechnologies.net/osisCore.2.1.1.xsd">
+  <osisText osisIDWork="MS.Oo.1.32_JAS_PTM" osisRefWork="bible" xml:lang="en">
     <header>
       <work osisWork="MS.Oo.1.32_JAS_PTM">
         <title>Translation of James (Cochin MS Oo.1.32)</title>
         <scope>JAS</scope>
         <type type="x-bible">Edition</type>
-        <creator role="trl">Project Truth Ministries</creator>
+        <identifier type="OSIS">MS.Oo.1.32_JAS_PTM</identifier>
+        <identifier type="shelfmark">MS.Oo.1.32</identifier>
         <identifier type="URI">https://projecttruthministries.org/studies/cochin-james/</identifier>
+        <publisher>Project Truth Ministries</publisher>
+        <creator role="trl">Project Truth Ministries</creator>
         <contributor role="trc" file-as="Baca, Janice F.">Janice F. Baca</contributor>
         <date event="eversion" type="ISO">2024</date>
         <rights>© copyright 2024 Janice F. Baca</rights>
-        <description>English translation of Cochin MS Oo.1.32 Hebrew James by Janice F. Baca, 2024.</description>
+        <language>en</language>
+        <description>The Cochin Hebrew New Testament manuscripts are significant 18th-century Hebrew versions of the New Testament. This file encodes James from Cambridge MS Oo.1.32.</description>
+      </work>
+      <work osisWork="bible">
+        <title>Referenced versification (standard)</title>
+        <identifier type="OSIS">bible</identifier>
+        <refSystem>StandardV11N</refSystem>
+        <language>en</language>
       </work>
     </header>
-    <div type="chapter" osisID="Jas.1">
-      <verse osisID="Jas.1.1">“James (Yaakov), a servant of Elohim and the Lord Yeshua the Messiah. To the Twelve Tribes scattered in all places, joyful greetings.”</verse>
-      <verse osisID="Jas.1.2">“My beloved brothers, consider this joy if you fall into temptations.”</verse>
-      <verse osisID="Jas.1.3">“And knowing that your emunah (faith) if it is complete, produces burdens.”12 <note type="footnote" n="10">Aramaic plural noun. 11 Aramaic noun. 12 See Exodus 6:7. Can also mean, “burden, forced labor,  compulsory service,  burden bearing.”</note> </verse>
-      <verse osisID="Jas.1.4">“But the burdens are necessary until the end, until you continue to be fully successful; you will not lack absolutely nothing of you.</verse>
-      <verse osisID="Jas.1.5">“But, if one among you lacks wisdom, this one should pray for what is given to all mankind; then also he gives to him.” <note type="footnote" n="13">Aramaic adverb first found in the Mishnah Shabbat 10:2 (c. 190  - 230 CE).</note> </verse>
-      <verse osisID="Jas.1.6">“But he should pray with emunah (faith) and not in doubt.  For whoever doubts this, he is similar to balances on the sea.”</verse>
-      <verse osisID="Jas.1.7">“And this man should not think that he will receive anything from the Lord.” <note type="footnote" n="14">Aramaic passive participle meaning, “In doubt.”</note> </verse>
-      <verse osisID="Jas.1.8">“And a doubter is unstable in all his ways.”</verse>
-      <verse osisID="Jas.1.9">“So, let every lowly brother boast in his elevation;” <note type="footnote" n="15">Mishnaic word first found in Mishnah Perkei Avot 1:16.</note> </verse>
-      <verse osisID="Jas.1.10">“but the rich should rejoice of his lowering: because like a flower of the field it dries out.</verse>
-      <verse osisID="Jas.1.11">“And like a flower that goes out and is cut off; it is a fleeing shadow and does not stand.”</verse>
-      <verse osisID="Jas.1.12">“And happy is the man whom Eloah corrects and does not throw away the reproof nor become fed up.  For after the sufferings, you will receive the crown life that Yehovah’s promises for those who are loved by Him.”</verse>
-      <verse osisID="Jas.1.13">“Let not one man say that if temptation comes upon him, this comes from Yehovah. Because Yehovah is not put to the test or does to mankind for evil; for He is not testing anyone.” <note type="footnote" n="16">Aramaic noun meaning, “temptation.”</note> </verse>
-      <verse osisID="Jas.1.14">“Only anyone is tested if his lust defeats him.” KJV: “but every man is tempted, when he is drawn away of his own lust, and enticed.”</verse>
-      <verse osisID="Jas.1.15">“Then if lust is desired, it causes sin. But sin, if not restrained, it causes death.”</verse>
-      <verse osisID="Jas.1.16">“Do not be led astray, beloved brothers.”</verse>
-      <verse osisID="Jas.1.17">“Every good gift comes from above, from the light of the Father. And with Him there is no exchange of light and darkness.”</verse>
-      <verse osisID="Jas.1.18">“And He revealed to us, according to His will by way of His Word of Truth, that we are first born of His creation.17”</verse>
-      <verse osisID="Jas.1.19">“For this, beloved brothers, every son of man must be quick to hear but not speak and not to anger.” <note type="footnote" n="17">Literally, “fat, or fattened.”</note> </verse>
-      <verse osisID="Jas.1.20">“For the anger from the sons of man does not produce what is good before Yehovah.”</verse>
-      <verse osisID="Jas.1.21"/>
-      <verse osisID="Jas.1.22">“But be of those who do the word, and not hearers only, who swindle you.”</verse>
-      <verse osisID="Jas.1.23">“For if there is one that hears the Word, but does not do it, he is like a man who looks at himself in the tinted mirrors.”</verse>
-      <verse osisID="Jas.1.24">“Because after seeing himself, he leaves it and forgets what he saw.”</verse>
-      <verse osisID="Jas.1.25"/>
-      <verse osisID="Jas.1.26">“But if one of you thinks he is a servant of Yehovah and does not guard his tongue in the bridle only inflames his own heart; this service of Yehovah is not good.”</verse>
-      <verse osisID="Jas.1.27">“And good service without lack Yehovah the Father, it is he who goes out to strengthen the orphans and the widows in their sorrows.” Chapter 2 <note type="footnote" n="18">The aleph is a mater lectionis and is a Second Temple marker. 19 Aramaic noun meaning, “lack.”</note> </verse>
-    </div>
-    <div type="chapter" osisID="Jas.2">
-      <verse osisID="Jas.2.1">“Beloved brothers, consider the faith of Yeshua the Messiah, our Lord, who does not beguile a person.”</verse>
-      <verse osisID="Jas.2.2">“Because if one comes to the Beit Din20 with a gold ring and nice clothes, and also a poor person in bad clothes;” <note type="footnote" n="20">Mishnaic term first found in the Mishnah Demai 7:3 and means, “house of judgment.”</note> </verse>
-      <verse osisID="Jas.2.3">“you see upon the exalted one’s pleasant garments and say to him, "Sit with us, for it is good;" But you say to the poor, "Stand there or sit at our feet."</verse>
-      <verse osisID="Jas.2.4">“And don’t scrutinize well regarding this, just simply judge and make a bad judgment.”</verse>
-      <verse osisID="Jas.2.5">“Hear me, beloved brothers! Did not Yehovah choose the poor in this world - rich in faith, so those loved by Him will inherit the promise?”</verse>
-      <verse osisID="Jas.2.6">“However, you shame the poor. And the rich: aren’t they the ones doing everything in their strength against you by force, then take and judge you?”</verse>
-      <verse osisID="Jas.2.7">“And don’t they curse and blaspheme the good name from which you are called?”</verse>
-      <verse osisID="Jas.2.8">“If you are doing the law according to the writings in the Torah and love your companions as yourself, you do good.”</verse>
-      <verse osisID="Jas.2.9">“But if you see that a man commits a sin and you punish according to the law as like a transgressor,”</verse>
-      <verse osisID="Jas.2.10">“for if one upholds all of the Torah entirely and has one sin, he is guilty21 for all of it.” <note type="footnote" n="21">Mishnaic term first found in the Mishnah Berakhot (c. 190 - 230 CE).</note> </verse>
-      <verse osisID="Jas.2.11">“Because the one who said, “You shall not commit adultery;” did He not also say, “You shall not murder.” And if you do not commit adultery but commit murder, you are transgressing the law.”</verse>
-      <verse osisID="Jas.2.12">“When you are able to understand what is spoken and act accordingly, these are judged by the law in joyfulness.”</verse>
-      <verse osisID="Jas.2.13">“But there will be a bad judgment for the one who does not show mercy and the mercy boasts on the side of judgment.”</verse>
-      <verse osisID="Jas.2.14">“And what benefit is there, beloved brothers, if one says he has faith and does not have works? For faith has no ability to sanctify him.”</verse>
-      <verse osisID="Jas.2.15">“And if there is a brother or sister who lacks support each and every day,” and one of you say to them giving words of comfort of Yehovah to fill them, but does not give anything to them for the benefit of the body; what benefit do these things have for them?”</verse>
-      <verse osisID="Jas.2.16">“So is faith if without works.” <note type="footnote" n="22">Cochin combines verses James 2:15 &amp; 16.</note> </verse>
-      <verse osisID="Jas.2.17">“But one could say, I have faith and does not have works also. I testify to you regarding my faith and my works.”</verse>
-      <verse osisID="Jas.2.18">“You have faith that Yehovah is One - you do good. The satans also have faith and tremble.”</verse>
-      <verse osisID="Jas.2.19">“But you should desire to know that faith without works is dead.”</verse>
-      <verse osisID="Jas.2.20">“Was not our father Abrahan, justified by his actions when he brought his son as a sacrifice up the altar?”</verse>
-      <verse osisID="Jas.2.21">“And by this, you are able to see faith operating by its works; and by works creates complete faith.”</verse>
-      <verse osisID="Jas.2.22">“And in this, that which is said in the Torah is fulfilled. And Abraham believed and it was considered to him as righteousness.”</verse>
-      <verse osisID="Jas.2.23">“And by his works, you are able to see that a man is justified by his works and not by faith alone.”</verse>
-      <verse osisID="Jas.2.24">“And similarly to Rahab the harlot. Is she not justified by the works since she took the spies and hid them?”</verse>
-      <verse osisID="Jas.2.25">“Because just as the body without the spirit is dead, so faith without works is dead.” Chapter 3</verse>
-    </div>
-    <div type="chapter" osisID="Jas.3">
-      <verse osisID="Jas.3.1">“Beloved brothers, don’t any one of you be burdened to teach; but know that the penalty will be greater.”</verse>
-      <verse osisID="Jas.3.2">“Because we sin in many things, and he who has not sinned in anything is a holy man and is able to control all the body.”</verse>
-      <verse osisID="Jas.3.3">“But see that we lead horses with the bridle in order to lead them according to our desire.”</verse>
-      <verse osisID="Jas.3.4">“And moreover, ships, although great, move strongly like the winds, albeit they are led by way of a small helm; which is in the hand of the Messenger.”</verse>
-      <verse osisID="Jas.3.5">“Thus, in the same way, the tongue is a small organ, and achieves great things. See, a small fire is a burner of a great forest.”</verse>
-      <verse osisID="Jas.3.6">“And also, the tongue full of wickedness,23 is like a fire in the world. Thus, the tongue, in our organs, causes all the body to sin, and reveals us in our walks, as if it is revealed from Gehinnom.” <note type="footnote" n="23">Aramaic noun meaning, “wickedness.”</note> </verse>
-      <verse osisID="Jas.3.7">“Because the nature of all the beasts, fowl and the serpents on dry land or in the sea is like the nature of a man.”</verse>
-      <verse osisID="Jas.3.8">“But the tongue no man is able to bridle, because it is evil and full of the poison of death.”</verse>
-      <verse osisID="Jas.3.9">“By the tongue we praise Yehovah the Father; and by it we curse the man who is in the image of Elohim;”</verse>
-      <verse osisID="Jas.3.10">“from one mouth goes out praises and curses. And it should not be so, beloved brothers.”</verse>
-      <verse osisID="Jas.3.11">“And is there a spring that has salty and sweet water?”</verse>
-      <verse osisID="Jas.3.12">“Or is there a fig tree that could give24 oil, or a vine, figs? Therefore, the spring will not give both salty and fresh water.” <note type="footnote" n="24">Mishnaic verb form that is a result of Aramism with the added yod (י).</note> </verse>
-      <verse osisID="Jas.3.13">“Who that is clever and wise among you, demonstrates to me his good walk in wisdom.”</verse>
-      <verse osisID="Jas.3.14">“But if there is jealousy and hatred in your hearts, do not boast and do not deceive as a witness of the truth.”</verse>
-      <verse osisID="Jas.3.15">“Because this is not wisdom that comes from above, but only from the earth, from man and from the satans.”</verse>
-      <verse osisID="Jas.3.16">“Because those who have jealousy and hatred have many bad things.”</verse>
-      <verse osisID="Jas.3.17">“However, wisdom is from above: from the beginning: pure, and afterwards, shalom, then rest, then to be able to quickly appease25, and to fully hear of mercy, and lastly, for good and not burdened within or flattery.”</verse>
-      <verse osisID="Jas.3.18">“But the fruits of righteousness are sown in peace, for those who make peace.” Chapter 4 <note type="footnote" n="25">Aramaic Peal verb binyan meaning, “to appease or to reconcile.”</note> </verse>
-    </div>
-    <div type="chapter" osisID="Jas.4">
-      <verse osisID="Jas.4.1">“And from what comes from battles among you?  Are they not for your beliefs fighting in your organs?”</verse>
-      <verse osisID="Jas.4.2">“Then you desire and do not receive, and you retaliate and are vengeful and you do not gain from it; But all because of what? Because you do not pray!”</verse>
-      <verse osisID="Jas.4.3">“And you make a prayer and do not receive an answer, because you pray with evil.”</verse>
-      <verse osisID="Jas.4.4">“The Adulterer and the adulteress: do you not know that whoever loves this world is a hater of Yehovah, and whomever wants to be loved by this world will hate Yehovah.”</verse>
-      <verse osisID="Jas.4.5">“So, you thought that the Torah said for naught? The spirit that dwells within you is lusting against Yehovah commandments,”</verse>
-      <verse osisID="Jas.4.6">“and gives a lot of grace because the Torah said that Yehovah elevates the lowly and humbles the lofty.”</verse>
-      <verse osisID="Jas.4.7">“And now be submitted to Yehovah, and fight against the satans, and they26 will flee from you.”</verse>
-      <verse osisID="Jas.4.8">“So draw near to Yehovah, and He will draw near to you. And purify your sinful hands and your heart will be made clean.” <note type="footnote" n="26">This appears to be a spelling error for the tav ( ת) should be a yod ( י) for the third common plural, meaning “they.” As spelled, this is translated as, “You will flee” and is nonsensical. .</note> </verse>
-      <verse osisID="Jas.4.9">“And you will endure hardships. Weep, for your worries will become weeping and your joy to sorrow.27”</verse>
-      <verse osisID="Jas.4.10">“Humble yourselves in the presence of Yehovah; He will hear you.” <note type="footnote" n="27">Aramaic masculine noun meaning, “sorrow or mourning.” The lamed (ל) is serving as a direct object marker which is a second Temple Hebrew grammar marker.</note> </verse>
-      <verse osisID="Jas.4.11">“Beloved brothers do not go slandering28 among yourselves, because he that goes slandering his brother is he who slanders the law. And if you do so, you are not fulfilling the law.”</verse>
-      <verse osisID="Jas.4.12">“And there is only One who gives the law that is able to punish and pardon. Who are you to judge others?” <note type="footnote" n="28">Aramaic feminine noun meaning, “slander.”</note> </verse>
-      <verse osisID="Jas.4.13">“And now if you say today or tomorrow, we want to go29 to that place or that city. Or we want to stand there a year to do work negotiating and profiting,”</verse>
-      <verse osisID="Jas.4.14">“You do not know what tomorrow will be, for what are your lives? Are they not a spirit for a short time, and following this, it is gone?” <note type="footnote" n="29">Mishnaic word first found in Mishnah Eruvin 3:1 (c. 190 - 230 CE).</note> </verse>
-      <verse osisID="Jas.4.15">“And we and you should say, “As Yehovah wills it,” and we live desiring to do this,”</verse>
-      <verse osisID="Jas.4.16">“But now your boasting is in your glory30 and this is evil;” <note type="footnote" n="30">Aramaic feminine noun meaning, “pride” or “glory."</note> </verse>
-      <verse osisID="Jas.4.17">“because whoever that knows and does not do this, is considered in sin.” Chapter 5</verse>
-    </div>
-    <div type="chapter" osisID="Jas.5">
-      <verse osisID="Jas.5.1">“And now the wealthy cry out and weep about the evil that comes upon you.”</verse>
-      <verse osisID="Jas.5.2">“Your riches decay and your garments are consumed like fire!”</verse>
-      <verse osisID="Jas.5.3"/>
-      <verse osisID="Jas.5.4">“See the deeds of a hired worker at your place who cries out before me. And their cries come before the ears of the Lord of hosts.”</verse>
-      <verse osisID="Jas.5.5">“For you had had lusts of this world and rejoiced at the voice of the seduction.”</verse>
-      <verse osisID="Jas.5.6">“And you were compelled to justify and kill, and he did not protest31 against you.” <note type="footnote" n="31">Mishnaic word Pi’el verb binyan was first found in Mishnah Nazir 4:6.</note> </verse>
-      <verse osisID="Jas.5.7">“And now beloved brothers, you have hope for the future. See the owner of the field awaits the fruit of the land. And His love is for the first rain and his pinch.”32</verse>
-      <verse osisID="Jas.5.8">“So even be strong. Be strong in your hearts, because the future of the Lord is near!” <note type="footnote" n="32">This word means, “pinch” or “nipping” of a fruit.</note> </verse>
-      <verse osisID="Jas.5.9">“Don’t sigh against yourselves, beloved brothers, so that you don’t get into trouble because the Judge stands before the door.”</verse>
-      <verse osisID="Jas.5.10">“Beloved brothers, take for you, for instance, the sorrow and the causes from the prophets who spoke in the name of the Lord.”</verse>
-      <verse osisID="Jas.5.11">“See we praise those who suffered. And the reason is from Job, you heard and the end from the Lord you saw because the Lord is merciful and has great kindness.”</verse>
-      <verse osisID="Jas.5.12">“But first of all, beloved brothers, do not swear by the heavens or the earth or any oath. But let your speech be “yes” “yes” and not “no,” so that you do not fail.”</verse>
-      <verse osisID="Jas.5.13">“And if one of you suffers something, he should pray. Or if one of you has a good heart, he should sing (zamer).33</verse>
-      <verse osisID="Jas.5.14">“And if anyone is sick, you should call the elders of the community, and they will pray for him and anoint him with oil in the name of the Lord.” <note type="footnote" n="33">This is a unique Hebrew marker word meaning “might, song, and pruning.” This word can be compared to the singing done by David when he sang for King Saul and the demons fled (2 Samuel 23:1). Zamar (רמז) is the power of God in the song.</note> </verse>
-      <verse osisID="Jas.5.15">“Then praying in faith will help the sick and the Lord will raise him up. And if he has sin, the Lord will forgive his sins.”</verse>
-      <verse osisID="Jas.5.16">“So, confess your sins one to another, and let each one pray for his companion because Yehovah draws close to all who call upon Him in truth.”</verse>
-      <verse osisID="Jas.5.17">“And also, Elijah the prophet was a man, like us and he prayed that it would not rain upon the earth for three and one-half years.”</verse>
-      <verse osisID="Jas.5.18">“Then again, he prayed that it would rain again, and the heavens gave the rain and the land her fruit.”</verse>
-      <verse osisID="Jas.5.19">“Brothers, if one of you goes from the good path to evil and one withholds him,”</verse>
-      <verse osisID="Jas.5.20">“Know that one who turns him from his wickedness, saves one soul from death and grants atonement from many sins.” Image courtesy of MidJourney from the Virtual Bible Snapshot Project The Covenant with Yehovah In March 2023, a group of 34 expeditioners traveled to Saudi Arabia to explore the inscriptions at Mount Sinai to discover and study the evidence of the exodus. And on the last day of their expedition, they hiked to the altar that Moses built at Mount Sinai to covenant with Yehovah just as the children of Israel did 3,500 years ago; but with one significant difference ̶ the covenant meal will be in the memory of Yeshua according to 1 Corinthians 11:24. The expeditioners brought with them juice and crackers representing the covenant meal along with a handwritten Ketubah for each member of the party to sign and witness their covenant agreement with Yehovah. The Original Covenant About 3,500 years ago, the children of Israel were offered a covenant by Yehovah, but they refused to hear and obey His Voice according to Deuteronomy 5:22-29. Then the covenant was confirmed in blood according to Exodus 24:3-8. Later, the children of Israel broke the covenant earning the death penalty (Exodus 32:1-8). However, Yehovah instituted a substitution for their death – the sacrifice of animals to pay the sin offering (Leviticus 17:11; Hebrews 9:7). And when Yeshua came, He paid the price with His own blood for the sins of not only Israel, but also the world. (Isaiah 53:5; 12-15). Ketubah Centuries later, Rabbis began writing marriage covenants, called a Ketubah, detailing the responsibilities of the husband, to protect the bride. It was this concept that was instituted at Mount Sinai as a memorial for all the expeditioners to remember the holy covenant they made with Yehovah. The Unexpected Event On the final day of their expedition, the third day of the week (i.e. Tuesday), fifteen people hiked to the altar that Moses built at Mount Sinai. Two of the individuals were photographers and one man officiated the covenant. The remaining individuals were twelve witnesses at the altar of Moses. The significance of the twelve witnesses was astounding as this was not planned by any man. After the covenant and the covenant meal in remembrance of Yeshua, a cloud began to form and surround the blacked peak of Mount Sinai and a great storm emerged. Shortly later, it began to hail. There was so much hail, some say it appeared as manna on the ground. But the rain continued throughout the day. Then later that evening, snow fell upon Mount Sinai! My husband, David remembered the verse about the covenant of Mount Sinai in Exodus 19 that says:   “Then it came to pass on the third day, in the morning, that there were thunderings and lightnings, and a thick cloud on the mountain… Now Mount Sinai [was] completely in smoke, because Yehovah descended upon it in fire. Its smoke ascended like the smoke of a furnace…” Exodus 19:1-9, 16, 18 We prayed and asked for a sign that Yehovah would hear our covenant promise. And Yehovah gave a miraculous sign that He indeed heard us! Therefore, we want to pass along this Mount Sinai miracle blessing to you, the servants of Yehovah. If you are interested in covenanting with Yehovah, I encourage you to do the following: ·       Prepare your heart. Cleanse yourself by confessing your disobedience (sins) and asking forgiveness in the name of Yeshua. ·       Repent – determine in your heart and mind that you will do all that He asks you to do, including making things right with those you may have harmed in the past. ·       Read aloud – either alone or with others – the words of this covenant below. ·       Confirm your commitment by partaking of the bread and the wine (grape juice, if preferred) in remembrance of Yeshua and the sacrifice He gave us with His own blood. By following these steps to covenant yourself with Yehovah, you too can share in the miraculous events of Mount Sinai. Janice F. Baca Ketubah Image Courtesy of GPT-Image Dal E Allan-Bassham of the Virtual Bible Snapshot Project Ketubah of The Covenant at Mount Sinai A Ketubah Covenant (written marriage covenant) on this ________ day of _________ in the year ________, Yehovah and _________________________________ has entered into a covenant as one with Yehovah and His Son, Yeshua the Messiah (Jn 17:21) and now I am part of the children of Israel and agree to the following words:  READ THE FOLLOWING VERSES OUT LOUD: The Torah describes Yehovah’s marriage covenant to His bride Israel: Elohim (God) said to Moses, “Thus you shall say to the children of Israel: ‘Yehovah, Elohim of your fathers, the Elohim of Abraham, the Elohim of Isaac, and the Elohim of Jacob, has sent me to you. This is My name forever, and this is My memorial to all generations.” (Ex 3:10-15) “And Moses went up to Elohim, and Yehovah called to him from the mountain, saying, “Thus you shall say to the house of Jacob, and tell the children of Israel: ‘You have seen what I did to the Egyptians, and how I bore you on eagles’ wings and brought you to Myself. Now therefore, if you will indeed obey My voice and keep My covenant, then you shall be a special treasure to Me above all people; for all the earth is Mine. And you shall be to Me a kingdom of priests and a holy nation.’ These are the words you shall speak to the children of Israel.” So Moses came and called for the, elders of the people, and laid before them all these words which Yehovah commanded him. Then all the people answered together and said, “All that Yehovah has spoken we will do!” (Ex 19:8) “So Moses brought back the words of the people to Yehovah.” (Ex 19:3-8) “Behold, I send an Angel before you to keep you in the way and to bring you into the place which I have prepared. Beware of Him and obey His voice; do not provoke Him, for He will not pardon your transgressions; for My name is in Him. But if you indeed obey His voice and do all that I speak, then I will be an enemy to your enemies and an adversary to your adversaries.” (Ex 23:20-22) “So you shall serve Yehovah your Elohim, and He will bless your bread and your water. And I will take sickness away from the midst of you. No one shall suffer miscarriage or be barren in your land; I will fulfill the number of your days. “I will send My fear before you, cause confusion among all the people to whom you come, and will make all your enemies turn their backs to you.” (Ex 23:25-28) “Moses came and told the people all the words of Yehovah and all the judgments. And all the people answered with one voice and said, ‘All the words which Yehovah has said we will do.’ (Ex 24:3) “And Moses wrote all the words of Yehovah. And he rose early in the morning, and built an altar at the foot of the mountain, and twelve pillars according to the twelve tribes of Israel. Then he sent young men of the children of Israel, who offered burnt offerings and sacrificed peace offerings of oxen to Yehovah. And Moses took half the blood and put it in basins, and half the blood he sprinkled on the altar. (Ex 24:4-8)  “Then he took the Book of the Covenant and read it in the hearing of the people. And they said, ‘All that Yehovah has said we will do, and be obedient!’ (Ex 24:7) “Moses took the blood, sprinkled it on the people, and said, “This is the blood of the covenant which Yehovah has made with you according to all these words.” (Ex 24:3-8) “Then it came to pass on the third day, in the morning, that there were thunderings and lightnings, and a thick cloud on the mountain; and the sound of the trumpet was very loud, so that all the people who were in the camp trembled.” (Exodus 19:16) “That you should enter into covenant with Yehovah your Elohim, and into his oath, which Yehovah your Elohim makes with you this day… Neither with you only do I make this covenant and this oath: But with him that stands here this day before Yehovah our Elohim and also with him that is not here with us this day.” (Dt 29:12,14,15) Today I made a vow to Yehovah according to His blood covenant described in Exodus 19 – 24. I am sealed in the blood of Yeshua, my redeemer and I am one with Yehovah and His begotten Son, Yeshua (Jn 17:21). I agree to the terms of this covenant: “All that Yehovah has spoken, I shall do and obey! I shall serve Yehovah and keep His covenant.” In return for our obedience, Yehovah has agreed to do the following:  1. I am part of a special people set apart unto Yehovah above all peoples. (Ex 3:10-15) 2. I am part of the kingdom of priests and a holy nation unto Yehovah. (Ex 3:10-15) 3. An angel is sent before us who will be an enemy to our enemies and an adversary to our adversaries. (Ex 23:20-22) 4. Yehovah shall bless our bread and our water. He will take sickness from our midst. (Ex 23:25-28) 5. We shall not suffer miscarriage or be barren in our land. (Ex 23:25-28) 6. Our days will be fulfilled. (Ex 23:25-28) 7. Yehovah will send fear before us among our enemies and cause confusion among the people whom we encounter. He will drive out our enemies. In addition, all the blessings of Deuteronomy chapter 28:1-14, “If you shall hearken diligently unto the voice of Yehovah your Elohim, to observe and do all his commandments which I command you this day, then Yehovah your Elohim will set you on high above all nations of the earth: And all these blessings shall come on you, and overtake you, if you shall hearken unto the voice of Yehovah your Elohim.” ________________________________________Signature  Date ___________________ ___________________________________________________ Witness #1    ___________________________________________________ Witness #2</verse>
+    <div type="book" osisID="Jas">
+      <chapter osisID="Jas.1">
+        <verse osisID="Jas.1.1" n="1">“James (Yaakov), a servant of Elohim and the Lord Yeshua the Messiah. To the Twelve Tribes scattered in all places, joyful greetings.”</verse>
+        <verse osisID="Jas.1.2" n="2">“My beloved brothers, consider this joy if you fall into temptations.”</verse>
+        <verse osisID="Jas.1.3" n="3">“And knowing that your emunah (faith) if it is complete, produces burdens.”<note type="footnote" n="12">See Exodus 6:7. Can also mean, “burden, forced labor, compulsory service, burden bearing.”</note></verse>
+        <verse osisID="Jas.1.4" n="4">“But the burdens are necessary until the end, until you continue to be fully successful; you will not lack absolutely nothing of you.</verse>
+        <verse osisID="Jas.1.5" n="5">“But, if one among you lacks wisdom, this one should pray for what is given to all mankind; then also he gives to him.”</verse>
+        <verse osisID="Jas.1.6" n="6">“But he should pray with emunah (faith) and not in doubt. For whoever doubts this, he is similar to balances on the sea.”</verse>
+        <verse osisID="Jas.1.7" n="7">“And this man should not think that he will receive anything from the Lord.”</verse>
+        <verse osisID="Jas.1.8" n="8">“And a doubter is unstable in all his ways.”</verse>
+        <verse osisID="Jas.1.9" n="9">“So, let every lowly brother boast in his elevation;”</verse>
+        <verse osisID="Jas.1.10" n="10">“but the rich should rejoice of his lowering: because like a flower of the field it dries out.</verse>
+        <verse osisID="Jas.1.11" n="11">“And like a flower that goes out and is cut off; it is a fleeing shadow and does not stand.”</verse>
+        <verse osisID="Jas.1.12" n="12">“And happy is the man whom Eloah corrects and does not throw away the reproof nor become fed up. For after the sufferings, you will receive the crown life that Yehovah’s promises for those who are loved by Him.”</verse>
+        <verse osisID="Jas.1.13" n="13">“Let not one man say that if temptation comes upon him, this comes from Yehovah. Because Yehovah is not put to the test or does to mankind for evil; for He is not testing anyone.”</verse>
+        <verse osisID="Jas.1.14" n="14">“Only anyone is tested if his lust defeats him.”</verse>
+        <verse osisID="Jas.1.15" n="15">“Then if lust is desired, it causes sin. But sin, if not restrained, it causes death.”</verse>
+        <verse osisID="Jas.1.16" n="16">“Do not be led astray, beloved brothers.”</verse>
+        <verse osisID="Jas.1.17" n="17">“Every good gift comes from above, from the light of the Father. And with Him there is no exchange of light and darkness.”</verse>
+        <verse osisID="Jas.1.18" n="18">“And He revealed to us, according to His will by way of His Word of Truth, that we are first born of His creation.<note type="footnote" n="17">Literally, “fat, or fattened.”</note>”</verse>
+        <verse osisID="Jas.1.19" n="19">“For this, beloved brothers, every son of man must be quick to hear but not speak and not to anger.”</verse>
+        <verse osisID="Jas.1.20" n="20">“For the anger from the sons of man does not produce what is good before Yehovah.”</verse>
+        <verse osisID="Jas.1.21" n="21"/>
+        <verse osisID="Jas.1.22" n="22" alt:num="Jas.1.21">“But be of those who do the word, and not hearers only, who swindle you.”</verse>
+        <verse osisID="Jas.1.23" n="23" alt:num="Jas.1.22">“For if there is one that hears the Word, but does not do it, he is like a man who looks at himself in the tinted mirrors.”</verse>
+        <verse osisID="Jas.1.24" n="24" alt:num="Jas.1.23">“Because after seeing himself, he leaves it and forgets what he saw.”</verse>
+        <verse osisID="Jas.1.25" n="25" alt:num="Jas.1.24">“But whoever sees the decree of joy, and he performs it, and does not forget what he heard, but does it, he will be holy in all his doings.”</verse>
+        <verse osisID="Jas.1.26" n="26" alt:num="Jas.1.25">“But if one of you thinks he is a servant of Yehovah and does not guard his tongue in the bridle only inflames his own heart; this service of Yehovah is not good.”</verse>
+        <verse osisID="Jas.1.27" n="27" alt:num="Jas.1.26">“And good service without lack Yehovah the Father, it is he who goes out to strengthen the orphans and the widows in their sorrows.”</verse>
+      </chapter>
+      <chapter osisID="Jas.2">
+        <verse osisID="Jas.2.1" n="1">“Beloved brothers, consider the faith of Yeshua the Messiah, our Lord, who does not beguile a person.”</verse>
+        <verse osisID="Jas.2.2" n="2">“Because if one comes to the Beit Din<note type="footnote" n="20">Mishnaic term first found in the Mishnah Demai 7:3 and means, “house of judgment.”</note> with a gold ring and nice clothes, and also a poor person in bad clothes;”</verse>
+        <verse osisID="Jas.2.3" n="3">“you see upon the exalted one’s pleasant garments and say to him, "Sit with us, for it is good;" But you say to the poor, "Stand there or sit at our feet."</verse>
+        <verse osisID="Jas.2.4" n="4">“And don’t scrutinize well regarding this, just simply judge and make a bad judgment.”</verse>
+        <verse osisID="Jas.2.5" n="5">“Hear me, beloved brothers! Did not Yehovah choose the poor in this world - rich in faith, so those loved by Him will inherit the promise?”</verse>
+        <verse osisID="Jas.2.6" n="6">“However, you shame the poor. And the rich: aren’t they the ones doing everything in their strength against you by force, then take and judge you?”</verse>
+        <verse osisID="Jas.2.7" n="7">“And don’t they curse and blaspheme the good name from which you are called?”</verse>
+        <verse osisID="Jas.2.8" n="8">“If you are doing the law according to the writings in the Torah and love your companions as yourself, you do good.”</verse>
+        <verse osisID="Jas.2.9" n="9">“But if you see that a man commits a sin and you punish according to the law as like a transgressor,”</verse>
+        <verse osisID="Jas.2.10" n="10">“for if one upholds all of the Torah entirely and has one sin, he is guilty<note type="footnote" n="21">Mishnaic term first found in the Mishnah Berakhot (c. 190 - 230 CE).</note> for all of it.”</verse>
+        <verse osisID="Jas.2.11" n="11">“Because the one who said, “You shall not commit adultery;” did He not also say, “You shall not murder.” And if you do not commit adultery but commit murder, you are transgressing the law.”</verse>
+        <verse osisID="Jas.2.12" n="12">“When you are able to understand what is spoken and act accordingly, these are judged by the law in joyfulness.”</verse>
+        <verse osisID="Jas.2.13" n="13">“But there will be a bad judgment for the one who does not show mercy and the mercy boasts on the side of judgment.”</verse>
+        <verse osisID="Jas.2.14" n="14">“And what benefit is there, beloved brothers, if one says he has faith and does not have works? For faith has no ability to sanctify him.”</verse>
+        <verse osisID="Jas.2.15" n="15" alt:num="Jas.2.15-Jas.2.16">“And if there is a brother or sister who lacks support each and every day,” and one of you say to them giving words of comfort of Yehovah to fill them, but does not give anything to them for the benefit of the body; what benefit do these things have for them?” KJV verse 2:15: If a brother or sister be naked, and destitute of daily food, KJV verse 2:16: and one of you say unto them, Depart in peace, be ye warmed and filled; notwithstanding ye give them not those things which are needful to the body; what doth it profit?</verse>
+        <verse osisID="Jas.2.16" n="16" alt:num="Jas.2.17">“So is faith if without works.” KJV verse 2:17: “Even so faith, if it hath not works, is dead, being alone.”</verse>
+        <verse osisID="Jas.2.17" n="17" alt:num="Jas.2.18">“But one could say, I have faith and does not have works also. I testify to you regarding my faith and my works.” KJV verse 2:18: “Yea, a man may say, thou hast faith, and I have works: shew me thy faith without thy works, and I will shew thee my faith by my works.”</verse>
+        <verse osisID="Jas.2.18" n="18" alt:num="Jas.2.19">“You have faith that Yehovah is One - you do good. The satans also have faith and tremble.” KJV verse 2:19: “Thou believest that there is one God; thou doest well: the devils also believe, and tremble.”</verse>
+        <verse osisID="Jas.2.19" n="19" alt:num="Jas.2.20">“But you should desire to know that faith without works is dead.” KJV verse 2:20: “But wilt thou know, O vain man, that faith without works is dead?”</verse>
+        <verse osisID="Jas.2.20" n="20" alt:num="Jas.2.21">“Was not our father Abrahan, justified by his actions when he brought his son as a sacrifice up the altar?” KJV verse 2:21: “Was not Abraham our father justified by works, when he had offered Isaac his son upon the altar?”</verse>
+        <verse osisID="Jas.2.21" n="21" alt:num="Jas.2.22">“And by this, you are able to see faith operating by its works; and by works creates complete faith.” KJV verse 2:22: “Seest thou how faith wrought with his works, and by works was faith made perfect?”</verse>
+        <verse osisID="Jas.2.22" n="22" alt:num="Jas.2.23">“And in this, that which is said in the Torah is fulfilled. And Abraham believed and it was considered to him as righteousness.” KJV verse 2:23: And the scripture was fulfilled which saith, Abraham believed God, and it was imputed unto him for righteousness: and he was called the Friend of God.</verse>
+        <verse osisID="Jas.2.23" n="23" alt:num="Jas.2.24">“And by his works, you are able to see that a man is justified by his works and not by faith alone.” KJV verse 2:24: “Ye see then how that by works a man is justified, and not by faith only.”</verse>
+        <verse osisID="Jas.2.24" n="24" alt:num="Jas.2.25">“And similarly to Rahab the harlot. Is she not justified by the works since she took the spies and hid them?” KJV verse 2:25: “Likewise also was not Rahab the harlot justified by works, when she had received the messengers, and had sent them out another way?”</verse>
+        <verse osisID="Jas.2.25" n="25" alt:num="Jas.2.26">“Because just as the body without the spirit is dead, so faith without works is dead.” KJV verse 2:26: “For as the body without the spirit is dead, so faith without works is dead also.”</verse>
+      </chapter>
+      <chapter osisID="Jas.3">
+        <verse osisID="Jas.3.1" n="1">“Beloved brothers, don’t any one of you be burdened to teach; but know that the penalty will be greater.”</verse>
+        <verse osisID="Jas.3.2" n="2">“Because we sin in many things, and he who has not sinned in anything is a holy man and is able to control all the body.”</verse>
+        <verse osisID="Jas.3.3" n="3">“But see that we lead horses with the bridle in order to lead them according to our desire.”</verse>
+        <verse osisID="Jas.3.4" n="4">“And moreover, ships, although great, move strongly like the winds, albeit they are led by way of a small helm; which is in the hand of the Messenger.”</verse>
+        <verse osisID="Jas.3.5" n="5">“Thus, in the same way, the tongue is a small organ, and achieves great things. See, a small fire is a burner of a great forest.”</verse>
+        <verse osisID="Jas.3.6" n="6">“And also, the tongue full of wickedness,<note type="footnote" n="23">Aramaic noun meaning, “wickedness.”</note> is like a fire in the world. Thus, the tongue, in our organs, causes all the body to sin, and reveals us in our walks, as if it is revealed from Gehinnom.”</verse>
+        <verse osisID="Jas.3.7" n="7">“Because the nature of all the beasts, fowl and the serpents on dry land or in the sea is like the nature of a man.”</verse>
+        <verse osisID="Jas.3.8" n="8">“But the tongue no man is able to bridle, because it is evil and full of the poison of death.”</verse>
+        <verse osisID="Jas.3.9" n="9">“By the tongue we praise Yehovah the Father; and by it we curse the man who is in the image of Elohim;”</verse>
+        <verse osisID="Jas.3.10" n="10">“from one mouth goes out praises and curses. And it should not be so, beloved brothers.”</verse>
+        <verse osisID="Jas.3.11" n="11">“And is there a spring that has salty and sweet water?”</verse>
+        <verse osisID="Jas.3.12" n="12">“Or is there a fig tree that could give<note type="footnote" n="24">Mishnaic verb form that is a result of Aramism with the added yod (י).</note> oil, or a vine, figs? Therefore, the spring will not give both salty and fresh water.”</verse>
+        <verse osisID="Jas.3.13" n="13">“Who that is clever and wise among you, demonstrates to me his good walk in wisdom.”</verse>
+        <verse osisID="Jas.3.14" n="14">“But if there is jealousy and hatred in your hearts, do not boast and do not deceive as a witness of the truth.”</verse>
+        <verse osisID="Jas.3.15" n="15">“Because this is not wisdom that comes from above, but only from the earth, from man and from the satans.”</verse>
+        <verse osisID="Jas.3.16" n="16">“Because those who have jealousy and hatred have many bad things.”</verse>
+        <verse osisID="Jas.3.17" n="17">“However, wisdom is from above: from the beginning: pure, and afterwards, shalom, then rest, then to be able to quickly appease<note type="footnote" n="25">Aramaic Peal verb binyan meaning, “to appease or to reconcile.”</note>, and to fully hear of mercy, and lastly, for good and not burdened within or flattery.”</verse>
+        <verse osisID="Jas.3.18" n="18">“But the fruits of righteousness are sown in peace, for those who make peace.”</verse>
+      </chapter>
+      <chapter osisID="Jas.4">
+        <verse osisID="Jas.4.1" n="1">“And from what comes from battles among you? Are they not for your beliefs fighting in your organs?”</verse>
+        <verse osisID="Jas.4.2" n="2">“Then you desire and do not receive, and you retaliate and are vengeful and you do not gain from it; But all because of what? Because you do not pray!”</verse>
+        <verse osisID="Jas.4.3" n="3">“And you make a prayer and do not receive an answer, because you pray with evil.”</verse>
+        <verse osisID="Jas.4.4" n="4">“The Adulterer and the adulteress: do you not know that whoever loves this world is a hater of Yehovah, and whomever wants to be loved by this world will hate Yehovah.”</verse>
+        <verse osisID="Jas.4.5" n="5">“So, you thought that the Torah said for naught? The spirit that dwells within you is lusting against Yehovah commandments,”</verse>
+        <verse osisID="Jas.4.6" n="6">“and gives a lot of grace because the Torah said that Yehovah elevates the lowly and humbles the lofty.”</verse>
+        <verse osisID="Jas.4.7" n="7">“And now be submitted to Yehovah, and fight against the satans, and they<note type="footnote" n="26">This appears to be a spelling error for the tav ( ת) should be a yod ( י) for the third common plural, meaning “they.” As spelled, this is translated as, “You will flee” and is nonsensical. .</note> will flee from you.”</verse>
+        <verse osisID="Jas.4.8" n="8">“So draw near to Yehovah, and He will draw near to you. And purify your sinful hands and your heart will be made clean.”</verse>
+        <verse osisID="Jas.4.9" n="9">“And you will endure hardships. Weep, for your worries will become weeping and your joy to sorrow.<note type="footnote" n="27">Aramaic masculine noun meaning, “sorrow or mourning.” The lamed (ל) is serving as a direct object marker which is a second Temple Hebrew grammar marker.</note>”</verse>
+        <verse osisID="Jas.4.10" n="10">“Humble yourselves in the presence of Yehovah; He will hear you.”</verse>
+        <verse osisID="Jas.4.11" n="11">“Beloved brothers do not go slandering<note type="footnote" n="28">Aramaic feminine noun meaning, “slander.”</note> among yourselves, because he that goes slandering his brother is he who slanders the law. And if you do so, you are not fulfilling the law.”</verse>
+        <verse osisID="Jas.4.12" n="12">“And there is only One who gives the law that is able to punish and pardon. Who are you to judge others?”</verse>
+        <verse osisID="Jas.4.13" n="13">“And now if you say today or tomorrow, we want to go<note type="footnote" n="29">Mishnaic word first found in Mishnah Eruvin 3:1 (c. 190 - 230 CE).</note> to that place or that city. Or we want to stand there a year to do work negotiating and profiting,”</verse>
+        <verse osisID="Jas.4.14" n="14">“You do not know what tomorrow will be, for what are your lives? Are they not a spirit for a short time, and following this, it is gone?”</verse>
+        <verse osisID="Jas.4.15" n="15">“And we and you should say, “As Yehovah wills it,” and we live desiring to do this,”</verse>
+        <verse osisID="Jas.4.16" n="16">“But now your boasting is in your glory<note type="footnote" n="30">Aramaic feminine noun meaning, “pride” or “glory."</note> and this is evil;”</verse>
+        <verse osisID="Jas.4.17" n="17">“because whoever that knows and does not do this, is considered in sin.”</verse>
+      </chapter>
+      <chapter osisID="Jas.5">
+        <verse osisID="Jas.5.1" n="1">“And now the wealthy cry out and weep about the evil that comes upon you.”</verse>
+        <verse osisID="Jas.5.2" n="2">“Your riches decay and your garments are consumed like fire!”</verse>
+        <verse osisID="Jas.5.3" n="3">“And your silver and gold rust. This will be a testimony to you!”</verse>
+        <verse osisID="Jas.5.4" n="4">“See the deeds of a hired worker at your place who cries out before me. And their cries come before the ears of the Lord of hosts.”</verse>
+        <verse osisID="Jas.5.5" n="5">“For you had had lusts of this world and rejoiced at the voice of the seduction.”</verse>
+        <verse osisID="Jas.5.6" n="6">“And you were compelled to justify and kill, and he did not protest<note type="footnote" n="31">Mishnaic word Pi’el verb binyan was first found in Mishnah Nazir 4:6.</note> against you.”</verse>
+        <verse osisID="Jas.5.7" n="7">“And now beloved brothers, you have hope for the future. See the owner of the field awaits the fruit of the land. And His love is for the first rain and his pinch.”<note type="footnote" n="32">This word means, “pinch” or “nipping” of a fruit.</note></verse>
+        <verse osisID="Jas.5.8" n="8">“So even be strong. Be strong in your hearts, because the future of the Lord is near!”</verse>
+        <verse osisID="Jas.5.9" n="9">“Don’t sigh against yourselves, beloved brothers, so that you don’t get into trouble because the Judge stands before the door.”</verse>
+        <verse osisID="Jas.5.10" n="10">“Beloved brothers, take for you, for instance, the sorrow and the causes from the prophets who spoke in the name of the Lord.”</verse>
+        <verse osisID="Jas.5.11" n="11">“See we praise those who suffered. And the reason is from Job, you heard and the end from the Lord you saw because the Lord is merciful and has great kindness.”</verse>
+        <verse osisID="Jas.5.12" n="12">“But first of all, beloved brothers, do not swear by the heavens or the earth or any oath. But let your speech be “yes” “yes” and not “no,” so that you do not fail.”</verse>
+        <verse osisID="Jas.5.13" n="13">“And if one of you suffers something, he should pray. Or if one of you has a good heart, he should sing (zamer).<note type="footnote" n="33">This is a unique Hebrew marker word meaning “might, song, and pruning.” This word can be compared to the singing done by David when he sang for King Saul and the demons fled (2 Samuel 23:1). Zamar (רמז) is the power of God in the song.</note></verse>
+        <verse osisID="Jas.5.14" n="14">“And if anyone is sick, you should call the elders of the community, and they will pray for him and anoint him with oil in the name of the Lord.”</verse>
+        <verse osisID="Jas.5.15" n="15">“Then praying in faith will help the sick and the Lord will raise him up. And if he has sin, the Lord will forgive his sins.”</verse>
+        <verse osisID="Jas.5.16" n="16">“So, confess your sins one to another, and let each one pray for his companion because Yehovah draws close to all who call upon Him in truth.”</verse>
+        <verse osisID="Jas.5.17" n="17">“And also, Elijah the prophet was a man, like us and he prayed that it would not rain upon the earth for three and one-half years.”</verse>
+        <verse osisID="Jas.5.18" n="18">“Then again, he prayed that it would rain again, and the heavens gave the rain and the land her fruit.”</verse>
+        <verse osisID="Jas.5.19" n="19">“Brothers, if one of you goes from the good path to evil and one withholds him,”</verse>
+        <verse osisID="Jas.5.20" n="20">“Know that one who turns him from his wickedness, saves one soul from death and grants atonement from many sins.”</verse>
+      </chapter>
     </div>
   </osisText>
 </osis>
