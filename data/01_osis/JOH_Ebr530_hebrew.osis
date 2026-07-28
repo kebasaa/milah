@@ -1,0 +1,41 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<osis xmlns="http://www.bibletechnologies.net/2003/OSIS/namespace" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.bibletechnologies.net/2003/OSIS/namespace http://www.bibletechnologies.net/osisCore.2.1.1.xsd">
+  <osisText osisIDWork="JOH_Ebr530_Hebrew" osisRefWork="bible" xml:lang="he">
+    <header>
+      <work osisWork="JOH_Ebr530_Hebrew">
+        <title>John (Vatican Biblioteca Apostolica ebr. 530)</title>
+        <identifier type="OSIS">JOH_Ebr530_Hebrew</identifier>
+        <scope>JOH</scope>
+        <language>he</language>
+        <type type="x-manuscript">Manuscript</type>
+        <identifier type="shelfmark">Biblioteca Apostolica Vaticana, ebr. 530, part 1, fragment 11, folios 1r–2v</identifier>
+        <contributor role="trc" file-as="Gordon, Nehemia">Nehemia Gordon</contributor>
+        <date event="eversion" type="ISO">2018</date>
+        <rights>© 2018 Nehemia Gordon. All rights reserved.</rights>
+        <description>Hebrew transcription and English translation of John from Biblioteca Apostolica Vaticana ebr. 530, part 1, fragment 11, folios 1r–2v, a manuscript held by the Vatican Library. Transcribed, translated, and annotated by Nehemia Gordon.</description>
+      </work>
+      <work osisWork="bible">
+        <identifier type="OSIS">bible</identifier>
+        <refSystem>StandardV11N</refSystem>
+        <language>he</language>
+      </work>
+    </header>
+    <div type="book" osisID="John">
+      <chapter osisID="John.1">
+        <verse osisID="John.1.1" n="1">הָיָה הַדַבָר בְרֵאשִׁית וְהַדַבָר הַיָה אֵצֶל הַאֱ˄הִים ה הַדַבָרוְהַאֱ˄הִים הוּא הָיָ</verse>
+        <verse osisID="John.1.2" n="2">יָה בְרֵאשִׁית אֵצֶלזֶה הָ</verse>
+        <verse osisID="John.1.3" n="3">כָל הַדְּבָרִים הַאֱ˄הִים. לֹא בוֹ וּמִבִלְﬠַדָיו נֶﬠֱשֹוּ נֶﬠֱשָֹה</verse>
+        <verse osisID="John.1.4" n="4">בוֹ דָבַר מִכָל אֲשֶר הָיָה. הָיוּ הַחַיִים. וְהַחַיִים הַיוּ אוֹר</verse>
+        <verse osisID="John.1.5" n="5">וְהַאוֹר הַיָה הַאֲנַשִׁים. ˄ות וְהַאֲפֵ˄ות בַאֲפֵ זוֹרֵח לֹא</verse>
+        <verse osisID="John.1.6" n="6">אִישׁ אֵחָד וַיְהִי הֵכִילוּהוּ. שָלוּחַ מֵאֵת הַאֱ˄הִים</verse>
+        <verse osisID="John.1.7" n="7">זֶה בָא נָןוּשְמוֹ יוֹחָ בְﬠֵדוּת לְהַﬠִיד ﬠַל הַאוֹר לְמַﬠָן בַﬠֲבוּרוֹ.אֲשֶר יַאֲמִינוּ הַכָל</verse>
+        <verse osisID="John.1.8" n="8">הוּא לֹא הָיָה הַאוֹר כִי אִם</verse>
+        <verse osisID="John.1.9" n="9">הָיָה לְהַﬠִיד ﬠַל הַאוֹר. י הַמֵאִיר לְכָלאוֹר אַמִתִּ אָדָם הַבָא אֶל הַעוֹלָם הַזֶה.</verse>
+        <verse osisID="John.1.10" n="10">הוּא הָיָה בַעוֹלָם . וְהַעוֹלָם בוֹ ם נֶﬠֱשָהוְהַעוֹלָ</verse>
+        <verse osisID="John.1.11" n="11">בַא אֶל לֹא הִכִירוּהוּ. מוֹלַדְתוֹ מַמָש וּבְנֵי בֵיתוֹ לא</verse>
+        <verse osisID="John.1.12" n="12">וּלְכָל אֲשֶר קִבְלוּהוּ. קִבְלוּהוּ וּמַאֲמִינִים בִשְמוֹ נָתַן מֵמְשָלָה שֶיִהְיוּ</verse>
+        <verse osisID="John.1.13" n="13">אֲשֶר ˄הִים. בְנֵי הַאֱ הֵם לֹא מִדַּם ר וְלֹא מֵחֵפֶץ שָׂ וְלֹא מֵחֵפֶץ הַבָ נוֹלָדוּ כִי אִם מֵאֶתאָדָם</verse>
+      </chapter>
+    </div>
+  </osisText>
+</osis>

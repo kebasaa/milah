@@ -1,0 +1,65 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<osis xmlns="http://www.bibletechnologies.net/2003/OSIS/namespace" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.bibletechnologies.net/2003/OSIS/namespace http://www.bibletechnologies.net/osisCore.2.1.1.xsd">
+  <osisText osisIDWork="LUK_Ebr530_Hebrew_Commented" osisRefWork="bible" xml:lang="he">
+    <header>
+      <work osisWork="LUK_Ebr530_Hebrew_Commented">
+        <title>Luke (Vatican Biblioteca Apostolica ebr. 530)</title>
+        <identifier type="OSIS">LUK_Ebr530_Hebrew_Commented</identifier>
+        <scope>LUK</scope>
+        <language>he</language>
+        <type type="x-manuscript">Manuscript</type>
+        <identifier type="shelfmark">Biblioteca Apostolica Vaticana, ebr. 530, part 1, fragment 11, folios 1r–2v</identifier>
+        <contributor role="trc" file-as="Gordon, Nehemia">Nehemia Gordon</contributor>
+        <date event="eversion" type="ISO">2018</date>
+        <rights>© 2018 Nehemia Gordon. All rights reserved.</rights>
+        <description>Hebrew transcription and English translation of Luke from Biblioteca Apostolica Vaticana ebr. 530, part 1, fragment 11, folios 1r–2v, a manuscript held by the Vatican Library. Transcribed, translated, and annotated by Nehemia Gordon.</description>
+      </work>
+      <work osisWork="bible">
+        <identifier type="OSIS">bible</identifier>
+        <refSystem>StandardV11N</refSystem>
+        <language>he</language>
+      </work>
+    </header>
+    <div type="book" osisID="Luke">
+      <note type="footnote" n="1">The manuscript often omits Dagesh where expected.</note>
+      <note type="footnote" n="2">The manuscript uses Kamatz and Patach interchangeably interchangeably and does the same thing with Tsere and Segol. This may reflect the dialect of Hebrew preserved in the Sephardic pronunciation of Hebrew as well as the so- called Palestinian Pointing (Nikud Eretz-Yisraeli).</note>
+      <chapter osisID="Luke.1">
+        <verse osisID="Luke.1.1" n="1">רַבִּים בִהְיוֹת כִּי הוּשָׂמוּ בָרִים אֲשֶרלְחַבֵר סִיפוּר הַדְּ<note type="footnote" n="3">Hufal 3rd masculine plural perfect םושׂ “they were placed”. The Historical Dictionary of the Academy of the Hebrew Languages has</note> <note type="footnote" n="6">Should be ןוֹשׁאִר with the Shin dot on the right.</note> </verse>
+        <verse osisID="Luke.1.2" n="2">בִלְתִי בֵינֵינוּ הֵם נֶאֱמָנִים ,סָפֵק ,אֲשֶר מִתְחִלָה רַאוּם ,בְﬠַצְמַם הַדָבָר וְהָיוּ מְשַרְתַי<note type="footnote" n="4">The variant phrase קֵפָס יִתְלִב (instead of the expected form קפס ילב) is attested with</note> <note type="footnote" n="5">יַתְרַשְמ “my servants”. Presumably this should read יֵתְרָשְׁמ “servants of”.</note> </verse>
+        <verse osisID="Luke.1.3" n="3">אֲשֶר ,נִרְאָה לִי גָם כֵן אֲנִי חִלָה חִפָשְׂתִּי כָלמִתְּ ,בָרִים בִזְרִיזוּת ﬠָל הַסֶדֶרהַדְּ ,וֹלִכְתוֹב לְ˃ הַיְקָר טִיאוֹפִילּ</verse>
+        <verse osisID="Luke.1.4" n="4">וּת כְדֵי שֵתֵדָע אֲמִתּ :הַדְּבָרִים אֲשֶר לַמָדְתָ</verse>
+        <verse osisID="Luke.1.5" n="5">בִימֵי הוֹרוֹדוֹס מֶלֶ˂ וַיְהִי יְהוּדָה כֹהֵן אֶחַד וּשְמוֹ וְאִשְתוֹאֲבִיָה זְכַרְיָה מִבְּנֵי נֵי אַהֲרֹןמִבְּ</verse>
+        <verse osisID="Luke.1.6" n="6">וַיִהְיוּ וּשְמָהּ אֱלִישֶבָע שְנֵיהֶם צַדִיקִים לִפְנֵי יְהוָֹה וְהוֹלְכִים בְכָל חוּקֵי וּמִשְפְטֵי יְהוָֹה בִלְתִי ﬠָרְמָה</verse>
+        <verse osisID="Luke.1.7" n="7">וּבַנִים לֹא הָיוּ לָהֶם כִי אֱלִישֶבָע הָיְתָה ﬠֲקָרָה וּשְנְיהֶם בָאִים בַיָמִים: וַיְהִי</verse>
+        <verse osisID="Luke.1.8" n="8">הַכְהוּנָהזְכַרְיָה בַכֹּהֵן יְהוָֹה בְסֶדֶר [י]אדנ לִפְנֵי<note type="footnote" n="7">Should be ןֵהֹכַּל?</note> <note type="footnote" n="8">The scribe apparently scratched out Adonai and replaced it with Yehovah.</note> </verse>
+        <verse osisID="Luke.1.9" n="9">כְמִנְהָג ﬠֲבוֹדַת מִשְפָחְתוֹ בָא הַגוֹרָל ﬠָלָיו לַשִׂים אֶת בֹא בְהֵיכָלהַקְטֹרֶת: וַיָ</verse>
+        <verse osisID="Luke.1.10" n="10">וְכָל רִיבוּי הַﬠָם יְהוָֹה ל בְﬠֵתעוֹמְדִים בַחוּץ לְהִתְפַלֵ</verse>
+        <verse osisID="Luke.1.11" n="11">וַיֵרָא אֵלָיו הַקְּטֹרֶת מַלְאָ˂ יְהוָֹה עוֹמֵד לִימִין מִזְבַח</verse>
+        <verse osisID="Luke.1.12" n="12">וּזְכַרְיָה טֹרֶת הַקְּ זַהו פָחָד אַחַ בִרְאוֹתוֹ נִבְהָל וּ</verse>
+        <verse osisID="Luke.1.13" n="13">וַיֹאמֶר ˄ו הַמַלְאָ˂ אַל תִירָא זְכַרְיָה כִי וְאֱלִישֶבָע תְ˃ נִשְמֶﬠֶתתְפִלָ אִשְתְ˃ תֵלֵד בֵן וְתִקְרָא שְמוֹ<note type="footnote" n="9">The vocalization תַﬠַמְשִׁנ is expected.</note> </verse>
+        <verse osisID="Luke.1.14" n="14">לְשָׂשׂוֹן ˃לְ וְיִהְיֶה יוֹחָנָן וְיִשְמְחוּ רָבִים בְﬠֵת הִוָלְדוֹ</verse>
+        <verse osisID="Luke.1.15" n="15">י ה גָדוֹל לִפְנֵ יֶ הְ כִי יִ יְהוָֹה וְלֹא כַר וְיִמָלֵא מֵרוּחַ יִשְתֶה יָיִן וְשֵׁ</verse>
+        <verse osisID="Luke.1.16" n="16">הַקֹדֶש מִבֶטֶן אִמּוֹ וְיַשִׁיב רַבִּים מִבְּנֵי יִשְׂרָאֵל אֶל יְהוָֹה</verse>
+        <verse osisID="Luke.1.17" n="17">וְהוּא יֵלֶך .אֱ˄הֵיהֶם לְפָנָיו בְרוּח וְכֹח אֵלִיָהוּ לְהַשִׁיב לֵב אָבוֹת ﬠַל בָנִים. וְהַמִינִים וּלְהַכִין .דִיקִיםלְצִדְקַת הַצָ</verse>
+        <verse osisID="Luke.1.18" n="18">לַיְהוָֹה הַﬠָם מוּכָן. וַיֹאמֶר זְכַרְיָה</verse>
+        <verse osisID="Luke.1.19" n="19">וַיַﬠָן ה בַיָמִיםבַאָ הַמַלְאָ˂ וַיֹאמָר. אָנֹכִי גָבְרִיאֵל הַעֹומֵד לִפְנֵי יְהוָֹה וְנִשְלָחְתִי לְדָבֵר אֵלֶי˃ וּלְהַגִיד לְ˃ הַדְּבָרִים הַאֵלֶה</verse>
+        <verse osisID="Luke.1.20" n="20">אָתָה תִהְיֶה אִלֵם וְהִנֵּה וְלֹא תוּכַל לְדַבֵר ﬠַד הַיוֹם אֲשֶׁר יֵﬠֲשׂוּ הַדְּבָרִים הַאֵלֶּה ﬠַל הֶאֱמַנְתָ לִדְבַרָי אֲשֶר לֹא אֲשֶר</verse>
+        <verse osisID="Luke.1.21" n="21">וְהַﬠָם יִתְמַלְאוּ בְﬠִתָם. הָיוּ מְיַחַלִים אֶת זְכַרְיָהוּ וְנִתְמָהִים</verse>
+        <verse osisID="Luke.1.22" n="22">רוֹ בָהֵיכל. מֵאִיחוּ וּבְצֵאתוֹ חוּצָה לֹא הַיָה יָכוֹל לְדַבֵּר ﬠִמָהֵם. וַיֵדְעוּ כִי רַאָה מַרְאָה רוֹמֵזבַהֵיכָל. וְהוּא הָיָה לָהֶם<note type="footnote" n="10">Jastrow, page</note> </verse>
+        <verse osisID="Luke.1.23" n="23">וַיְהִי וְנִשְאָר אִלֶם. כִמְלֹאת יְמֵי ﬠַבוֹדָתוֹ וַיֵלֶך אֶל</verse>
+        <verse osisID="Luke.1.24" n="24">וְאַחַר הַיָמִים בֵיתוֹ הַאֶלֶה הַרְתָה אֱלִישֶבָע ה וַתִסָתֵר חַמִשָּׁ אִשְתוֹ.</verse>
+        <verse osisID="Luke.1.25" n="25">לַמָה זֶה חֳדַֹשִים לֵאמֹר ﬠַשָה יְהוָֹה לִי כֵן בַיָמִים אֲשֶר אָנֹכִי רוֹאָה. לַשֵֹאת מְשָלִי בֵין</verse>
+        <verse osisID="Luke.1.26" n="26">וּבַחֹדֶש הַאֲנַשִׁים. ˂ שִׁי נִשְלַח הַמָּלְאָ הַשִּׁ גַבְרִיאֵל מֵאֶת</verse>
+        <verse osisID="Luke.1.27" n="27">ה לְאִישׁ וּשְמוֹ יוֹסֵף שָֹ מְאוֹרָ מִבֵית דַוִד וְשֵם הַבְתוּלָה</verse>
+        <verse osisID="Luke.1.28" n="28">וּבְבֹא הַמַלְאָך מִרְיָם. אֵלֶיהָ אָמַר. שָ˄ום לִי˂ מְלֵיאָת חֵן יְהוָֹה ﬠִמָ˂ מְבוֹרֶכֶת אָתְּ<note type="footnote" n="11">The variant form ˂יִל (instead of the expected ˂ָל) is documented in Jewish sources such as Mishnah, Yevamot 15:3 in the Kaufmann manuscript. The Historical Dictionary of the Academy of the Hebrew Language documents</note> <note type="footnote" n="12">The Hebrew is ambiguous and can mean “Yehovah is with you” or “Yehovah be with you”. The former is a statement, while the latter is a blessing. This ambiguity plays a key role in this passage as well as in Judges 6:12-13.</note> </verse>
+        <verse osisID="Luke.1.29" n="29">וַתָבֵט בֵין הַנָשִׁים. וַתִבָהֵל ת מָה בֶ ﬠַל דְבַרָיו. וְהָיְתָה חוֹשֶ</verse>
+        <verse osisID="Luke.1.30" n="30">וַיֹאמֶר שָ˄ום הָיָה זֶה. הַמַלְאָך אַל תִירְאִי מִרְיָם. הּ לָ כִי מַצַאתְ חֵן לִפְנֵי יְהוָֹה</verse>
+        <verse osisID="Luke.1.31" n="31">˂ הָרָה וְתֵלֵד בֵן הִנָ</verse>
+        <verse osisID="Luke.1.32" n="32">זֶה יֵשוּﬠַ וְקַרַָאתְ שְמֹו יִהְיֶה גָדוֹל וְיִקָרֵא בֵן ﬠֵלְיוֹן וְיִתֵן ˄ו יְהוָֹה אֱ˄הִים כִסֵא דָוִד</verse>
+        <verse osisID="Luke.1.33" n="33">˄ו˂ ﬠַל בֵית וְיִמְ אָבִיו יַﬠֲקֹב לְעוֹלָם. וְלֹא יִהְיֶה קֵץ</verse>
+        <verse osisID="Luke.1.34" n="34">וַתֹאמֶר לְמַלְכוּתוֹ. מִרְיָם אֶל הַמַלְאָך אֵי˂ יִהְיֶה זֶה</verse>
+        <verse osisID="Luke.1.35" n="35">כִי אֵינֵנִּי יוֹדַﬠָת אִיש. יהָ לֶ ר אֵ אמֶ יֹ ך וַ אָ וַיַﬠָן הַמַלְ חַ רוּ וְעוֹז הַקָדוֹש יַבֹא בִיך ﬠַל אֲשֶר ﬠֵלְיוֹן יִהְיֶה בְצִלַ˂ יִהְיֶה :הַנוֹלָד קָדוֹש יִקָרֵא בֵן יְהוָֹה<note type="footnote" n="13">The form ךיִב (rather than the more common ˂ָב) is documented in Jewish sources, such as the Mishnah, Nidah 8:3 in the Kaufmann manuscript. The Historical Dictionary of the Academy of the Hebrew Language documents</note> <note type="footnote" n="14">A Tsere (rather than a Patach) us expected in ךלצב.</note> <note type="footnote" n="15">The variant phrase Ru’ach HaKadosh שודקה חור (rather than the more common Ru’ach HoKodesh שדוקה חור, found above in verse 15) is attested with twenty instances in the Bar Ilan Responsa Database (version 24+). For example, Leviticus Rabbah 14:2.</note> </verse>
+      </chapter>
+    </div>
+  </osisText>
+</osis>
