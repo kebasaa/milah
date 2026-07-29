@@ -1,18 +1,85 @@
 import { combinedText } from "./alignment";
 import { compareBooks } from "./books";
-import type { CombinedDraft, WorkMetadata } from "./types";
+import type {
+  CombinedDraft,
+  SourceMilestone,
+  SourceNote,
+  SourceTitle,
+  WorkMetadata,
+} from "./types";
 
 function escapeXml(value: string): string {
   return value
     .replaceAll("&", "&amp;")
     .replaceAll("<", "&lt;")
     .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;");
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&apos;");
+}
+
+/**
+ * Material that belongs to no verse, carried through from the sources so that
+ * an exported edition keeps its headings, folio boundaries and notes.
+ */
+export interface CombinedApparatus {
+  titles?: SourceTitle[];
+  milestones?: SourceMilestone[];
+  /** Notes to anchor inside a verse, keyed by verse id. */
+  notes?: Record<string, SourceNote[]>;
+}
+
+interface Anchor {
+  offset: number;
+  markup: string;
+}
+
+function verseBody(
+  verseId: string,
+  text: string,
+  apparatus: CombinedApparatus,
+): string {
+  const anchors: Anchor[] = [];
+  for (const note of apparatus.notes?.[verseId] ?? []) {
+    anchors.push({
+      offset: note.charOffset,
+      markup:
+        `<note type="explanation" placement="foot" n="${escapeXml(note.number)}"`
+        + ` osisRef="${escapeXml(verseId)}"`
+        + ` osisID="${escapeXml(verseId)}!note.${escapeXml(note.number)}">`
+        + `${escapeXml(note.text)}</note>`,
+    });
+  }
+  for (const milestone of apparatus.milestones ?? []) {
+    if (milestone.verseId !== verseId) continue;
+    anchors.push({
+      offset: milestone.charOffset,
+      markup:
+        `<milestone type="${escapeXml(milestone.type)}"`
+        + ` n="${escapeXml(milestone.n)}"/>`,
+    });
+  }
+  anchors.sort((left, right) => left.offset - right.offset);
+
+  let out = "";
+  let cursor = 0;
+  for (const anchor of anchors) {
+    const offset = Math.max(cursor, Math.min(anchor.offset, text.length));
+    out += escapeXml(text.slice(cursor, offset)) + anchor.markup;
+    cursor = offset;
+  }
+  return out + escapeXml(text.slice(cursor));
+}
+
+function titleMarkup(title: SourceTitle): string {
+  const canonical = title.canonical ? ' canonical="true"' : "";
+  return `      <title type="${escapeXml(title.type)}"${canonical}>`
+    + `${escapeXml(title.text)}</title>\n`;
 }
 
 export function serializeCombinedOsis(
   drafts: Record<string, CombinedDraft>,
   metadata: Partial<WorkMetadata> = {},
+  apparatus: CombinedApparatus = {},
 ): string {
   const ordered = Object.values(drafts).sort((left, right) =>
     compareBooks(left.reference.book, right.reference.book)
@@ -23,27 +90,50 @@ export function serializeCombinedOsis(
   );
   const workId = metadata.workId || "Milah.Combined";
   const language = metadata.language || "he";
+  const titles = apparatus.titles ?? [];
   let body = "";
   let currentBook = "";
   let currentChapter = -1;
 
+  const closeChapter = () => {
+    if (currentChapter >= 0) {
+      body += `      <chapter eID="${escapeXml(currentBook)}.${currentChapter}"/>\n`;
+    }
+  };
+
   for (const draft of ordered) {
     const { reference } = draft;
     if (reference.book !== currentBook) {
-      if (currentChapter >= 0) body += "      </chapter>\n";
+      closeChapter();
       if (currentBook) body += "    </div>\n";
       currentBook = reference.book;
       currentChapter = -1;
       body += `    <div type="book" osisID="${escapeXml(currentBook)}">\n`;
+      for (const title of titles) {
+        if (title.book === currentBook && title.chapter === null) {
+          body += titleMarkup(title);
+        }
+      }
     }
     if (reference.chapter !== currentChapter) {
-      if (currentChapter >= 0) body += "      </chapter>\n";
+      closeChapter();
       currentChapter = reference.chapter;
-      body += `      <chapter osisID="${escapeXml(currentBook)}.${currentChapter}">\n`;
+      for (const title of titles) {
+        if (title.book === currentBook && title.chapter === currentChapter) {
+          body += titleMarkup(title);
+        }
+      }
+      body += `      <chapter sID="${escapeXml(currentBook)}.${currentChapter}"`
+        + ` osisID="${escapeXml(currentBook)}.${currentChapter}"/>\n`;
     }
-    body += `        <verse osisID="${escapeXml(reference.id)}">${escapeXml(combinedText(draft))}</verse>\n`;
+    // Milestone form, so that titles and folio boundaries can sit between or
+    // inside verses without nesting inside them.
+    body += `        <verse sID="${escapeXml(reference.id)}"`
+      + ` osisID="${escapeXml(reference.id)}" n="${escapeXml(reference.verse)}"/>`
+      + `${verseBody(reference.id, combinedText(draft), apparatus)}`
+      + `<verse eID="${escapeXml(reference.id)}"/>\n`;
   }
-  if (currentChapter >= 0) body += "      </chapter>\n";
+  closeChapter();
   if (currentBook) body += "    </div>\n";
 
   return `<?xml version="1.0" encoding="UTF-8"?>
@@ -52,6 +142,7 @@ export function serializeCombinedOsis(
     <header>
       <work osisWork="${escapeXml(workId)}">
         <title>${escapeXml(metadata.title || "Milah Combined Edition")}</title>
+        <description>Combined edition generated by Milah.</description>
         <type type="x-bible">Edition</type>
         <identifier type="OSIS">${escapeXml(workId)}</identifier>
         <language>${escapeXml(language)}</language>
@@ -59,6 +150,7 @@ export function serializeCombinedOsis(
       <work osisWork="bible">
         <title>Referenced versification</title>
         <identifier type="OSIS">bible</identifier>
+        <language>${escapeXml(language)}</language>
         <refSystem>StandardV11N</refSystem>
       </work>
     </header>

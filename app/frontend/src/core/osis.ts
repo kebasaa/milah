@@ -3,8 +3,10 @@ import { SaxesParser, type SaxesTagNS } from "saxes";
 import { tokenize } from "./tokenize";
 import type {
   SourceDocument,
+  SourceMilestone,
   SourceNote,
   SourceRole,
+  SourceTitle,
   SourceVerse,
   VerseReference,
   WorkMetadata,
@@ -24,7 +26,22 @@ interface PendingVerse {
   text: string;
   notes: PendingNote[];
   milestone: boolean;
+  altNumber: string | null;
 }
+
+interface PendingTitle {
+  type: string;
+  canonical: boolean;
+  text: string;
+  notes: PendingNote[];
+}
+
+/**
+ * `subType="x-alt-14"` carries the source's own reference for a verse, where
+ * that differs from the canonical one — a manuscript's Hebrew letter-numeral,
+ * or another edition's chapter and verse.
+ */
+const altNumberPattern = /^x-alt-(.+)$/;
 
 function attribute(tag: SaxesTagNS, name: string): string {
   const direct = tag.attributes[name];
@@ -68,9 +85,18 @@ export function parseOsis(
   };
   const warnings = new Set<string>();
   const verses: Record<string, SourceVerse> = {};
+  const titles: SourceTitle[] = [];
+  const milestones: SourceMilestone[] = [];
   const parser = new SaxesParser({ xmlns: true });
   const elementStack: string[] = [];
   let currentVerse: PendingVerse | null = null;
+  let currentTitle: PendingTitle | null = null;
+  let currentBook: string | null = null;
+  let currentChapter: number | null = null;
+  /** Titles seen while no chapter is open; they introduce the next one. */
+  let awaitingChapter: SourceTitle[] = [];
+  let verseMilestones: SourceMilestone[] = [];
+  const divTypes: string[] = [];
   let noteText = "";
   let noteNumber = "";
   let noteOffset = 0;
@@ -88,21 +114,59 @@ export function parseOsis(
     }
     const rawText = currentVerse.text;
     const text = rawText.replace(/\s+/g, " ").trim();
+    const normalise = (offset: number) =>
+      rawText.slice(0, offset).replace(/\s+/g, " ").trimStart().length;
     const adjustedNotes = currentVerse.notes.map((note) => ({
       ...note,
-      charOffset: rawText
-        .slice(0, note.charOffset)
-        .replace(/\s+/g, " ")
-        .trimStart()
-        .length,
+      charOffset: normalise(note.charOffset),
     }));
+    // Milestone offsets were taken against the raw text and need the same
+    // whitespace adjustment as notes.
+    for (const milestone of verseMilestones) {
+      milestone.charOffset = normalise(milestone.charOffset);
+    }
+    verseMilestones = [];
     verses[currentVerse.reference.id] = {
       reference: currentVerse.reference,
       label: currentVerse.label,
       text,
       tokens: tokenize(currentVerse.reference.id, text, adjustedNotes),
+      altNumber: currentVerse.altNumber,
     };
     currentVerse = null;
+  };
+
+  const finishTitle = () => {
+    if (!currentTitle) {
+      return;
+    }
+    const text = currentTitle.text.replace(/\s+/g, " ").trim();
+    if (text) {
+      const title: SourceTitle = {
+        id: `title-${titles.length}`,
+        type: currentTitle.type,
+        canonical: currentTitle.canonical,
+        text,
+        book: currentBook,
+        chapter: currentChapter,
+        notes: currentTitle.notes.map((note, index) => ({
+          ...note,
+          id: `title-${titles.length}:n${index}`,
+          tokenIndex: 0,
+        })),
+      };
+      titles.push(title);
+      // A heading printed between chapters introduces the next one. A heading
+      // inside front matter titles the book instead, so it keeps no chapter.
+      const enclosing = divTypes.at(-1) ?? "";
+      const frontMatter = ["introduction", "titlePage", "preface"].includes(
+        enclosing,
+      );
+      if (currentChapter === null && !frontMatter) {
+        awaitingChapter.push(title);
+      }
+    }
+    currentTitle = null;
   };
 
   parser.on("error", (error) => {
@@ -125,6 +189,62 @@ export function parseOsis(
       identifierType = attribute(tag, "type") || "unspecified";
     }
 
+    if (local === "div") {
+      const divType = attribute(tag, "type");
+      divTypes.push(divType);
+      if (divType === "book") {
+        currentBook = attribute(tag, "osisID") || currentBook;
+      }
+    }
+
+    if (local === "chapter") {
+      if (attribute(tag, "eID") && !attribute(tag, "osisID")) {
+        currentChapter = null;
+      } else {
+        const chapterId = attribute(tag, "osisID") || attribute(tag, "sID");
+        const parts = chapterId.split(".");
+        if (parts.length >= 2 && /^\d+$/.test(parts[1])) {
+          currentBook = parts[0];
+          currentChapter = Number(parts[1]);
+          for (const title of awaitingChapter) {
+            title.chapter = currentChapter;
+            title.book = currentBook;
+          }
+          awaitingChapter = [];
+        }
+      }
+    }
+
+    // A heading outside the header belongs to the text: a manuscript incipit,
+    // a chapter title, or a division heading. It is not part of any verse.
+    if (local === "title" && !elementStack.includes("header") && !currentVerse) {
+      currentTitle = {
+        type: attribute(tag, "type") || "main",
+        canonical: attribute(tag, "canonical") === "true",
+        text: "",
+        notes: [],
+      };
+      return;
+    }
+
+    if (local === "milestone") {
+      const type = attribute(tag, "type");
+      if (type) {
+        const milestone: SourceMilestone = {
+          id: `milestone-${milestones.length}`,
+          type,
+          n: attribute(tag, "n"),
+          verseId: currentVerse ? currentVerse.reference.id : null,
+          charOffset: currentVerse ? currentVerse.text.length : 0,
+        };
+        milestones.push(milestone);
+        if (currentVerse) {
+          verseMilestones.push(milestone);
+        }
+      }
+      return;
+    }
+
     if (local === "verse") {
       const endId = attribute(tag, "eID");
       if (endId) {
@@ -143,20 +263,26 @@ export function parseOsis(
         throw new Error(`Verse ${id} begins before the previous verse ends.`);
       }
       const reference = parseReference(id);
+      const subType = altNumberPattern.exec(attribute(tag, "subType"));
       currentVerse = {
         reference,
         label: attribute(tag, "n") || reference.verse,
         text: "",
         notes: [],
         milestone: Boolean(attribute(tag, "sID")),
+        altNumber: subType ? subType[1] : null,
       };
       return;
     }
 
-    if (currentVerse && local === "note") {
+    if (local === "note") {
       noteText = "";
       noteNumber = attribute(tag, "n");
-      noteOffset = currentVerse.text.length;
+      noteOffset = currentVerse
+        ? currentVerse.text.length
+        : currentTitle
+          ? currentTitle.text.length
+          : 0;
       return;
     }
 
@@ -170,26 +296,37 @@ export function parseOsis(
   parser.on("text", (text) => {
     if (metadataField) {
       metadataText += text;
-    }
-    if (!currentVerse) {
       return;
     }
-    if (elementStack.at(-1) === "note" || elementStack.includes("note")) {
-      noteText += text;
-    } else {
+    if (elementStack.includes("note")) {
+      if (currentVerse || currentTitle) {
+        noteText += text;
+      }
+      return;
+    }
+    if (currentVerse) {
       currentVerse.text += text;
+    } else if (currentTitle) {
+      currentTitle.text += text;
     }
   });
 
   parser.on("closetag", (tag) => {
     const local = tag.local;
-    if (currentVerse && local === "note") {
-      currentVerse.notes.push({
-        id: `${currentVerse.reference.id}:n${currentVerse.notes.length}`,
+    if (local === "note" && (currentVerse || currentTitle)) {
+      const note = {
         number: noteNumber,
         text: noteText.replace(/\s+/g, " ").trim(),
         charOffset: noteOffset,
-      });
+      };
+      if (currentVerse) {
+        currentVerse.notes.push({
+          id: `${currentVerse.reference.id}:n${currentVerse.notes.length}`,
+          ...note,
+        });
+      } else if (currentTitle) {
+        currentTitle.notes.push({ id: "", ...note });
+      }
       noteText = "";
     }
 
@@ -212,6 +349,12 @@ export function parseOsis(
 
     if (local === "verse" && currentVerse && !currentVerse.milestone) {
       finishVerse();
+    }
+    if (local === "title" && currentTitle) {
+      finishTitle();
+    }
+    if (local === "div") {
+      divTypes.pop();
     }
     elementStack.pop();
   });
@@ -238,6 +381,8 @@ export function parseOsis(
     rawOsis,
     metadata,
     verses,
+    titles,
+    milestones,
     warnings: [...warnings],
   };
 }

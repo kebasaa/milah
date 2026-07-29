@@ -5,10 +5,12 @@ import os
 from pathlib import Path
 import tempfile
 
-from .extract import ExtractionError, extract_pdf
-from .osis import build_osis
+from .cochin import extract_cochin
+from .osis import build_structured_osis
 from .profiles import BookProfile
-from .validate import validate_osis, validate_records
+from .ebr530 import extract_ebr530
+from .sloane import extract_sloane
+from .validate import validate_osis, validate_records, validate_sloane_records
 
 
 class ConversionError(RuntimeError):
@@ -44,11 +46,30 @@ def convert_pdf(
         raise ConversionError(f"Input PDF not found: {source}")
     destination.mkdir(parents=True, exist_ok=True)
 
+    document = None
     try:
-        records, definitions, anomalies = extract_pdf(source, book_profile)
-    except ExtractionError as exc:
+        if book_profile.extractor == "sloane":
+            document = extract_sloane(source, book_profile)
+            records = document.records
+            definitions = document.notes
+            anomalies = document.anomalies
+        elif book_profile.extractor == "ebr530":
+            document = extract_ebr530(source, book_profile)
+            records = document.records
+            definitions = document.notes
+            anomalies = document.anomalies
+        else:
+            document = extract_cochin(source, book_profile)
+            records = document.records
+            definitions = document.notes
+            anomalies = document.anomalies
+    except (ValueError, KeyError) as exc:
         raise ConversionError(str(exc)) from exc
-    errors = validate_records(records, book_profile)
+    errors = (
+        validate_records(records, book_profile)
+        if book_profile.extractor == "cochin"
+        else validate_sloane_records(document, book_profile)
+    )
     if errors:
         raise ConversionError("Record validation failed:\n- " + "\n- ".join(errors))
 
@@ -59,7 +80,7 @@ def convert_pdf(
     payloads: dict[str, bytes] = {}
     emitted_notes: dict[str, int] = {}
     for variant in book_profile.output_names():
-        payload = build_osis(records, book_profile, variant)
+        payload = build_structured_osis(document, book_profile, variant)
         try:
             validation = validate_osis(
                 payload,
