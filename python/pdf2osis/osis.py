@@ -1,11 +1,23 @@
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
+from typing import Any
 
 from lxml import etree
 
-from .models import Marker, VerseRecord
+from .glyphs import strip_points
+from .models import Marker, Passage, VerseRecord
 from .profiles import BookProfile
+
+# `footnote` is not one of the OSIS 2.1.1 note types; `explanation` is the
+# closest standard value for an editor's remarks on the manuscript.
+NOTE_TYPE = "explanation"
+
+# Passage kinds that open a book: Sloane's manuscript incipit, ebr. 530's
+# gospel heading. Both become a <title type="main"> inside an introduction div.
+BOOK_TITLE_KINDS = {"incipit", "book-title"}
+# Kinds that introduce a chapter: Sloane's gate heading, ebr. 530's פרק ראשון.
+CHAPTER_TITLE_KINDS = {"gate", "chapter-title"}
 
 OSIS_NS = "http://www.bibletechnologies.net/2003/OSIS/namespace"
 XSI_NS = "http://www.w3.org/2001/XMLSchema-instance"
@@ -28,44 +40,58 @@ def _work(
     *,
     translation: bool = False,
 ) -> None:
+    # OSIS fixes the order of a work's children: title, contributor, creator,
+    # subject, date, description, publisher, type, format, identifier, source,
+    # language, relation, coverage, rights, scope, castList, teiHeader,
+    # refSystem. Emitting them out of order fails schema validation.
     work = etree.SubElement(header, _tag("work"), osisWork=work_id)
     etree.SubElement(work, _tag("title")).text = title
-    etree.SubElement(work, _tag("scope")).text = profile.scope
+    if translation:
+        etree.SubElement(
+            work,
+            _tag("contributor"),
+            role="ctb",
+            **{"file-as": profile.contributor_file_as},
+        ).text = profile.contributor
+        etree.SubElement(work, _tag("creator"), role="trl").text = (
+            profile.translator
+        )
+        etree.SubElement(work, _tag("date"), event="eversion", type="ISO").text = (
+            profile.edition_date
+        )
+    else:
+        etree.SubElement(
+            work,
+            _tag("date"),
+            event="original",
+            type=profile.date_calendar,
+        ).text = profile.original_date
+    etree.SubElement(work, _tag("description")).text = profile.description
+    for kind, text in profile.descriptions:
+        etree.SubElement(work, _tag("description"), type=kind).text = text
+    etree.SubElement(work, _tag("publisher")).text = profile.publisher
     etree.SubElement(
         work,
         _tag("type"),
         type="x-bible" if translation else "x-manuscript",
     ).text = "Edition" if translation else "Manuscript"
     etree.SubElement(work, _tag("identifier"), type="OSIS").text = work_id
-    etree.SubElement(work, _tag("identifier"), type="shelfmark").text = (
+    etree.SubElement(work, _tag("identifier"), type="x-shelfmark").text = (
         profile.manuscript
     )
     etree.SubElement(work, _tag("identifier"), type="URI").text = (
         profile.alt_namespace
     )
-    etree.SubElement(work, _tag("publisher")).text = "Project Truth Ministries"
-    if translation:
-        etree.SubElement(work, _tag("creator"), role="trl").text = (
-            "Project Truth Ministries"
-        )
-        etree.SubElement(
-            work,
-            _tag("contributor"),
-            role="trc",
-            **{"file-as": "Baca, Janice F."},
-        ).text = "Janice F. Baca"
-        etree.SubElement(work, _tag("date"), event="eversion", type="ISO").text = (
-            "2024"
-        )
-        etree.SubElement(work, _tag("rights")).text = (
-            "© copyright 2024 Janice F. Baca"
-        )
-    else:
-        etree.SubElement(work, _tag("date"), event="original", type="ISO").text = (
-            "ca. 1730"
-        )
+    for source in profile.sources:
+        etree.SubElement(work, _tag("source")).text = source
     etree.SubElement(work, _tag("language")).text = language
-    etree.SubElement(work, _tag("description")).text = profile.description
+    if profile.relation:
+        etree.SubElement(work, _tag("relation")).text = profile.relation
+    if profile.coverage:
+        etree.SubElement(work, _tag("coverage")).text = profile.coverage
+    if translation:
+        etree.SubElement(work, _tag("rights")).text = profile.rights
+    etree.SubElement(work, _tag("scope")).text = profile.scope
 
 
 def _header(
@@ -91,76 +117,186 @@ def _header(
         "Referenced versification (standard)"
     )
     etree.SubElement(bible, _tag("identifier"), type="OSIS").text = "bible"
-    etree.SubElement(bible, _tag("refSystem")).text = "StandardV11N"
     etree.SubElement(bible, _tag("language")).text = language
+    etree.SubElement(bible, _tag("refSystem")).text = "StandardV11N"
 
 
-def _interleave_notes(
-    verse: etree._Element,
+class _Flow:
+    """Appends text and elements to a parent, keeping mixed content in order."""
+
+    def __init__(self, parent: etree._Element) -> None:
+        self.parent = parent
+        self.last: etree._Element | None = None
+
+    def add_text(self, text: str) -> None:
+        if not text:
+            return
+        if self.last is None:
+            self.parent.text = (self.parent.text or "") + text
+        else:
+            self.last.tail = (self.last.tail or "") + text
+
+    def add(self, name: str, **attributes: str) -> etree._Element:
+        element = etree.SubElement(self.parent, _tag(name), **attributes)
+        self.last = element
+        return element
+
+
+def _anchored(
+    flow: _Flow,
     text: str,
+    anchors: list[tuple[int, Callable[[_Flow], None]]],
+    *,
+    source: str | None = None,
+) -> None:
+    """Write ``text`` into ``flow``, emitting each anchor at its offset.
+
+    Anchor offsets are measured against ``source``. When the text has been
+    reshaped — stripping the vowel points shortens it — offsets are mapped
+    across by reshaping the prefix each one refers to.
+    """
+    if source is not None and source != text:
+        anchors = [
+            (len(strip_points(source[:offset])), emit) for offset, emit in anchors
+        ]
+    cursor = 0
+    for offset, emit in sorted(anchors, key=lambda item: item[0]):
+        offset = max(cursor, min(offset, len(text)))
+        flow.add_text(text[cursor:offset])
+        emit(flow)
+        cursor = offset
+    flow.add_text(text[cursor:])
+
+
+def _note_anchors(
     markers: Iterable[Marker],
     notes: dict[str, str],
-) -> None:
-    previous = 0
-    last: etree._Element | None = None
-    emitted: set[tuple[int, str]] = set()
+    osis_id: str,
+) -> list[tuple[int, Callable[[_Flow], None]]]:
+    anchors: list[tuple[int, Callable[[_Flow], None]]] = []
+    seen: set[tuple[int, str]] = set()
     for marker in sorted(markers, key=lambda item: item.offset):
         key = (marker.offset, marker.number)
-        if key in emitted or marker.number not in notes:
+        if key in seen or marker.number not in notes:
             continue
-        emitted.add(key)
-        offset = max(previous, min(marker.offset, len(text)))
-        chunk = text[previous:offset]
-        if last is None:
-            verse.text = (verse.text or "") + chunk
-        else:
-            last.tail = (last.tail or "") + chunk
-        last = etree.SubElement(
-            verse,
-            _tag("note"),
-            type="footnote",
-            n=marker.number,
+        seen.add(key)
+
+        def emit(flow: _Flow, marker: Marker = marker) -> None:
+            note = flow.add(
+                "note",
+                type=NOTE_TYPE,
+                placement="foot",
+                n=marker.number,
+                osisRef=osis_id,
+                osisID=f"{osis_id}!note.{marker.number}",
+            )
+            note.text = notes[marker.number]
+
+        anchors.append((marker.offset, emit))
+    return anchors
+
+
+def _editorial_anchors(
+    record: VerseRecord, osis_id: str
+) -> list[tuple[int, Callable[[_Flow], None]]]:
+    """Notes the edition makes about a verse without printing a marker for it.
+
+    An absence notice ("This verse does not exist in the Cochin manuscript") and
+    an order notice have no superscript to anchor to, so they open the verse.
+    Without them an empty verse is indistinguishable from a failed extraction.
+    """
+    anchors: list[tuple[int, Callable[[_Flow], None]]] = []
+    for suffix, text in (("absent", record.absence), ("order", record.order_note)):
+        if not text:
+            continue
+
+        def emit(flow: _Flow, suffix: str = suffix, text: str = text) -> None:
+            note = flow.add(
+                "note",
+                type=NOTE_TYPE,
+                placement="foot",
+                osisRef=osis_id,
+                osisID=f"{osis_id}!note.{suffix}",
+            )
+            note.text = text
+
+        anchors.append((0, emit))
+    return anchors
+
+
+def _source_reference(record: VerseRecord) -> str | None:
+    """The source's own reference for a verse, if it states one."""
+    if record.ms_number is not None:
+        return str(record.ms_number)
+    if record.alt_chapter is not None and record.alt_verse is not None:
+        return f"{record.alt_chapter}.{record.alt_verse}"
+    return None
+
+
+def indent_body(book: etree._Element, depth: int = 3) -> None:
+    """Lay the book div out one verse per line.
+
+    lxml's ``pretty_print`` refuses to reformat any element holding mixed
+    content, and milestone form makes the whole book div exactly that — so
+    without this the entire book arrives as a single line thousands of
+    characters long. Tails are set by hand instead, on the elements that end a
+    line: a verse's closing milestone, a chapter milestone, and the titles and
+    divs between them. ``verse[@sID]`` never gets one, because its text follows
+    immediately.
+
+    The whitespace lands outside every verse, so it cannot enter verse text.
+    """
+    inner = "\n" + "  " * (depth + 1)
+    closing = "\n" + "  " * depth
+    children = list(book)
+    if not children:
+        return
+    book.text = inner
+    for child in children:
+        name = etree.QName(child).localname
+        ends_line = (
+            name in {"chapter", "title", "div"}
+            or (name == "verse" and child.get("eID"))
         )
-        last.text = notes[marker.number]
-        previous = offset
-    remainder = text[previous:]
-    if last is None:
-        verse.text = (verse.text or "") + remainder
-    else:
-        last.tail = (last.tail or "") + remainder
+        if ends_line:
+            child.tail = (child.tail or "") + inner
+    last = children[-1]
+    last.tail = (last.tail or "").rstrip() + closing
 
 
-def _alt_reference(profile: BookProfile, chapter: int, verse: str) -> str:
-    if "-" not in verse:
-        return f"{profile.osis_book}.{chapter}.{verse}"
-    start, end = verse.split("-", 1)
-    return (
-        f"{profile.osis_book}.{chapter}.{start}-"
-        f"{profile.osis_book}.{chapter}.{end}"
-    )
+def _passage_text(passage: Passage, *, translation: bool) -> str:
+    return passage.english if translation else passage.hebrew
 
 
-def build_osis(
-    records: list[VerseRecord],
-    profile: BookProfile,
-    variant: str,
+def build_structured_osis(
+    document: Any, profile: BookProfile, variant: str
 ) -> bytes:
-    if variant not in {"hebrew", "hebrew_commented", "translation"}:
+    """Build OSIS for a pointed manuscript, using milestoned verses.
+
+    Milestone form is required here because the manuscript carries material
+    that belongs to no verse — an incipit, a gate heading dividing the two
+    chapters, and folio boundaries that fall in mid-verse — which cannot be
+    represented while every verse is a container.
+    """
+    variants = {"hebrew", "hebrew_commented", "translation", "hebrew_consonantal"}
+    if variant not in variants:
         raise ValueError(f"Unknown OSIS variant: {variant}")
     translation = variant == "translation"
-    commented = variant == "hebrew_commented"
+    consonantal = variant == "hebrew_consonantal"
+    with_notes = variant in {"hebrew_commented", "translation"}
+    suffix = {
+        "hebrew": "",
+        "hebrew_commented": "_Commented",
+        "hebrew_consonantal": "_Consonantal",
+    }
     work_id = (
         profile.translation_work
         if translation
-        else profile.hebrew_work + ("_Commented" if commented else "")
+        else profile.hebrew_work + suffix[variant]
     )
     language = "en" if translation else "he"
-    nsmap = {
-        None: OSIS_NS,
-        "xsi": XSI_NS,
-        "alt": profile.alt_namespace,
-    }
-    root = etree.Element(_tag("osis"), nsmap=nsmap)
+
+    root = etree.Element(_tag("osis"), nsmap={None: OSIS_NS, "xsi": XSI_NS})
     root.set(f"{{{XSI_NS}}}schemaLocation", SCHEMA_LOCATION)
     osis_text = etree.SubElement(
         root,
@@ -169,67 +305,129 @@ def build_osis(
         osisRefWork="bible",
     )
     osis_text.set(XML_LANG, language)
-    _header(
-        osis_text,
-        profile,
-        work_id,
-        language,
-        translation=translation,
-    )
+    _header(osis_text, profile, work_id, language, translation=translation)
+
+    def shape(text: str) -> str:
+        return strip_points(text) if consonantal else text
+
+    for passage in document.passages:
+        if passage.kind != "titlePage":
+            continue
+        text = _passage_text(passage, translation=True)
+        if not text:
+            continue
+        div = etree.SubElement(
+            osis_text, _tag("div"), type="titlePage", canonical="false"
+        )
+        for index, part in enumerate(text.split(" | ")):
+            etree.SubElement(
+                div, _tag("title"), type="main" if index == 0 else "sub"
+            ).text = part
+
     book = etree.SubElement(
         osis_text,
         _tag("div"),
         type="book",
         osisID=profile.osis_book,
+        canonical="true",
     )
+    flow = _Flow(book)
+    notes = document.notes if with_notes else {}
 
-    chapter_number: int | None = None
-    chapter: etree._Element | None = None
-    alt_attribute = f"{{{profile.alt_namespace}}}num"
-    for record in records:
-        if record.chapter != chapter_number:
-            chapter_number = record.chapter
-            chapter = etree.SubElement(
-                book,
-                _tag("chapter"),
-                osisID=f"{profile.osis_book}.{record.chapter}",
+    for passage in document.passages:
+        if passage.kind not in BOOK_TITLE_KINDS:
+            continue
+        text = shape(_passage_text(passage, translation=translation))
+        if not text:
+            continue
+        div = flow.add("div", type="introduction", canonical="true")
+        for folio in passage.folios:
+            etree.SubElement(div, _tag("milestone"), type="pb", n=folio.label)
+        title = etree.SubElement(
+            div, _tag("title"), type="main", canonical="true"
+        )
+        inner = _Flow(title)
+        _anchored(
+            inner,
+            text,
+            _note_anchors(passage.markers, notes, profile.osis_book),
+            source=_passage_text(passage, translation=translation),
+        )
+
+    titles = {
+        passage.chapter: passage
+        for passage in document.passages
+        if passage.kind in CHAPTER_TITLE_KINDS and passage.chapter is not None
+    }
+
+    chapter: int | None = None
+    for record in document.records:
+        if record.chapter != chapter:
+            if chapter is not None:
+                flow.add("chapter", eID=f"{profile.osis_book}.{chapter}")
+            chapter = record.chapter
+            passage = titles.get(chapter)
+            if passage is not None:
+                text = shape(_passage_text(passage, translation=translation))
+                if text:
+                    element = flow.add(
+                        "title", type="chapter", canonical="true"
+                    )
+                    element.text = text
+            flow.add(
+                "chapter",
+                sID=f"{profile.osis_book}.{chapter}",
+                osisID=f"{profile.osis_book}.{chapter}",
+                n=str(chapter),
             )
-        assert chapter is not None
+
+        osis_id = f"{profile.osis_book}.{record.chapter}.{record.verse}"
         attributes = {
-            "osisID": f"{profile.osis_book}.{record.chapter}.{record.verse}",
+            "sID": osis_id,
+            "osisID": osis_id,
+            # The printed label, which for a combined record is a range.
             "n": record.source_verse or record.verse,
         }
-        if record.alt_chapter is not None and record.alt_verse is not None:
-            attributes[alt_attribute] = _alt_reference(
-                profile,
-                record.alt_chapter,
-                record.alt_verse,
-            )
-        verse = etree.SubElement(chapter, _tag("verse"), **attributes)
-        if record.empty:
-            continue
-        if translation:
-            text = record.english
-            markers = record.english_markers
-            include_notes = True
-        else:
-            text = record.hebrew
-            markers = record.hebrew_markers
-            include_notes = commented
-        if include_notes:
-            marker_numbers = {marker.number for marker in markers}
-            notes = {
-                number: note
-                for number, note in record.notes.items()
-                if number in marker_numbers
-            }
-            _interleave_notes(verse, text, markers, notes)
-        else:
-            verse.text = text
+        # How the source itself refers to this verse, where that differs from
+        # the canonical reference: Sloane's Hebrew letter-numerals, Cochin's own
+        # chapter and verse. OSIS has no second numbering attribute, so this
+        # rides on subType, whose values must begin with `x-`.
+        alt = _source_reference(record)
+        if alt is not None:
+            attributes["subType"] = f"x-alt-{alt}"
+        # These editions follow the manuscript's verse order, not the canonical
+        # one. `type` is a separate attributeExtension from `subType`, so the
+        # transposition is flagged without displacing the source reference, and
+        # unlike a note it survives into the variants that carry no apparatus.
+        if record.reordered:
+            attributes["type"] = "x-reordered"
+        flow.add("verse", **attributes)
 
+        raw = record.english if translation else record.hebrew
+        text = shape(raw)
+        markers = record.english_markers if translation else record.hebrew_markers
+        anchors = _note_anchors(markers, notes, osis_id)
+        if with_notes:
+            anchors = _editorial_anchors(record, osis_id) + anchors
+        if not translation:
+            for folio in record.folios:
+                def emit_folio(inner: _Flow, folio: Any = folio) -> None:
+                    inner.add("milestone", type="pb", n=folio.label)
+
+                anchors.append((folio.offset, emit_folio))
+            for division in record.ms_divisions:
+                def emit_division(inner: _Flow, division: Any = division) -> None:
+                    inner.add("milestone", type="x-ms-verse", n=division.number)
+
+                anchors.append((division.offset, emit_division))
+        _anchored(flow, text, anchors, source=raw)
+        flow.add("verse", eID=osis_id)
+
+    if chapter is not None:
+        flow.add("chapter", eID=f"{profile.osis_book}.{chapter}")
+
+    indent_body(book)
     return etree.tostring(
-        root,
-        xml_declaration=True,
-        encoding="UTF-8",
-        pretty_print=True,
+        root, xml_declaration=True, encoding="UTF-8", pretty_print=True
     )
+

@@ -5,11 +5,17 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "milah-pdf2osis"
 version = "0.1.0"
-description = "Convert the Project Truth Ministries Cochin PDFs to OSIS."
+description = "Convert Hebrew New Testament manuscript PDFs to OSIS."
 requires-python = ">=3.11"
 dependencies = [
-    "PyMuPDF>=1.23,<2",
+    # 1.26 is the floor, not a preference: from that release MuPDF returns text
+    # in logical rather than visual order. Every extractor here reads Hebrew on
+    # that assumption, and an older wheel would silently reverse it.
+    "PyMuPDF>=1.26,<2",
     "lxml>=6,<7",
+    # Reads the embedded font cmaps that pointed manuscripts need, because
+    # their PDFs ship a ToUnicode map that decodes many niqqud incorrectly.
+    "fonttools>=4.50,<5",
 ]
 
 [project.optional-dependencies]

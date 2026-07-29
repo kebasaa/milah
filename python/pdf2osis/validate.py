@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections import Counter
+import unicodedata
 from dataclasses import dataclass
 from pathlib import Path
 import re
@@ -26,16 +27,39 @@ INTERLINEAR_GLOSS_MARKERS = (
     "pronom)",
     "(n ms)",
 )
-LOCAL_SCHEMA = (
-    Path(__file__).with_name("schema")
-    / "osisCore.2.1.1-project-subset.xsd"
-)
+# The upstream OSIS schema, vendored so validation needs no network. Its
+# xml.xsd import was repointed at the copy beside it.
+SCHEMA_DIR = Path(__file__).with_name("schema")
+STRICT_SCHEMA = SCHEMA_DIR / "osisCore.2.1.1.xsd"
 
 
 @dataclass
 class ValidationResult:
     verse_ids: list[str]
     notes: int
+
+
+def _coverage_errors(
+    records: list[VerseRecord], profile: BookProfile
+) -> list[str]:
+    """Check the extraction begins and ends where the source does.
+
+    A verse count alone cannot catch an extraction that drops the opening or
+    closing verse and picks up a spurious one elsewhere.
+    """
+    if not records:
+        return ["no records"]
+    errors = []
+    for label, found, expected in (
+        ("first", (records[0].chapter, records[0].verse), profile.expected_first),
+        ("last", (records[-1].chapter, records[-1].verse), profile.expected_last),
+    ):
+        if found != expected:
+            errors.append(
+                f"{label} verse is {found[0]}:{found[1]}, "
+                f"expected {expected[0]}:{expected[1]}"
+            )
+    return errors
 
 
 def validate_records(
@@ -51,6 +75,7 @@ def validate_records(
     expected_chapters = list(range(1, profile.expected_chapters + 1))
     if chapters != expected_chapters:
         errors.append(f"unexpected chapters: {chapters}")
+    errors.extend(_coverage_errors(records, profile))
     ids = [
         f"{profile.osis_book}.{record.chapter}.{record.verse}"
         for record in records
@@ -101,11 +126,11 @@ def validate_osis(
 ) -> ValidationResult:
     parser = etree.XMLParser(resolve_entities=False, no_network=True)
     root = etree.fromstring(payload, parser)
-    schema = etree.XMLSchema(etree.parse(str(LOCAL_SCHEMA)))
+    schema = etree.XMLSchema(etree.parse(str(STRICT_SCHEMA)))
     if not schema.validate(root):
         error = schema.error_log.last_error
         raise ValueError(
-            "local OSIS schema validation failed"
+            f"OSIS schema validation failed against {STRICT_SCHEMA.name}"
             + (f": {error.message}" if error is not None else "")
         )
     namespace = {"osis": OSIS_NS}
@@ -130,7 +155,13 @@ def validate_osis(
     if len(book) != 1:
         raise ValueError("expected exactly one book div")
     verses = root.xpath("//osis:verse", namespaces=namespace)
-    ids = [verse.get("osisID") for verse in verses]
+    # In milestone form a verse is two elements; only the opening one carries
+    # osisID. Check that every start is closed, in order.
+    open_ids = [verse.get("sID") for verse in verses if verse.get("sID")]
+    close_ids = [verse.get("eID") for verse in verses if verse.get("eID")]
+    if open_ids and open_ids != close_ids:
+        raise ValueError("unbalanced verse milestones")
+    ids = [verse.get("osisID") for verse in verses if verse.get("osisID")]
     if ids != expected_ids:
         raise ValueError("OSIS verse coverage/order differs from parsed records")
     if len(ids) != len(set(ids)):
@@ -141,3 +172,76 @@ def validate_osis(
         raise ValueError("OSIS contains excluded text: " + ", ".join(contamination))
     notes = len(root.xpath("//osis:note", namespaces=namespace))
     return ValidationResult(ids, notes)
+
+
+def validate_sloane_records(document, profile: BookProfile) -> list[str]:
+    """Record-level checks for a pointed manuscript.
+
+    Beyond coverage this asserts the niqqud invariants that the previous
+    extraction violated: shin dots outnumbering shins, marks preceding their
+    base, and marks left out of canonical order.
+    """
+    errors: list[str] = []
+    records = document.records
+    if len(records) != profile.expected_verses:
+        errors.append(
+            f"expected {profile.expected_verses} verses, found {len(records)}"
+        )
+    chapters = sorted({record.chapter for record in records})
+    if chapters != list(range(1, profile.expected_chapters + 1)):
+        errors.append(f"unexpected chapters: {chapters}")
+    errors.extend(_coverage_errors(records, profile))
+    ids = [
+        f"{profile.osis_book}.{record.chapter}.{record.verse}"
+        for record in records
+    ]
+    duplicates = [key for key, count in Counter(ids).items() if count > 1]
+    if duplicates:
+        errors.append("duplicate verse IDs: " + ", ".join(duplicates))
+    first = next((record.hebrew for record in records if record.hebrew), "")
+    if not first.startswith(profile.expected_hebrew_prefix):
+        errors.append(
+            "Hebrew reconstruction failed: first verse starts with "
+            f"{first[:40]!r}"
+        )
+    texts = [record.hebrew for record in records]
+    texts += [passage.hebrew for passage in document.passages if passage.hebrew]
+    for record in records:
+        label = f"{profile.osis_book} {record.chapter}:{record.verse}"
+        if not record.hebrew:
+            errors.append(f"{label} has no Hebrew")
+        if re.search(r"[A-Za-z]", record.hebrew):
+            errors.append(f"{label} has Latin contamination in Hebrew")
+        if re.search(r"\d", record.hebrew):
+            errors.append(f"{label} retains a digit in Hebrew")
+        if not record.english:
+            errors.append(f"{label} has no translation")
+    errors.extend(_pointing_errors(texts, profile))
+    return errors
+
+
+def _pointing_errors(texts: list[str], profile: BookProfile) -> list[str]:
+    errors: list[str] = []
+    joined = "".join(texts)
+    decomposed = unicodedata.normalize("NFD", joined)
+    shins = decomposed.count("ש")
+    dots = decomposed.count("ׁ") + decomposed.count("ׂ")
+    if dots > shins:
+        errors.append(
+            f"{dots} shin/sin dots for only {shins} shins: dots are being "
+            "attached to the wrong letters"
+        )
+    for text in texts:
+        stream = unicodedata.normalize("NFD", text)
+        for index, char in enumerate(stream):
+            if not unicodedata.combining(char):
+                continue
+            if index == 0 or unicodedata.category(stream[index - 1]) == "Zs":
+                errors.append(
+                    f"combining mark U+{ord(char):04X} has no base letter in "
+                    f"{text[:40]!r}"
+                )
+                break
+        if unicodedata.normalize("NFC", text) != text:
+            errors.append(f"text is not in canonical order: {text[:40]!r}")
+    return errors

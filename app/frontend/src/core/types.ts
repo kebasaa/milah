@@ -36,6 +36,34 @@ export interface SourceVerse {
   label: string;
   text: string;
   tokens: SourceToken[];
+  /** The manuscript's own verse number, when it differs from the canonical one. */
+  altNumber: string | null;
+}
+
+/**
+ * A heading that belongs to no verse: a manuscript incipit, a chapter title, or
+ * a division heading. `chapter` is set when the title introduces one.
+ */
+export interface SourceTitle {
+  id: string;
+  type: string;
+  canonical: boolean;
+  text: string;
+  book: string | null;
+  chapter: number | null;
+  notes: SourceNote[];
+}
+
+/**
+ * A positioned marker such as a folio boundary (`pb`) or a manuscript verse
+ * division. `verseId` is null when the marker falls outside any verse.
+ */
+export interface SourceMilestone {
+  id: string;
+  type: string;
+  n: string;
+  verseId: string | null;
+  charOffset: number;
 }
 
 export interface SourceDocument {
@@ -45,6 +73,9 @@ export interface SourceDocument {
   rawOsis: string;
   metadata: WorkMetadata;
   verses: Record<string, SourceVerse>;
+  /** Headings and other non-verse text, in document order. */
+  titles: SourceTitle[];
+  milestones: SourceMilestone[];
   warnings: string[];
 }
 
