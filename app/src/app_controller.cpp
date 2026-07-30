@@ -695,6 +695,15 @@ Qt::LayoutDirection AppController::readingDirection() const
                                                        : Qt::LeftToRight;
 }
 
+void AppController::setStrongsVisible(bool visible)
+{
+    if (visible == m_strongsVisible) {
+        return;
+    }
+    m_strongsVisible = visible;
+    emit displayOptionsChanged();
+}
+
 void AppController::applyColumn(
     const QString &verseId,
     int columnIndex,

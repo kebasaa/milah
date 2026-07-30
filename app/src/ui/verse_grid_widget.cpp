@@ -3,6 +3,7 @@
 #include "app_controller.h"
 #include "core/alignment.h"
 #include "core/diff.h"
+#include "core/lexicon.h"
 
 #include <QFocusEvent>
 #include <QFontMetrics>
@@ -346,6 +347,7 @@ VerseGridWidget::Row VerseGridWidget::manuscriptRow(
 
     Row row;
     row.objectName = QStringLiteral("manuscriptToken");
+    row.font = m_readingFont;
     row.acronym = acronyms.value(source->id, source->id);
     // The acronym is all the reader sees, so the full title — and anything the
     // loader complained about — has to be reachable from it.
@@ -391,6 +393,7 @@ VerseGridWidget::Row VerseGridWidget::combinedRow(const CombinedDraft &draft) co
 {
     Row row;
     row.objectName = QStringLiteral("combinedToken");
+    row.font = m_readingFont;
     row.acronym = QStringLiteral("Combined");
     row.cells.reserve(m_aligned.columns.size());
 
@@ -404,6 +407,67 @@ VerseGridWidget::Row VerseGridWidget::combinedRow(const CombinedDraft &draft) co
             }
             cell.unsettled = column.needsReview;
         }
+        row.cells.append(cell);
+    }
+
+    return row;
+}
+
+VerseGridWidget::Row VerseGridWidget::strongsRow(const Row &combined) const
+{
+    const HebrewLexicon &lexicon = HebrewLexicon::shared();
+
+    Row row;
+    row.objectName = QStringLiteral("strongsToken");
+    row.font = m_acronymFont;
+    row.color = acronymColor(palette());
+    row.acronym = QStringLiteral("Strong's");
+    row.tooltip = QStringLiteral(
+        "Strong's numbers for the Combined words, from the Hebrew Bible.\n"
+        "A dash means the form is not attested there — not that it is wrong.");
+    row.cells.reserve(combined.cells.size());
+
+    for (const Cell &word : combined.cells) {
+        Cell cell;
+        if (word.plain.isEmpty()) {
+            row.cells.append(cell);
+            continue;
+        }
+
+        const QList<LexiconEntry> entries = lexicon.lookup(word.plain);
+        if (entries.isEmpty()) {
+            cell.plain = QStringLiteral("—");
+            cell.html = cell.plain;
+            cell.tooltip =
+                QStringLiteral("%1 is not attested in the Hebrew Bible.").arg(word.plain);
+            row.cells.append(cell);
+            continue;
+        }
+
+        // Several words can share a consonantal skeleton, so the likeliest
+        // reading is shown with a mark and the alternatives kept in reach
+        // rather than one of them being passed off as the answer.
+        cell.plain = entries.size() > 1
+            ? QStringLiteral("%1?").arg(entries.first().strongs)
+            : entries.first().strongs;
+        cell.html = cell.plain.toHtmlEscaped();
+
+        QStringList lines;
+        for (const LexiconEntry &entry : entries) {
+            QStringList parts{entry.strongs};
+            if (!entry.lemma.isEmpty()) {
+                parts.append(entry.lemma);
+            }
+            if (!entry.gloss.isEmpty()) {
+                parts.append(entry.gloss);
+            }
+            lines.append(parts.join(QStringLiteral("  ·  ")));
+        }
+        if (entries.size() > 1) {
+            lines.prepend(QStringLiteral("%1 possible readings:").arg(entries.size()));
+        }
+        cell.tooltip = lines.join(QStringLiteral("\n"));
+
         row.cells.append(cell);
     }
 
@@ -464,12 +528,15 @@ int VerseGridWidget::addCells(QGridLayout *grid, int row, const Band &band, cons
 
         auto *label = new QLabel;
         label->setObjectName(data.objectName);
-        label->setFont(m_readingFont);
+        label->setFont(data.font);
         label->setTextFormat(Qt::RichText);
         label->setText(cell.html);
         label->setAlignment(Qt::AlignCenter);
         label->setTextInteractionFlags(Qt::TextSelectableByMouse);
         label->setAccessibleName(cell.plain);
+        if (!data.color.isEmpty()) {
+            label->setStyleSheet(QStringLiteral("color: %1;").arg(data.color));
+        }
         if (!cell.tooltip.isEmpty()) {
             label->setToolTip(cell.tooltip);
         }
@@ -741,15 +808,18 @@ void VerseGridWidget::build()
         readings.append(manuscriptRow(source, reference, manuscriptList, acronyms));
     }
     const Row combined = combinedRow(draft);
+    const bool showStrongs = m_controller->strongsVisible();
+    const Row strongs = showStrongs ? strongsRow(combined) : Row();
 
     // A column is as wide as its widest reading, so corresponding words line
     // up without any of them being padded out to a fixed cell.
     const QFontMetrics readingMetrics(m_readingFont);
+    const QFontMetrics strongsMetrics(m_acronymFont);
     QList<int> widths(m_aligned.columns.size(), 0);
     for (int index = 0; index < widths.size(); ++index) {
         for (const Row &row : readings) {
             widths[index] =
-                std::max(widths.at(index), htmlWidth(row.cells.at(index).html, m_readingFont));
+                std::max(widths.at(index), htmlWidth(row.cells.at(index).html, row.font));
         }
         // The Combined cell is a line edit, not rich text: measure its plain
         // text and leave room for the caret, or the last word of a band clips.
@@ -757,6 +827,12 @@ void VerseGridWidget::build()
             widths.at(index),
             readingMetrics.horizontalAdvance(combined.cells.at(index).plain)
                 + CaretCushion);
+        if (showStrongs) {
+            widths[index] = std::max(
+                widths.at(index),
+                strongsMetrics.horizontalAdvance(strongs.cells.at(index).plain)
+                    + MeasurementSlack);
+        }
     }
 
     // The acronym column is not a reading, but it takes real room: the
@@ -774,6 +850,10 @@ void VerseGridWidget::build()
                 acronymMetrics.horizontalAdvance(
                     acronyms.value(translation->id, translation->id)));
         }
+    }
+    if (showStrongs) {
+        acronymWidth =
+            std::max(acronymWidth, acronymMetrics.horizontalAdvance(strongs.acronym));
     }
 
     QList<Band> bands;
@@ -808,7 +888,10 @@ void VerseGridWidget::build()
                 }
             }
         }
-        addCombinedCells(grid, row, band, combined);
+        row = addCombinedCells(grid, row, band, combined);
+        if (showStrongs) {
+            addCells(grid, row, band, strongs);
+        }
 
         // Slack collects on the far side of the readings, so the columns stay
         // as tight as the text rather than being spread across the card.
