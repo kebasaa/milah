@@ -157,6 +157,19 @@ MilahProjectPayload projectPayload(
         spans.append(spanToJson(span));
     }
 
+    QJsonObject columnSplits;
+    for (auto item = state.columnSplits.constBegin();
+         item != state.columnSplits.constEnd();
+         ++item) {
+        QJsonArray columns;
+        for (const int column : item.value()) {
+            columns.append(column);
+        }
+        if (!columns.isEmpty()) {
+            columnSplits.insert(item.key(), columns);
+        }
+    }
+
     QJsonValue location(QJsonValue::Null);
     if (state.location.has_value()) {
         location = QJsonObject{
@@ -177,6 +190,7 @@ MilahProjectPayload projectPayload(
         {QStringLiteral("priorityManuscriptId"), state.priorityManuscriptId},
         {QStringLiteral("combined"), combined},
         {QStringLiteral("translationSpans"), spans},
+        {QStringLiteral("columnSplits"), columnSplits},
         {QStringLiteral("location"), location},
     };
 
@@ -256,6 +270,20 @@ ProjectState restoreProject(const MilahProjectPayload &payload)
     const QJsonArray spans = manifest.value(QStringLiteral("translationSpans")).toArray();
     for (const QJsonValue &value : spans) {
         state.translationSpans.append(spanFromJson(value.toObject()));
+    }
+
+    // Absent from projects written before words could be divided, which simply
+    // means no verse has been divided.
+    const QJsonObject columnSplits =
+        manifest.value(QStringLiteral("columnSplits")).toObject();
+    for (auto item = columnSplits.constBegin(); item != columnSplits.constEnd(); ++item) {
+        QList<int> columns;
+        for (const QJsonValue &column : item.value().toArray()) {
+            columns.append(column.toInt());
+        }
+        if (!columns.isEmpty()) {
+            state.columnSplits.insert(item.key(), columns);
+        }
     }
 
     const QJsonValue location = manifest.value(QStringLiteral("location"));

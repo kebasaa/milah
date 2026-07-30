@@ -192,6 +192,10 @@ struct ProjectState
     QString priorityManuscriptId;
     QMap<QString, CombinedDraft> combined;
     QList<TranslationSpan> translationSpans;
+    /// Columns the editor divided so the edition can read two words where a
+    /// witness writes one, keyed by verse id. Indices are into the columns the
+    /// alignment produces, once per extra column; see applyColumnSplits().
+    QMap<QString, QList<int>> columnSplits;
     std::optional<Location> location;
 };
 

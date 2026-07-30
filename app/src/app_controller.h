@@ -53,6 +53,9 @@ public:
     /// Words the editor has accepted, so the spelling checks stop asking.
     const UserDictionary &dictionary() const { return m_dictionary; }
     void addToDictionary(const QString &word);
+    /// Everything the unknown-word check should let pass: what the editor has
+    /// accepted, plus what the shipped corpora attest.
+    const QSet<QString> &acceptedForms() const { return m_acceptedForms; }
     QString priorityId() const { return m_priorityId; }
     const QList<TranslationSpan> &translationSpans() const { return m_translationSpans; }
     const QList<Location> &locations() const { return m_locations; }
@@ -100,6 +103,18 @@ public slots:
     void chooseToken(const QString &verseId, int columnIndex, const QString &sourceId);
     /// Sets one Combined word by hand. An empty text drops the word.
     void setColumnText(const QString &verseId, int columnIndex, const QString &text);
+    /// Divides a Combined word at its maqaf or space, giving the second half a
+    /// column of its own. The witnesses are untouched: they still read one word
+    /// there, so their rows show a gap beside it.
+    void splitColumn(const QString &verseId, int columnIndex);
+    /// Joins a column back into the one after it, undoing a division. Only two
+    /// columns of the same divided word can be joined: where the witnesses
+    /// themselves read two words, the division is not the editor's to undo.
+    void mergeColumns(const QString &verseId, int firstColumnIndex);
+    /// Whether this column and its neighbour are two halves of one divided
+    /// word, and so can be joined. "Previous" and "next" are in reading order.
+    bool canMergeWithPrevious(const QString &verseId, int columnIndex) const;
+    bool canMergeWithNext(const QString &verseId, int columnIndex) const;
     void setManualText(const QString &verseId, const QString &text);
 
     void moveSpan(const QString &spanId, int delta);
@@ -131,6 +146,14 @@ private:
     void refreshTranslationSpans();
     void commitCombined(const QMap<QString, CombinedDraft> &next);
     bool regenerateWith(const QString &nextPriority);
+    /// The one place a verse's columns are produced. Both the on-screen
+    /// alignment and the generated drafts go through it, because a difference
+    /// of one column between them would silently misplace every reading after
+    /// the split.
+    AlignedVerse alignedFor(
+        const QString &verseId,
+        const DocumentRefs &sources,
+        const QString &priorityId) const;
     void applyColumn(
         const QString &verseId,
         int columnIndex,
@@ -157,15 +180,29 @@ private:
     QString m_priorityId;
     bool m_strongsVisible = true;
     UserDictionary m_dictionary{UserDictionary::defaultPath()};
+    /// Cached because it is asked for once per verse card and the corpora run
+    /// to six figures of forms.
+    QSet<QString> m_acceptedForms;
     QMap<QString, CombinedDraft> m_combined;
     QList<TranslationSpan> m_translationSpans;
+    QMap<QString, QList<int>> m_columnSplits;
     std::optional<Location> m_location;
 
     QList<Location> m_locations;
     QList<AlignedVerse> m_alignedVerses;
 
-    QList<QMap<QString, CombinedDraft>> m_undoStack;
-    QList<QMap<QString, CombinedDraft>> m_redoStack;
+    /// What one undo step restores. The divided columns travel with the
+    /// drafts: putting back the readings without also putting back the column
+    /// count would leave a verse with more columns than readings to fill them,
+    /// and every word after the division sitting one place out.
+    struct EditStep
+    {
+        QMap<QString, CombinedDraft> combined;
+        QMap<QString, QList<int>> columnSplits;
+    };
+
+    QList<EditStep> m_undoStack;
+    QList<EditStep> m_redoStack;
 
     ReviewFilters m_filters;
     bool m_dirty = false;

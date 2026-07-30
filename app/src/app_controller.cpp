@@ -6,6 +6,7 @@
 #include "core/osis.h"
 #include "core/project.h"
 #include "core/serialize.h"
+#include "core/tokenize.h"
 #include "project_storage.h"
 
 #include <QDateTime>
@@ -41,6 +42,45 @@ struct OpenedFile
     QString content;
 };
 
+/// A divided word and the columns it now occupies: the column the alignment
+/// produced, plus every column dividing it has since added.
+struct ColumnGroup
+{
+    /// Index into the columns before any division, or -1 when out of range.
+    int original = -1;
+    /// Where the group starts among the columns actually on screen.
+    int start = 0;
+    int size = 1;
+};
+
+/// Which divided word a column on screen belongs to.
+///
+/// Dividing and joining both work on whole groups rather than on single cells,
+/// so that a word and the columns holding it stay in step however many times it
+/// has been divided. Both operations ask this, so neither can develop its own
+/// idea of where a group begins.
+ColumnGroup groupFor(const QList<int> &splits, int columnCount, int columnIndex)
+{
+    ColumnGroup group;
+    if (columnIndex < 0 || columnIndex >= columnCount) {
+        return group;
+    }
+
+    const int originalCount = columnCount - int(splits.size());
+    int start = 0;
+    for (int original = 0; original < originalCount; ++original) {
+        const int size = 1 + int(splits.count(original));
+        if (columnIndex < start + size) {
+            group.original = original;
+            group.start = start;
+            group.size = size;
+            return group;
+        }
+        start += size;
+    }
+    return group;
+}
+
 } // namespace
 
 AppController::AppController(QWidget *dialogParent, QObject *parent)
@@ -53,6 +93,9 @@ AppController::AppController(QWidget *dialogParent, QObject *parent)
     // check stands down, neither of which is obvious. This is kept apart from
     // the status message, which the next action would overwrite; the window
     // shows it as a standing indicator instead.
+    m_acceptedForms = AttestedForms::shared().keys();
+    m_acceptedForms.unite(m_dictionary.keys());
+
     if (HebrewLexicon::shared().isEmpty()) {
         m_dataWarning = QStringLiteral(
                             "hebrew_lexicon.json was not found, so Strong's "
@@ -233,7 +276,7 @@ QMap<QString, CombinedDraft> AppController::buildCombined(
     QMap<QString, CombinedDraft> result;
     for (const Location &location : commonLocations(manuscriptList)) {
         for (const QString &verseId : verseIdsAtLocation(manuscriptList, location)) {
-            const AlignedVerse aligned = alignVerse(verseId, manuscriptList, priority);
+            const AlignedVerse aligned = alignedFor(verseId, manuscriptList, priority);
             result.insert(verseId, generateCombined(aligned, manuscriptList, priority));
         }
     }
@@ -245,6 +288,15 @@ void AppController::rebuildLocations()
     m_locations = commonLocations(manuscripts());
 }
 
+AlignedVerse AppController::alignedFor(
+    const QString &verseId,
+    const DocumentRefs &sources,
+    const QString &priorityId) const
+{
+    return applyColumnSplits(
+        alignVerse(verseId, sources, priorityId), m_columnSplits.value(verseId));
+}
+
 void AppController::rebuildAlignedVerses()
 {
     m_alignedVerses.clear();
@@ -254,7 +306,7 @@ void AppController::rebuildAlignedVerses()
 
     const DocumentRefs sources = manuscripts();
     for (const QString &verseId : verseIdsAtLocation(sources, *m_location)) {
-        m_alignedVerses.append(alignVerse(verseId, sources, m_priorityId));
+        m_alignedVerses.append(alignedFor(verseId, sources, m_priorityId));
     }
 }
 
@@ -317,7 +369,7 @@ void AppController::refreshTranslationSpans()
 
 void AppController::commitCombined(const QMap<QString, CombinedDraft> &next)
 {
-    m_undoStack.append(m_combined);
+    m_undoStack.append(EditStep{m_combined, m_columnSplits});
     while (m_undoStack.size() > MaxUndoDepth) {
         m_undoStack.removeFirst();
     }
@@ -505,6 +557,7 @@ void AppController::openProject()
         m_priorityId = state.priorityManuscriptId;
         m_combined = state.combined;
         m_translationSpans = state.translationSpans;
+        m_columnSplits = state.columnSplits;
         m_location = state.location;
     } catch (const ProjectError &projectError) {
         setMessage(projectError.message());
@@ -534,6 +587,7 @@ void AppController::saveProject()
     state.priorityManuscriptId = m_priorityId;
     state.combined = m_combined;
     state.translationSpans = m_translationSpans;
+    state.columnSplits = m_columnSplits;
     state.location = m_location;
 
     const MilahProjectPayload payload = projectPayload(state, osis);
@@ -653,8 +707,13 @@ void AppController::undo()
     if (m_undoStack.isEmpty()) {
         return;
     }
-    m_redoStack.append(m_combined);
-    m_combined = m_undoStack.takeLast();
+    m_redoStack.append(EditStep{m_combined, m_columnSplits});
+    const EditStep step = m_undoStack.takeLast();
+    m_combined = step.combined;
+    m_columnSplits = step.columnSplits;
+    // A step may have divided a word, so the columns are built again before
+    // the cards that read them are.
+    rebuildAlignedVerses();
     setDirty(true);
     emit historyChanged();
     emit locationChanged();
@@ -665,8 +724,11 @@ void AppController::redo()
     if (m_redoStack.isEmpty()) {
         return;
     }
-    m_undoStack.append(m_combined);
-    m_combined = m_redoStack.takeLast();
+    m_undoStack.append(EditStep{m_combined, m_columnSplits});
+    const EditStep step = m_redoStack.takeLast();
+    m_combined = step.combined;
+    m_columnSplits = step.columnSplits;
+    rebuildAlignedVerses();
     setDirty(true);
     emit historyChanged();
     emit locationChanged();
@@ -728,6 +790,7 @@ void AppController::addToDictionary(const QString &word)
             QStringLiteral("Could not save the word to your dictionary; it will "
                            "be forgotten when Milah closes."));
     }
+    m_acceptedForms.unite(m_dictionary.keys());
     emit displayOptionsChanged();
 }
 
@@ -802,6 +865,206 @@ void AppController::chooseToken(
         column.text = token->text;
     }
     applyColumn(verseId, columnIndex, column);
+}
+
+void AppController::splitColumn(const QString &verseId, int columnIndex)
+{
+    const AlignedVerse *aligned = nullptr;
+    for (const AlignedVerse &candidate : m_alignedVerses) {
+        if (candidate.reference.id == verseId) {
+            aligned = &candidate;
+            break;
+        }
+    }
+    if (!aligned || columnIndex < 0 || columnIndex >= aligned->columns.size()) {
+        return;
+    }
+
+    CombinedDraft draft = draftFor(*aligned);
+    if (columnIndex >= draft.columns.size()) {
+        return;
+    }
+    const QStringList words = dividedWords(draft.columns.at(columnIndex).text.value_or(QString()));
+    if (words.size() < 2) {
+        return;
+    }
+
+    if (draft.manualText.has_value()
+        && !confirm(QStringLiteral(
+            "Replace the manual text for this verse with the chosen words?"))) {
+        return;
+    }
+
+    QList<int> splits = m_columnSplits.value(verseId);
+    const ColumnGroup group =
+        groupFor(splits, int(aligned->columns.size()), columnIndex);
+    if (group.original < 0) {
+        return;
+    }
+    const int groupStart = group.start;
+    const int groupSize = group.size;
+
+    QStringList groupWords;
+    for (int offset = 0; offset < groupSize; ++offset) {
+        const int column = groupStart + offset;
+        if (column == columnIndex) {
+            groupWords.append(words);
+        } else if (column < draft.columns.size()) {
+            groupWords.append(draft.columns.at(column).text.value_or(QString()));
+        } else {
+            groupWords.append(QString());
+        }
+    }
+
+    // The new column joins the end of its group, which is where
+    // applyColumnSplits will put it once the alignment is rebuilt.
+    const int inserted = groupStart + groupSize;
+    splits.append(group.original);
+    m_columnSplits.insert(verseId, splits);
+
+    // Spans hold column indices and are deliberately not regenerated once the
+    // editor has corrected them, so they have to be moved by hand.
+    for (TranslationSpan &span : m_translationSpans) {
+        if (span.verseId != verseId) {
+            continue;
+        }
+        if (span.columnStart >= inserted) {
+            span.columnStart += 1;
+        }
+        if (span.columnEnd > inserted) {
+            span.columnEnd += 1;
+        }
+    }
+
+    ConsensusColumn blank;
+    draft.columns.insert(inserted, blank);
+    for (int offset = 0; offset < groupWords.size(); ++offset) {
+        ConsensusColumn column;
+        column.needsReview = false;
+        const QString word = groupWords.at(offset).trimmed();
+        if (!word.isEmpty()) {
+            column.text = word;
+        }
+        draft.columns[groupStart + offset] = column;
+    }
+    draft.manualText.reset();
+
+    QMap<QString, CombinedDraft> next = m_combined;
+    next.insert(verseId, draft);
+    commitCombined(next);
+
+    rebuildAlignedVerses();
+    // The verse has a column it did not have, and each card holds its own copy
+    // of the alignment, so the chapter is rebuilt rather than refreshed.
+    emit locationChanged();
+}
+
+bool AppController::canMergeWithPrevious(const QString &verseId, int columnIndex) const
+{
+    for (const AlignedVerse &aligned : m_alignedVerses) {
+        if (aligned.reference.id != verseId) {
+            continue;
+        }
+        const ColumnGroup group = groupFor(
+            m_columnSplits.value(verseId), int(aligned.columns.size()), columnIndex);
+        return group.original >= 0 && columnIndex > group.start;
+    }
+    return false;
+}
+
+bool AppController::canMergeWithNext(const QString &verseId, int columnIndex) const
+{
+    for (const AlignedVerse &aligned : m_alignedVerses) {
+        if (aligned.reference.id != verseId) {
+            continue;
+        }
+        const ColumnGroup group = groupFor(
+            m_columnSplits.value(verseId), int(aligned.columns.size()), columnIndex);
+        return group.original >= 0 && columnIndex + 1 < group.start + group.size;
+    }
+    return false;
+}
+
+void AppController::mergeColumns(const QString &verseId, int firstColumnIndex)
+{
+    const AlignedVerse *aligned = nullptr;
+    for (const AlignedVerse &candidate : m_alignedVerses) {
+        if (candidate.reference.id == verseId) {
+            aligned = &candidate;
+            break;
+        }
+    }
+    if (!aligned || firstColumnIndex < 0
+        || firstColumnIndex + 1 >= aligned->columns.size()) {
+        return;
+    }
+
+    QList<int> splits = m_columnSplits.value(verseId);
+    const ColumnGroup group =
+        groupFor(splits, int(aligned->columns.size()), firstColumnIndex);
+    // Only two columns of one divided word may be joined. Where the witnesses
+    // themselves read two words, the division is theirs and not the editor's,
+    // so there is nothing here to undo.
+    if (group.original < 0 || firstColumnIndex + 1 >= group.start + group.size) {
+        return;
+    }
+
+    CombinedDraft draft = draftFor(*aligned);
+    if (firstColumnIndex + 1 >= draft.columns.size()) {
+        return;
+    }
+    if (draft.manualText.has_value()
+        && !confirm(QStringLiteral(
+            "Replace the manual text for this verse with the chosen words?"))) {
+        return;
+    }
+
+    QStringList joined;
+    for (const int column : {firstColumnIndex, firstColumnIndex + 1}) {
+        const QString word = draft.columns.at(column).text.value_or(QString()).trimmed();
+        if (!word.isEmpty()) {
+            joined.append(word);
+        }
+    }
+
+    const int removed = firstColumnIndex + 1;
+    splits.removeOne(group.original);
+    if (splits.isEmpty()) {
+        m_columnSplits.remove(verseId);
+    } else {
+        m_columnSplits.insert(verseId, splits);
+    }
+
+    // The mirror of the shift a division makes; spans are not regenerated once
+    // corrected, so they are moved by hand here too.
+    for (TranslationSpan &span : m_translationSpans) {
+        if (span.verseId != verseId) {
+            continue;
+        }
+        if (span.columnStart > removed) {
+            span.columnStart -= 1;
+        }
+        if (span.columnEnd > removed) {
+            span.columnEnd -= 1;
+        }
+        span.columnEnd = std::max(span.columnEnd, span.columnStart + 1);
+    }
+
+    ConsensusColumn column;
+    column.needsReview = false;
+    if (!joined.isEmpty()) {
+        column.text = joined.join(QLatin1Char(' '));
+    }
+    draft.columns[firstColumnIndex] = column;
+    draft.columns.removeAt(removed);
+    draft.manualText.reset();
+
+    QMap<QString, CombinedDraft> next = m_combined;
+    next.insert(verseId, draft);
+    commitCombined(next);
+
+    rebuildAlignedVerses();
+    emit locationChanged();
 }
 
 void AppController::setColumnText(

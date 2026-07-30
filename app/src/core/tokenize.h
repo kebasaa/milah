@@ -21,6 +21,12 @@ int collapsedPrefixLength(const QString &raw, int offset);
 /// pointing and punctuation, recomposed and lowercased.
 QString comparisonKey(const QString &text);
 
+/// A Combined word divided where it is joined — at a maqaf, a hyphen or a
+/// space — in reading order. Returns the word alone when there is nothing to
+/// divide at, so callers can use the count to decide whether dividing is even
+/// on offer.
+QStringList dividedWords(const QString &text);
+
 /// Splits verse text into tokens and anchors each note to the token it follows.
 QList<SourceToken> tokenize(
     const QString &verseId,

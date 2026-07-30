@@ -1009,7 +1009,9 @@ if (-not (Test-Path -LiteralPath $DataSource -PathType Container)) {
     throw "The data directory is missing: $DataSource"
 }
 New-Item -ItemType Directory -Force -Path $DataTarget | Out-Null
-foreach ($dataFile in Get-ChildItem -LiteralPath $DataSource -File -Filter '*.json') {
+$DataFiles = Get-ChildItem -LiteralPath $DataSource -File |
+    Where-Object { $_.Extension -in @('.json', '.txt') -and $_.Name -ne 'README.md' }
+foreach ($dataFile in $DataFiles) {
     Write-Host "Copying data file: $($dataFile.Name)"
     Copy-Item -LiteralPath $dataFile.FullName -Destination $DataTarget -Force
 }

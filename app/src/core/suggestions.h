@@ -86,6 +86,33 @@ private:
     QSet<QString> m_keys;
 };
 
+/// Forms attested in a corpus Milah ships, held by comparison key.
+///
+/// The lexicon covers the Hebrew Bible, so on its own the unknown-word check
+/// fires on the post-biblical vocabulary a Hebrew New Testament is full of.
+/// This is the register those manuscripts inhabit. A word being here says it
+/// is attested somewhere, not that it carries a Strong's number.
+///
+/// Every `*.words.txt` in the data directories is read and merged, so another
+/// corpus — or a list of one's own — needs a file, not a rebuild.
+class AttestedForms
+{
+public:
+    AttestedForms() = default;
+
+    static const AttestedForms &shared();
+    /// Reads one list. Blank lines and lines opening with `#` are ignored.
+    static AttestedForms fromFile(const QString &path);
+
+    bool contains(const QString &word) const;
+    const QSet<QString> &keys() const { return m_keys; }
+    bool isEmpty() const { return m_keys.isEmpty(); }
+    void unite(const AttestedForms &other);
+
+private:
+    QSet<QString> m_keys;
+};
+
 /// Reviews one verse's Combined words. `accepted` holds comparison keys the
 /// editor has waved through.
 QList<Suggestion> reviewVerse(

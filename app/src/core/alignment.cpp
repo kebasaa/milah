@@ -262,6 +262,41 @@ AlignedVerse alignVerse(
     return aligned;
 }
 
+AlignedVerse applyColumnSplits(AlignedVerse aligned, const QList<int> &splits)
+{
+    if (splits.isEmpty()) {
+        return aligned;
+    }
+
+    QHash<int, int> extra;
+    for (const int column : splits) {
+        if (column >= 0 && column < aligned.columns.size()) {
+            extra[column] += 1;
+        }
+    }
+    if (extra.isEmpty()) {
+        return aligned;
+    }
+
+    QList<AlignmentColumn> widened;
+    widened.reserve(aligned.columns.size() + splits.size());
+    for (int index = 0; index < aligned.columns.size(); ++index) {
+        widened.append(aligned.columns.at(index));
+        for (int copy = 1; copy <= extra.value(index); ++copy) {
+            AlignmentColumn inserted;
+            // No cells: no witness reads anything here. The id stays derived
+            // from its original so it survives a realignment recognisably.
+            inserted.id = QStringLiteral("%1:split%2")
+                              .arg(aligned.columns.at(index).id)
+                              .arg(copy);
+            widened.append(inserted);
+        }
+    }
+
+    aligned.columns = widened;
+    return aligned;
+}
+
 CombinedDraft generateCombined(
     const AlignedVerse &aligned,
     const DocumentRefs &manuscripts,
