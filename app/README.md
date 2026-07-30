@@ -11,8 +11,7 @@ present so the editor is checked against the converter's real output.
 
 ## Current implementation
 
-- C++20 Qt 6 Widgets desktop application. No web view, no JavaScript, no
-  Node.js.
+- C++20 Qt 6 Widgets desktop application.
 - Namespace-aware OSIS import with safe DTD/entity rejection, built on
   `QXmlStreamReader`.
 - Common-book/chapter detection, RTL token grids, note tooltips, manuscript
@@ -34,8 +33,7 @@ holds the editing session; `src/main_window.*` and `src/ui/` are the interface.
   supplies all three under `Tools/`.
 
 ZLIB and QuaZip are built automatically by the build script; nothing else is
-needed. Visual Studio, Qt WebEngine, Qt WebChannel and Node.js are **not**
-required.
+needed.
 
 ## Build
 
