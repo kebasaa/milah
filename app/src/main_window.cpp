@@ -1,36 +1,358 @@
 #include "main_window.h"
 
-#include "web_bridge.h"
+#include "app_controller.h"
+#include "ui/source_settings_widget.h"
+#include "ui/verse_grid_widget.h"
 
-#include <QUrl>
-#include <QWebChannel>
-#include <QWebEnginePage>
-#include <QWebEngineSettings>
-#include <QWebEngineView>
+#include <QAction>
+#include <QComboBox>
+#include <QDockWidget>
+#include <QLabel>
+#include <QScrollArea>
+#include <QSignalBlocker>
+#include <QStatusBar>
+#include <QToolBar>
+#include <QVBoxLayout>
 
 namespace milah {
+namespace {
+
+const char *const kStyleSheet = R"CSS(
+QWidget#verseCard {
+    background: palette(base);
+    border: 1px solid palette(mid);
+    border-radius: 6px;
+}
+QLabel#verseHeading {
+    font-weight: 600;
+}
+QLabel#rowLabel {
+    color: palette(mid);
+    font-size: 11px;
+    padding-top: 1px;
+    padding-bottom: 4px;
+}
+QPushButton[variant="true"] {
+    background: rgba(214, 149, 46, 0.20);
+    border: 1px solid rgba(214, 149, 46, 0.55);
+    border-radius: 4px;
+    padding: 4px 6px;
+}
+QPushButton[variant="false"] {
+    background: rgba(90, 150, 110, 0.14);
+    border: 1px solid rgba(90, 150, 110, 0.40);
+    border-radius: 4px;
+    padding: 4px 6px;
+}
+QPushButton[gap="true"] {
+    background: transparent;
+    border: 1px dashed palette(mid);
+    color: palette(mid);
+}
+QPushButton[hasNote="true"] {
+    border-bottom: 2px solid rgba(176, 125, 43, 0.9);
+}
+QLabel#combinedToken {
+    background: palette(alternate-base);
+    border: 1px solid palette(mid);
+    border-radius: 4px;
+    padding: 4px 6px;
+}
+QLabel#combinedToken[needsReview="true"] {
+    border: 1px solid rgba(200, 60, 60, 0.75);
+}
+QLabel#combinedToken[gap="true"] {
+    color: palette(mid);
+}
+QWidget#translationSpan {
+    background: rgba(80, 120, 190, 0.12);
+    border: 1px solid rgba(80, 120, 190, 0.35);
+    border-radius: 4px;
+}
+QWidget#translationSpan[uncertain="true"] {
+    border: 1px dashed rgba(200, 120, 40, 0.85);
+}
+QLabel#verseFlags {
+    color: rgba(176, 90, 43, 1.0);
+    font-size: 11px;
+}
+QLabel#emptyState {
+    color: palette(mid);
+    font-size: 14px;
+}
+)CSS";
+
+} // namespace
 
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
-    , m_webView(new QWebEngineView(this))
-    , m_channel(new QWebChannel(this))
-    , m_bridge(new WebBridge(this))
 {
     setWindowTitle(QStringLiteral("Milah"));
     resize(1440, 900);
     setMinimumSize(900, 600);
-    setCentralWidget(m_webView);
+    setStyleSheet(QString::fromUtf8(kStyleSheet));
 
-    m_channel->registerObject(QStringLiteral("milahNative"), m_bridge);
-    m_webView->page()->setWebChannel(m_channel);
-    m_webView->settings()->setAttribute(
-        QWebEngineSettings::LocalContentCanAccessFileUrls,
-        false);
-    m_webView->settings()->setAttribute(
-        QWebEngineSettings::LocalContentCanAccessRemoteUrls,
-        false);
-    m_webView->setContextMenuPolicy(Qt::NoContextMenu);
-    m_webView->load(QUrl(QStringLiteral("qrc:/index.html")));
+    m_controller = new AppController(this, this);
+
+    buildToolBar();
+
+    m_verseHost = new QWidget;
+    m_verseLayout = new QVBoxLayout(m_verseHost);
+    m_verseLayout->setContentsMargins(14, 14, 14, 14);
+    m_verseLayout->setSpacing(12);
+
+    m_emptyState = new QLabel;
+    m_emptyState->setObjectName(QStringLiteral("emptyState"));
+    m_emptyState->setAlignment(Qt::AlignCenter);
+    m_emptyState->setWordWrap(true);
+    m_verseLayout->addWidget(m_emptyState);
+    m_verseLayout->addStretch(1);
+
+    m_verseArea = new QScrollArea;
+    m_verseArea->setWidget(m_verseHost);
+    m_verseArea->setWidgetResizable(true);
+    m_verseArea->setFrameShape(QFrame::NoFrame);
+    setCentralWidget(m_verseArea);
+
+    m_settings = new SourceSettingsWidget(m_controller);
+    auto *dock = new QDockWidget(QStringLiteral("Sources"), this);
+    dock->setObjectName(QStringLiteral("sourcesDock"));
+    dock->setWidget(m_settings);
+    dock->setAllowedAreas(Qt::LeftDockWidgetArea | Qt::RightDockWidgetArea);
+    addDockWidget(Qt::RightDockWidgetArea, dock);
+
+    statusBar()->showMessage(m_controller->message());
+
+    connect(m_controller, &AppController::sourcesChanged, this, &MainWindow::rebuildAll);
+    connect(
+        m_controller,
+        &AppController::locationChanged,
+        this,
+        &MainWindow::rebuildVerseList);
+    connect(m_controller, &AppController::verseChanged, this, &MainWindow::refreshVerse);
+    connect(m_controller, &AppController::messageChanged, this, [this](const QString &text) {
+        statusBar()->showMessage(text);
+    });
+    connect(m_controller, &AppController::dirtyChanged, this, [this](bool) {
+        updateWindowTitle();
+    });
+    connect(
+        m_controller,
+        &AppController::historyChanged,
+        this,
+        &MainWindow::updateHistoryActions);
+
+    rebuildAll();
+}
+
+void MainWindow::openFiles(
+    const QStringList &manuscripts,
+    const QStringList &translations)
+{
+    m_controller->loadPaths(SourceRole::Manuscript, manuscripts);
+    m_controller->loadPaths(SourceRole::Translation, translations);
+}
+
+void MainWindow::buildToolBar()
+{
+    auto *toolBar = addToolBar(QStringLiteral("Main"));
+    toolBar->setObjectName(QStringLiteral("mainToolBar"));
+    toolBar->setMovable(false);
+    toolBar->setToolButtonStyle(Qt::ToolButtonTextOnly);
+
+    auto *loadManuscripts = toolBar->addAction(QStringLiteral("Load manuscripts"));
+    connect(loadManuscripts, &QAction::triggered, this, [this] {
+        m_controller->loadSources(SourceRole::Manuscript);
+    });
+
+    auto *loadTranslations = toolBar->addAction(QStringLiteral("Load translations"));
+    connect(loadTranslations, &QAction::triggered, this, [this] {
+        m_controller->loadSources(SourceRole::Translation);
+    });
+
+    auto *openProject = toolBar->addAction(QStringLiteral("Open project"));
+    connect(openProject, &QAction::triggered, m_controller, &AppController::openProject);
+
+    m_saveAction = toolBar->addAction(QStringLiteral("Save project"));
+    connect(m_saveAction, &QAction::triggered, m_controller, &AppController::saveProject);
+
+    m_exportAction = toolBar->addAction(QStringLiteral("Export Combined"));
+    connect(
+        m_exportAction, &QAction::triggered, m_controller, &AppController::exportCombined);
+
+    toolBar->addSeparator();
+    toolBar->addWidget(new QLabel(QStringLiteral(" Chapter ")));
+
+    m_chapterCombo = new QComboBox;
+    m_chapterCombo->setMinimumWidth(150);
+    connect(m_chapterCombo, &QComboBox::activated, this, [this](int index) {
+        const QList<Location> &locations = m_controller->locations();
+        if (index >= 0 && index < locations.size()) {
+            m_controller->setLocation(locations.at(index));
+        }
+    });
+    toolBar->addWidget(m_chapterCombo);
+
+    m_previousAction = toolBar->addAction(QStringLiteral("‹"));
+    m_previousAction->setToolTip(QStringLiteral("Previous common chapter"));
+    connect(
+        m_previousAction,
+        &QAction::triggered,
+        m_controller,
+        &AppController::goToPreviousLocation);
+
+    m_nextAction = toolBar->addAction(QStringLiteral("›"));
+    m_nextAction->setToolTip(QStringLiteral("Next common chapter"));
+    connect(
+        m_nextAction, &QAction::triggered, m_controller, &AppController::goToNextLocation);
+
+    toolBar->addSeparator();
+    toolBar->addWidget(new QLabel(QStringLiteral(" Priority ")));
+
+    m_priorityCombo = new QComboBox;
+    m_priorityCombo->setMinimumWidth(180);
+    connect(m_priorityCombo, &QComboBox::activated, this, [this](int) {
+        m_controller->setPriorityId(m_priorityCombo->currentData().toString());
+    });
+    toolBar->addWidget(m_priorityCombo);
+
+    m_regenerateAction = toolBar->addAction(QStringLiteral("Regenerate"));
+    connect(
+        m_regenerateAction, &QAction::triggered, m_controller, &AppController::regenerate);
+
+    toolBar->addSeparator();
+
+    m_undoAction = toolBar->addAction(QStringLiteral("↶"));
+    m_undoAction->setToolTip(QStringLiteral("Undo"));
+    m_undoAction->setShortcut(QKeySequence::Undo);
+    connect(m_undoAction, &QAction::triggered, m_controller, &AppController::undo);
+
+    m_redoAction = toolBar->addAction(QStringLiteral("↷"));
+    m_redoAction->setToolTip(QStringLiteral("Redo"));
+    m_redoAction->setShortcut(QKeySequence::Redo);
+    connect(m_redoAction, &QAction::triggered, m_controller, &AppController::redo);
+}
+
+void MainWindow::updateWindowTitle()
+{
+    setWindowTitle(m_controller->isDirty()
+        ? QStringLiteral("Milah •")
+        : QStringLiteral("Milah"));
+}
+
+void MainWindow::updateHistoryActions()
+{
+    m_undoAction->setEnabled(m_controller->canUndo());
+    m_redoAction->setEnabled(m_controller->canRedo());
+}
+
+void MainWindow::rebuildChapterList()
+{
+    const QSignalBlocker blocker(m_chapterCombo);
+    m_chapterCombo->clear();
+
+    const QList<Location> &locations = m_controller->locations();
+    for (const Location &location : locations) {
+        m_chapterCombo->addItem(
+            QStringLiteral("%1 %2").arg(location.book).arg(location.chapter));
+    }
+
+    const std::optional<Location> current = m_controller->location();
+    if (current.has_value()) {
+        m_chapterCombo->setCurrentIndex(int(locations.indexOf(*current)));
+    }
+    m_chapterCombo->setEnabled(!locations.isEmpty());
+
+    const int index = current.has_value() ? int(locations.indexOf(*current)) : -1;
+    m_previousAction->setEnabled(index > 0);
+    m_nextAction->setEnabled(index >= 0 && index < locations.size() - 1);
+}
+
+void MainWindow::rebuildPriorityList()
+{
+    const QSignalBlocker blocker(m_priorityCombo);
+    m_priorityCombo->clear();
+
+    const DocumentRefs manuscripts = m_controller->manuscripts();
+    for (const SourceDocument *manuscript : manuscripts) {
+        m_priorityCombo->addItem(
+            manuscript->metadata.title.isEmpty() ? manuscript->name
+                                                 : manuscript->metadata.title,
+            manuscript->id);
+    }
+
+    const int index = m_priorityCombo->findData(m_controller->priorityId());
+    if (index >= 0) {
+        m_priorityCombo->setCurrentIndex(index);
+    }
+
+    const bool hasManuscripts = !manuscripts.isEmpty();
+    m_priorityCombo->setEnabled(hasManuscripts);
+    m_regenerateAction->setEnabled(hasManuscripts);
+    m_saveAction->setEnabled(hasManuscripts);
+    m_exportAction->setEnabled(hasManuscripts);
+}
+
+void MainWindow::rebuildVerseList()
+{
+    for (VerseGridWidget *card : m_verseCards) {
+        m_verseLayout->removeWidget(card);
+        card->deleteLater();
+    }
+    m_verseCards.clear();
+
+    const DocumentRefs manuscripts = m_controller->manuscripts();
+    const std::optional<Location> location = m_controller->location();
+
+    if (manuscripts.isEmpty()) {
+        m_emptyState->setText(QStringLiteral(
+            "Compare manuscript witnesses\n\n"
+            "Load OSIS manuscripts to create an editable Combined edition."));
+        m_emptyState->setVisible(true);
+    } else if (!location.has_value()) {
+        m_emptyState->setText(QStringLiteral(
+            "No common chapter\n\n"
+            "These manuscripts do not currently share a book and chapter."));
+        m_emptyState->setVisible(true);
+    } else {
+        m_emptyState->setVisible(false);
+    }
+
+    if (!location.has_value()) {
+        rebuildChapterList();
+        return;
+    }
+
+    int insertAt = 1; // after the empty-state label
+    for (const AlignedVerse &aligned : m_controller->alignedVerses()) {
+        if (!m_controller->matchesFilters(aligned)) {
+            continue;
+        }
+        auto *card = new VerseGridWidget(m_controller, aligned, m_verseHost);
+        m_verseLayout->insertWidget(insertAt, card);
+        m_verseCards.insert(aligned.reference.id, card);
+        ++insertAt;
+    }
+
+    rebuildChapterList();
+}
+
+void MainWindow::refreshVerse(const QString &verseId)
+{
+    const auto card = m_verseCards.constFind(verseId);
+    if (card != m_verseCards.constEnd()) {
+        card.value()->refresh();
+    }
+}
+
+void MainWindow::rebuildAll()
+{
+    rebuildPriorityList();
+    rebuildVerseList();
+    m_settings->refresh();
+    updateHistoryActions();
+    updateWindowTitle();
+    statusBar()->showMessage(m_controller->message());
 }
 
 } // namespace milah

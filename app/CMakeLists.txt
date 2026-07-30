@@ -7,70 +7,74 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_AUTOMOC ON)
 
-option(MILAH_BUILD_TESTS "Build Milah's minimal native test" OFF)
+option(MILAH_BUILD_TESTS "Build Milah's test suite" OFF)
 option(MILAH_DEPLOY_QT "Run windeployqt after a Windows build" OFF)
 
-find_package(Qt6 6.6 REQUIRED COMPONENTS
-    Core
-    Gui
-    Widgets
-    WebChannel
-    WebEngineWidgets
-)
+# Used by the apparatus test to find the repository's OSIS corpus. The test
+# skips itself when this points nowhere useful, so the suite stays runnable
+# from a standalone copy of app/.
+set(MILAH_REPO_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/.." CACHE PATH
+    "Repository root containing the data/ corpus")
+
+find_package(Qt6 6.6 REQUIRED COMPONENTS Core Gui Widgets)
 find_package(QuaZip-Qt6 CONFIG REQUIRED)
-find_program(NPM_EXECUTABLE npm REQUIRED)
 
-set(FRONTEND_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/frontend")
-set(FRONTEND_DIST_DIR "${FRONTEND_SOURCE_DIR}/dist")
-set(FRONTEND_OUTPUTS
-    "${FRONTEND_DIST_DIR}/index.html"
-    "${FRONTEND_DIST_DIR}/assets/app.js"
-    "${FRONTEND_DIST_DIR}/assets/app.css"
-)
-file(GLOB_RECURSE FRONTEND_SOURCES CONFIGURE_DEPENDS
-    "${FRONTEND_SOURCE_DIR}/src/*"
-    "${FRONTEND_SOURCE_DIR}/index.html"
-    "${FRONTEND_SOURCE_DIR}/package.json"
-    "${FRONTEND_SOURCE_DIR}/tsconfig.json"
-    "${FRONTEND_SOURCE_DIR}/vite.config.ts"
+qt_standard_project_setup()
+
+# --------------------------------------------------------------------------
+# MilahCore: OSIS parsing, alignment, consensus, serialisation and storage.
+# No widgets, so the tests can link it directly.
+# --------------------------------------------------------------------------
+
+add_library(MilahCore STATIC
+    src/core/types.cpp
+    src/core/types.h
+    src/core/books.cpp
+    src/core/books.h
+    src/core/tokenize.cpp
+    src/core/tokenize.h
+    src/core/osis.cpp
+    src/core/osis.h
+    src/core/alignment.cpp
+    src/core/alignment.h
+    src/core/coverage.cpp
+    src/core/coverage.h
+    src/core/serialize.cpp
+    src/core/serialize.h
+    src/core/project.cpp
+    src/core/project.h
+    src/project_storage.cpp
+    src/project_storage.h
 )
 
-add_custom_command(
-    OUTPUT ${FRONTEND_OUTPUTS}
-    COMMAND "${NPM_EXECUTABLE}" run build
-    WORKING_DIRECTORY "${FRONTEND_SOURCE_DIR}"
-    DEPENDS ${FRONTEND_SOURCES}
-    COMMENT "Building the Milah web interface"
-    VERBATIM
+target_include_directories(MilahCore PUBLIC src)
+
+target_link_libraries(MilahCore PUBLIC
+    Qt6::Core
+    QuaZip::QuaZip
 )
-add_custom_target(MilahFrontend DEPENDS ${FRONTEND_OUTPUTS})
-set_source_files_properties(${FRONTEND_OUTPUTS} PROPERTIES GENERATED TRUE)
+
+# --------------------------------------------------------------------------
+# Milah: the Qt Widgets application.
+# --------------------------------------------------------------------------
 
 qt_add_executable(Milah WIN32
     src/main.cpp
+    src/app_controller.cpp
+    src/app_controller.h
     src/main_window.cpp
     src/main_window.h
-    src/project_storage.cpp
-    src/project_storage.h
-    src/web_bridge.cpp
-    src/web_bridge.h
+    src/ui/source_settings_widget.cpp
+    src/ui/source_settings_widget.h
+    src/ui/verse_grid_widget.cpp
+    src/ui/verse_grid_widget.h
 )
-
-qt_add_resources(Milah "milah_frontend"
-    PREFIX "/"
-    BASE "${FRONTEND_DIST_DIR}"
-    FILES ${FRONTEND_OUTPUTS}
-)
-
-add_dependencies(Milah MilahFrontend)
 
 target_link_libraries(Milah PRIVATE
+    MilahCore
     Qt6::Core
     Qt6::Gui
     Qt6::Widgets
-    Qt6::WebChannel
-    Qt6::WebEngineWidgets
-    QuaZip::QuaZip
 )
 
 target_compile_definitions(Milah PRIVATE
@@ -86,19 +90,33 @@ if(WIN32 AND MILAH_DEPLOY_QT)
     )
 endif()
 
+# --------------------------------------------------------------------------
+# Tests
+# --------------------------------------------------------------------------
+
 if(MILAH_BUILD_TESTS)
     enable_testing()
     find_package(Qt6 6.6 REQUIRED COMPONENTS Test)
-    qt_add_executable(MilahProjectStorageTest
-        tests/project_storage_test.cpp
-        src/project_storage.cpp
-        src/project_storage.h
-    )
-    target_include_directories(MilahProjectStorageTest PRIVATE src)
-    target_link_libraries(MilahProjectStorageTest PRIVATE
-        Qt6::Core
-        Qt6::Test
-        QuaZip::QuaZip
-    )
-    add_test(NAME MilahProjectStorageTest COMMAND MilahProjectStorageTest)
+
+    foreach(test_name project_storage osis consensus apparatus)
+        # Plain add_executable, not qt_add_executable: the latter finalises the
+        # target as a Windows GUI application, and a GUI-subsystem binary
+        # discards the stdout QTest reports through, leaving a failing test
+        # with nothing to show for it.
+        add_executable(Milah_${test_name}_test
+            tests/${test_name}_test.cpp
+            tests/test_data.cpp
+            tests/test_data.h
+        )
+        target_include_directories(Milah_${test_name}_test PRIVATE tests)
+        target_link_libraries(Milah_${test_name}_test PRIVATE
+            MilahCore
+            Qt6::Core
+            Qt6::Test
+        )
+        target_compile_definitions(Milah_${test_name}_test PRIVATE
+            MILAH_REPO_ROOT="${MILAH_REPO_ROOT}"
+        )
+        add_test(NAME Milah_${test_name}_test COMMAND Milah_${test_name}_test)
+    endforeach()
 endif()

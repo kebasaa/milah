@@ -172,5 +172,6 @@ reformat mixed content, which is exactly what milestone form produces, so
 - PyMuPDF must be ≥1.26, where MuPDF switched to returning text in logical
   order. Every extractor reads Hebrew on that assumption, so an older wheel
   reverses it silently rather than failing.
-- The frontend tests, including `app/frontend/tests/corpus.test.ts`, need Node,
-  which is not installed in the current development environment.
+- The Milah editor in `app/` is a separate Qt 6 desktop application with its own
+  build and tests; see `app/README.md`. It reads this corpus but does not depend
+  on the converter.
