@@ -3,6 +3,7 @@
 #include <QApplication>
 #include <QCommandLineParser>
 #include <QCoreApplication>
+#include <QIcon>
 
 int main(int argc, char *argv[])
 {
@@ -10,6 +11,7 @@ int main(int argc, char *argv[])
     QCoreApplication::setApplicationName(QStringLiteral("Milah"));
     QCoreApplication::setApplicationVersion(QStringLiteral(MILAH_VERSION));
     QCoreApplication::setOrganizationName(QStringLiteral("Milah"));
+    QApplication::setWindowIcon(QIcon(QStringLiteral(":/img/milah.png")));
 
     QCommandLineParser parser;
     parser.setApplicationDescription(

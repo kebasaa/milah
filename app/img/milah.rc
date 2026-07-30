@@ -1,0 +1,4 @@
+// Windows executable icon. The path is resolved relative to this .rc file, so
+// milah.ico must sit next to it in app/img/. The lowest numeric icon id
+// becomes the icon Explorer shows for the .exe.
+IDI_ICON1 ICON "milah.ico"
