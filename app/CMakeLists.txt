@@ -77,6 +77,19 @@ target_link_libraries(Milah PRIVATE
     Qt6::Widgets
 )
 
+# Runtime window / taskbar icon, embedded so it ships inside the binary and is
+# reachable as ":/img/milah.png" (see main.cpp).
+qt_add_resources(Milah "milah_icons"
+    PREFIX "/"
+    FILES img/milah.png
+)
+
+# Windows executable file icon (what Explorer shows). The .rc is compiled by the
+# RC toolchain, which only exists on Windows builds.
+if(WIN32)
+    target_sources(Milah PRIVATE img/milah.rc)
+endif()
+
 target_compile_definitions(Milah PRIVATE
     MILAH_VERSION="${PROJECT_VERSION}"
 )
