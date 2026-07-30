@@ -661,27 +661,31 @@ void VerseGridWidget::showWitnessMenu(int columnIndex, const QPoint &globalPosit
     // divided; where the witnesses read two words there is nothing to undo.
     // Each entry names its neighbour, so which way it goes is not left to the
     // reader to work out from a right-to-left row.
-    const auto neighbourWord = [&draft](int column) {
-        return column >= 0 && column < draft.columns.size()
-            ? draft.columns.at(column).text.value_or(QString())
+    // A divided half can be left empty, and "Merge with the previous word, "
+    // trailing off would read as a fault, so the name is only added when there
+    // is one.
+    const auto mergeLabel = [&draft](const QString &which, int neighbour) {
+        const QString word = neighbour >= 0 && neighbour < draft.columns.size()
+            ? draft.columns.at(neighbour).text.value_or(QString())
             : QString();
+        return word.isEmpty()
+            ? QStringLiteral("Merge with the %1 word").arg(which)
+            : QStringLiteral("Merge with the %1 word, %2").arg(which, word);
     };
+    const QString mergeHint =
+        QStringLiteral("Puts the two back in one column, separated by a space.");
     if (m_controller->canMergeWithPrevious(verseId(), columnIndex)) {
         QAction *merge = menu.addAction(
-            QStringLiteral("Merge with the previous word, %1")
-                .arg(neighbourWord(columnIndex - 1)));
-        merge->setToolTip(
-            QStringLiteral("Puts the two back in one column, undoing a split."));
+            mergeLabel(QStringLiteral("previous"), columnIndex - 1));
+        merge->setToolTip(mergeHint);
         connect(merge, &QAction::triggered, this, [this, columnIndex] {
             m_controller->mergeColumns(verseId(), columnIndex - 1);
         });
     }
     if (m_controller->canMergeWithNext(verseId(), columnIndex)) {
         QAction *merge = menu.addAction(
-            QStringLiteral("Merge with the next word, %1")
-                .arg(neighbourWord(columnIndex + 1)));
-        merge->setToolTip(
-            QStringLiteral("Puts the two back in one column, undoing a split."));
+            mergeLabel(QStringLiteral("next"), columnIndex + 1));
+        merge->setToolTip(mergeHint);
         connect(merge, &QAction::triggered, this, [this, columnIndex] {
             m_controller->mergeColumns(verseId(), columnIndex);
         });

@@ -114,6 +114,50 @@ private slots:
         QCOMPARE(applyColumnSplits(aligned, {}).columns.size(), aligned.columns.size());
     }
 
+    void aColumnKnowsWhichDividedWordItBelongsTo()
+    {
+        // Two original columns, the first divided twice: on screen that is
+        // [0 0a 0b] [1], and dividing or joining has to act on whole groups.
+        const QList<int> splits = {0, 0};
+
+        const ColumnGroup first = columnGroupFor(splits, 4, 1);
+        QCOMPARE(first.original, 0);
+        QCOMPARE(first.start, 0);
+        QCOMPARE(first.size, 3);
+
+        const ColumnGroup second = columnGroupFor(splits, 4, 3);
+        QCOMPARE(second.original, 1);
+        QCOMPARE(second.start, 3);
+        QCOMPARE(second.size, 1);
+
+        QCOMPARE(columnGroupFor(splits, 4, -1).original, -1);
+        QCOMPARE(columnGroupFor(splits, 4, 4).original, -1);
+    }
+
+    void anIgnoredSplitDoesNotShiftTheGroups()
+    {
+        // A project saved against a longer verse can name a column this one has
+        // not. applyColumnSplits drops such an entry, so counting it here would
+        // put every group one place out and divide the wrong word.
+        const QList<int> splits = {0, 99};
+        const QList<SourceDocument> documents = {
+            witness(QStringLiteral("a"), QString::fromUtf8("ספר דוד")),
+        };
+        const AlignedVerse aligned = applyColumnSplits(
+            alignVerse(QStringLiteral("Matt.1.1"), refs(documents), QStringLiteral("a")),
+            splits);
+        QCOMPARE(aligned.columns.size(), 3);
+
+        const ColumnGroup group = columnGroupFor(splits, int(aligned.columns.size()), 1);
+        QCOMPARE(group.original, 0);
+        QCOMPARE(group.start, 0);
+        QCOMPARE(group.size, 2);
+
+        const ColumnGroup last = columnGroupFor(splits, int(aligned.columns.size()), 2);
+        QCOMPARE(last.original, 1);
+        QCOMPARE(last.size, 1);
+    }
+
     void aWordIsDividedAtItsMaqafOrSpace()
     {
         const QStringList maqaf = dividedWords(QString::fromUtf8("אֲשֶׁר־בָּהּ"));

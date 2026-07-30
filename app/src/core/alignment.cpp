@@ -297,6 +297,46 @@ AlignedVerse applyColumnSplits(AlignedVerse aligned, const QList<int> &splits)
     return aligned;
 }
 
+ColumnGroup columnGroupFor(const QList<int> &splits, int columnCount, int columnIndex)
+{
+    ColumnGroup group;
+    if (columnIndex < 0 || columnIndex >= columnCount) {
+        return group;
+    }
+
+    // How many columns there were before any division. Subtracting the whole
+    // list would be wrong: applyColumnSplits ignores an index naming a column
+    // the alignment no longer has, so those entries added nothing to the count.
+    // Adding the entries that did land grows with the count sought, so exactly
+    // one candidate agrees with the columns actually here.
+    int originalCount = columnCount;
+    for (int candidate = 0; candidate <= columnCount; ++candidate) {
+        int applied = 0;
+        for (const int column : splits) {
+            if (column >= 0 && column < candidate) {
+                applied += 1;
+            }
+        }
+        if (candidate + applied == columnCount) {
+            originalCount = candidate;
+            break;
+        }
+    }
+
+    int start = 0;
+    for (int original = 0; original < originalCount; ++original) {
+        const int size = 1 + int(splits.count(original));
+        if (columnIndex < start + size) {
+            group.original = original;
+            group.start = start;
+            group.size = size;
+            return group;
+        }
+        start += size;
+    }
+    return group;
+}
+
 CombinedDraft generateCombined(
     const AlignedVerse &aligned,
     const DocumentRefs &manuscripts,

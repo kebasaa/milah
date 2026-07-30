@@ -42,45 +42,6 @@ struct OpenedFile
     QString content;
 };
 
-/// A divided word and the columns it now occupies: the column the alignment
-/// produced, plus every column dividing it has since added.
-struct ColumnGroup
-{
-    /// Index into the columns before any division, or -1 when out of range.
-    int original = -1;
-    /// Where the group starts among the columns actually on screen.
-    int start = 0;
-    int size = 1;
-};
-
-/// Which divided word a column on screen belongs to.
-///
-/// Dividing and joining both work on whole groups rather than on single cells,
-/// so that a word and the columns holding it stay in step however many times it
-/// has been divided. Both operations ask this, so neither can develop its own
-/// idea of where a group begins.
-ColumnGroup groupFor(const QList<int> &splits, int columnCount, int columnIndex)
-{
-    ColumnGroup group;
-    if (columnIndex < 0 || columnIndex >= columnCount) {
-        return group;
-    }
-
-    const int originalCount = columnCount - int(splits.size());
-    int start = 0;
-    for (int original = 0; original < originalCount; ++original) {
-        const int size = 1 + int(splits.count(original));
-        if (columnIndex < start + size) {
-            group.original = original;
-            group.start = start;
-            group.size = size;
-            return group;
-        }
-        start += size;
-    }
-    return group;
-}
-
 } // namespace
 
 AppController::AppController(QWidget *dialogParent, QObject *parent)
@@ -229,6 +190,11 @@ bool AppController::confirm(const QString &question)
 
 bool AppController::hasManualEdits() const
 {
+    // A divided word is the editor's work as much as a typed one, and
+    // regenerating discards it, so it earns the same warning.
+    if (!m_columnSplits.isEmpty()) {
+        return true;
+    }
     for (const CombinedDraft &draft : m_combined) {
         if (draft.manualText.has_value()) {
             return true;
@@ -369,12 +335,20 @@ void AppController::refreshTranslationSpans()
 
 void AppController::commitCombined(const QMap<QString, CombinedDraft> &next)
 {
+    commitCombined(next, m_columnSplits);
+}
+
+void AppController::commitCombined(
+    const QMap<QString, CombinedDraft> &next,
+    const QMap<QString, QList<int>> &nextSplits)
+{
     m_undoStack.append(EditStep{m_combined, m_columnSplits});
     while (m_undoStack.size() > MaxUndoDepth) {
         m_undoStack.removeFirst();
     }
     m_redoStack.clear();
     m_combined = next;
+    m_columnSplits = nextSplits;
     setDirty(true);
     emit historyChanged();
 }
@@ -385,7 +359,18 @@ bool AppController::regenerateWith(const QString &nextPriority)
         && !confirm(QStringLiteral("Regenerate Combined and replace manual edits?"))) {
         return false;
     }
-    commitCombined(buildCombined(manuscripts(), nextPriority));
+
+    // A divided column only ever holds a word the editor put there by hand, so
+    // regenerating takes the divisions with the words; leaving them would strew
+    // the verse with blank columns no witness reads. Cleared before the drafts
+    // are built so the two agree on how many columns the verse has.
+    const QMap<QString, QList<int>> divided = m_columnSplits;
+    m_columnSplits.clear();
+    const QMap<QString, CombinedDraft> regenerated =
+        buildCombined(manuscripts(), nextPriority);
+    m_columnSplits = divided;
+
+    commitCombined(regenerated, {});
     return true;
 }
 
@@ -897,7 +882,7 @@ void AppController::splitColumn(const QString &verseId, int columnIndex)
 
     QList<int> splits = m_columnSplits.value(verseId);
     const ColumnGroup group =
-        groupFor(splits, int(aligned->columns.size()), columnIndex);
+        columnGroupFor(splits, int(aligned->columns.size()), columnIndex);
     if (group.original < 0) {
         return;
     }
@@ -920,7 +905,6 @@ void AppController::splitColumn(const QString &verseId, int columnIndex)
     // applyColumnSplits will put it once the alignment is rebuilt.
     const int inserted = groupStart + groupSize;
     splits.append(group.original);
-    m_columnSplits.insert(verseId, splits);
 
     // Spans hold column indices and are deliberately not regenerated once the
     // editor has corrected them, so they have to be moved by hand.
@@ -949,9 +933,11 @@ void AppController::splitColumn(const QString &verseId, int columnIndex)
     }
     draft.manualText.reset();
 
+    QMap<QString, QList<int>> nextSplits = m_columnSplits;
+    nextSplits.insert(verseId, splits);
     QMap<QString, CombinedDraft> next = m_combined;
     next.insert(verseId, draft);
-    commitCombined(next);
+    commitCombined(next, nextSplits);
 
     rebuildAlignedVerses();
     // The verse has a column it did not have, and each card holds its own copy
@@ -965,7 +951,7 @@ bool AppController::canMergeWithPrevious(const QString &verseId, int columnIndex
         if (aligned.reference.id != verseId) {
             continue;
         }
-        const ColumnGroup group = groupFor(
+        const ColumnGroup group = columnGroupFor(
             m_columnSplits.value(verseId), int(aligned.columns.size()), columnIndex);
         return group.original >= 0 && columnIndex > group.start;
     }
@@ -978,7 +964,7 @@ bool AppController::canMergeWithNext(const QString &verseId, int columnIndex) co
         if (aligned.reference.id != verseId) {
             continue;
         }
-        const ColumnGroup group = groupFor(
+        const ColumnGroup group = columnGroupFor(
             m_columnSplits.value(verseId), int(aligned.columns.size()), columnIndex);
         return group.original >= 0 && columnIndex + 1 < group.start + group.size;
     }
@@ -1001,7 +987,7 @@ void AppController::mergeColumns(const QString &verseId, int firstColumnIndex)
 
     QList<int> splits = m_columnSplits.value(verseId);
     const ColumnGroup group =
-        groupFor(splits, int(aligned->columns.size()), firstColumnIndex);
+        columnGroupFor(splits, int(aligned->columns.size()), firstColumnIndex);
     // Only two columns of one divided word may be joined. Where the witnesses
     // themselves read two words, the division is theirs and not the editor's,
     // so there is nothing here to undo.
@@ -1029,11 +1015,6 @@ void AppController::mergeColumns(const QString &verseId, int firstColumnIndex)
 
     const int removed = firstColumnIndex + 1;
     splits.removeOne(group.original);
-    if (splits.isEmpty()) {
-        m_columnSplits.remove(verseId);
-    } else {
-        m_columnSplits.insert(verseId, splits);
-    }
 
     // The mirror of the shift a division makes; spans are not regenerated once
     // corrected, so they are moved by hand here too.
@@ -1059,9 +1040,15 @@ void AppController::mergeColumns(const QString &verseId, int firstColumnIndex)
     draft.columns.removeAt(removed);
     draft.manualText.reset();
 
+    QMap<QString, QList<int>> nextSplits = m_columnSplits;
+    if (splits.isEmpty()) {
+        nextSplits.remove(verseId);
+    } else {
+        nextSplits.insert(verseId, splits);
+    }
     QMap<QString, CombinedDraft> next = m_combined;
     next.insert(verseId, draft);
-    commitCombined(next);
+    commitCombined(next, nextSplits);
 
     rebuildAlignedVerses();
     emit locationChanged();

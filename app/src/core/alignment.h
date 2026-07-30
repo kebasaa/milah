@@ -48,6 +48,29 @@ AlignedVerse alignVerse(
 /// Combined draft stops lining up with the columns it describes.
 AlignedVerse applyColumnSplits(AlignedVerse aligned, const QList<int> &splits);
 
+/// A divided word and the columns it now occupies: the column the alignment
+/// produced, plus every column dividing it has since added.
+struct ColumnGroup
+{
+    /// Index into the columns before any division, or -1 when out of range.
+    int original = -1;
+    /// Where the group starts among the columns actually on screen.
+    int start = 0;
+    int size = 1;
+};
+
+/// Which divided word a column on screen belongs to.
+///
+/// Dividing and joining both work on whole groups rather than on single cells,
+/// so that a word and the columns holding it stay in step however many times it
+/// has been divided. Both operations ask this, so neither can develop its own
+/// idea of where a group begins.
+///
+/// `columnCount` is the count after applyColumnSplits, and the two agree about
+/// which entries in `splits` count: one naming a column the alignment no longer
+/// has is ignored by both.
+ColumnGroup columnGroupFor(const QList<int> &splits, int columnCount, int columnIndex);
+
 /// Picks a reading for each column: the majority where there is one, otherwise
 /// the priority witness, flagging the column for review.
 CombinedDraft generateCombined(

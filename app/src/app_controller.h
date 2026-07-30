@@ -107,7 +107,9 @@ public slots:
     /// column of its own. The witnesses are untouched: they still read one word
     /// there, so their rows show a gap beside it.
     void splitColumn(const QString &verseId, int columnIndex);
-    /// Joins a column back into the one after it, undoing a division. Only two
+    /// Joins a column back into the one after it, undoing a division. The two
+    /// words are separated by a space: the maqaf a division was made at is not
+    /// remembered, and the cell can be typed in if it is wanted back. Only two
     /// columns of the same divided word can be joined: where the witnesses
     /// themselves read two words, the division is not the editor's to undo.
     void mergeColumns(const QString &verseId, int firstColumnIndex);
@@ -145,6 +147,13 @@ private:
     void rebuildAlignedVerses();
     void refreshTranslationSpans();
     void commitCombined(const QMap<QString, CombinedDraft> &next);
+    /// Records one undo step and puts both halves of a verse's state in place.
+    /// The divided columns move with the words because an undo restoring one
+    /// without the other would leave every word after a division one place out,
+    /// so a caller cannot change them separately and get the order wrong.
+    void commitCombined(
+        const QMap<QString, CombinedDraft> &next,
+        const QMap<QString, QList<int>> &nextSplits);
     bool regenerateWith(const QString &nextPriority);
     /// The one place a verse's columns are produced. Both the on-screen
     /// alignment and the generated drafts go through it, because a difference
