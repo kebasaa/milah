@@ -131,6 +131,13 @@ MainWindow::MainWindow(QWidget *parent)
         this,
         &MainWindow::rebuildVerseList);
     connect(m_controller, &AppController::verseChanged, this, &MainWindow::refreshVerse);
+    connect(m_controller, &AppController::displayOptionsChanged, this, [this] {
+        // Nothing the cards hold changed, only what they draw, so they redraw
+        // themselves rather than the whole chapter being rebuilt.
+        for (VerseGridWidget *card : m_verseCards) {
+            card->refresh();
+        }
+    });
     connect(m_controller, &AppController::messageChanged, this, [this](const QString &text) {
         statusBar()->showMessage(text);
     });
@@ -216,6 +223,13 @@ void MainWindow::buildToolBar()
         m_controller->setPriorityId(m_priorityCombo->currentData().toString());
     });
     toolBar->addWidget(m_priorityCombo);
+
+    auto *strongsAction = toolBar->addAction(QStringLiteral("Strong's"));
+    strongsAction->setCheckable(true);
+    strongsAction->setChecked(m_controller->strongsVisible());
+    strongsAction->setToolTip(
+        QStringLiteral("Show Strong's numbers under the Combined row"));
+    connect(strongsAction, &QAction::toggled, m_controller, &AppController::setStrongsVisible);
 
     m_regenerateAction = toolBar->addAction(QStringLiteral("Regenerate"));
     connect(

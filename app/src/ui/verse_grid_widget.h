@@ -60,6 +60,10 @@ private:
         QString acronym;
         QString tooltip;
         QList<Cell> cells;
+        /// Carried with the row because the band packing measures every row,
+        /// and the Strong's line is set smaller than the readings.
+        QFont font;
+        QString color;
     };
 
     /// A half-open run of aligned columns drawn as one table.
@@ -79,6 +83,8 @@ private:
         const DocumentRefs &manuscripts,
         const QHash<QString, QString> &acronyms) const;
     Row combinedRow(const CombinedDraft &draft) const;
+    /// The interlinear Strong's line, read off the Combined words above it.
+    Row strongsRow(const Row &combined) const;
 
     QGridLayout *addBand(bool separator);
     int addCells(QGridLayout *grid, int row, const Band &band, const Row &data);

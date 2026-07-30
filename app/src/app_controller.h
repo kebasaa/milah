@@ -45,6 +45,10 @@ public:
     QHash<QString, QString> acronyms() const { return sourceAcronyms(m_sources); }
     /// Which way the edition reads, taken from the reference manuscript.
     Qt::LayoutDirection readingDirection() const;
+    /// Whether the interlinear Strong's line is drawn. A view preference, so
+    /// it is not part of the project.
+    bool strongsVisible() const { return m_strongsVisible; }
+    void setStrongsVisible(bool visible);
     QString priorityId() const { return m_priorityId; }
     const QList<TranslationSpan> &translationSpans() const { return m_translationSpans; }
     const QList<Location> &locations() const { return m_locations; }
@@ -100,6 +104,8 @@ signals:
     /// The set of witnesses, the priority witness or the chapter list changed:
     /// the whole window needs rebuilding.
     void sourcesChanged();
+    /// What the verse cards show changed, but not what they hold.
+    void displayOptionsChanged();
     /// A different chapter is on screen.
     void locationChanged();
     /// One verse card needs refreshing.
@@ -142,6 +148,7 @@ private:
     QList<SourceDocument> m_sources;
     QList<TranslationAssociation> m_associations;
     QString m_priorityId;
+    bool m_strongsVisible = true;
     QMap<QString, CombinedDraft> m_combined;
     QList<TranslationSpan> m_translationSpans;
     std::optional<Location> m_location;
