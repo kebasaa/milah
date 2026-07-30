@@ -1,0 +1,55 @@
+{
+  "version": 1,
+  "about": [
+    "Editorial suggestions for the Combined edition. Unlike the orthography",
+    "checks, every rule here encodes an opinion about how the text should",
+    "read, so each one is proposed and never applied on its own.",
+    "",
+    "match:   one entry per consecutive Combined word. Compared on the",
+    "         consonantal skeleton, so the pointing written here does not",
+    "         have to agree with the manuscript's.",
+    "replace: what each matched word becomes. Leave an entry empty to keep",
+    "         that word as it is.",
+    "reason:  shown to the editor, so say why rather than what.",
+    "",
+    "Rules can also be kept in hebrew_phrase_rules.json under the",
+    "application data directory; those are read in addition to these."
+  ],
+  "rules": [
+    {
+      "match": ["יהושע", "משיח"],
+      "replace": ["", "הַמָּשִׁיחַ"],
+      "reason": "A title standing in apposition to a name takes the definite article: Yeshua the Messiah."
+    },
+    {
+      "match": ["ישוע", "משיח"],
+      "replace": ["", "הַמָּשִׁיחַ"],
+      "reason": "A title standing in apposition to a name takes the definite article: Yeshua the Messiah."
+    },
+    {
+      "match": ["ישו"],
+      "replace": ["יֵשׁוּעַ"],
+      "reason": "The truncated ישו is a derogatory shortening; the name is written in full as Yeshua."
+    },
+    {
+      "match": ["לישו"],
+      "replace": ["לְיֵשׁוּעַ"],
+      "reason": "The truncated ישו is a derogatory shortening; the name is written in full as Yeshua."
+    },
+    {
+      "match": ["וישו"],
+      "replace": ["וְיֵשׁוּעַ"],
+      "reason": "The truncated ישו is a derogatory shortening; the name is written in full as Yeshua."
+    },
+    {
+      "match": ["בישו"],
+      "replace": ["בְּיֵשׁוּעַ"],
+      "reason": "The truncated ישו is a derogatory shortening; the name is written in full as Yeshua."
+    },
+    {
+      "match": ["כישו"],
+      "replace": ["כְּיֵשׁוּעַ"],
+      "reason": "The truncated ישו is a derogatory shortening; the name is written in full as Yeshua."
+    }
+  ]
+}

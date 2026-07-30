@@ -4,6 +4,7 @@
 #include "core/alignment.h"
 #include "core/diff.h"
 #include "core/lexicon.h"
+#include "core/suggestions.h"
 
 #include <QFocusEvent>
 #include <QFontMetrics>
@@ -451,22 +452,7 @@ VerseGridWidget::Row VerseGridWidget::strongsRow(const Row &combined) const
             ? QStringLiteral("%1?").arg(entries.first().strongs)
             : entries.first().strongs;
         cell.html = cell.plain.toHtmlEscaped();
-
-        QStringList lines;
-        for (const LexiconEntry &entry : entries) {
-            QStringList parts{entry.strongs};
-            if (!entry.lemma.isEmpty()) {
-                parts.append(entry.lemma);
-            }
-            if (!entry.gloss.isEmpty()) {
-                parts.append(entry.gloss);
-            }
-            lines.append(parts.join(QStringLiteral("  ·  ")));
-        }
-        if (entries.size() > 1) {
-            lines.prepend(QStringLiteral("%1 possible readings:").arg(entries.size()));
-        }
-        cell.tooltip = lines.join(QStringLiteral("\n"));
+        cell.tooltip = strongsTooltip(entries);
 
         row.cells.append(cell);
     }
@@ -560,21 +546,33 @@ int VerseGridWidget::addCombinedCells(
 
         // Frameless, so a word looks like text until it is being edited: the
         // stylesheet gives the field a frame once it takes focus.
+        const QList<Suggestion> flags = m_suggestions.values(index);
+
         auto *field = new QLineEdit(cell.plain);
         field->setObjectName(QStringLiteral("combinedToken"));
         field->setProperty("unsettled", cell.unsettled);
+        field->setProperty("flagged", !flags.isEmpty());
         field->setFont(m_readingFont);
         field->setFrame(false);
         field->setTextMargins(0, 0, 0, 0);
         field->setAlignment(Qt::AlignCenter);
-        field->setToolTip(QStringLiteral(
-            "Type to change this word, or right-click to take a witness's reading."));
         field->setAccessibleName(cell.plain.isEmpty()
             ? QStringLiteral("Empty Combined word")
             : cell.plain);
         if (cell.unsettled) {
             field->setStyleSheet(QStringLiteral("color: %1;").arg(muted));
         }
+
+        QStringList tip;
+        for (const Suggestion &flag : flags) {
+            tip.append(flag.replacement.isEmpty()
+                ? flag.reason
+                : QStringLiteral("%1 → %2\n%3")
+                      .arg(cell.plain, flag.replacement, flag.reason));
+        }
+        tip.append(QStringLiteral(
+            "Type to change this word, or right-click for readings and suggestions."));
+        field->setToolTip(tip.join(QStringLiteral("\n\n")));
 
         connect(field, &QLineEdit::editingFinished, this, [this, field, index] {
             m_controller->setColumnText(verseId(), index, field->text());
@@ -605,6 +603,43 @@ void VerseGridWidget::showWitnessMenu(int columnIndex, const QPoint &globalPosit
     const QHash<QString, QString> acronyms = m_controller->acronyms();
 
     QMenu menu;
+
+    // What was flagged comes first: it is the reason the word is marked, and
+    // nothing here is applied until it is chosen.
+    const QList<Suggestion> flags = m_suggestions.values(columnIndex);
+    QString flaggedWord;
+    for (const Suggestion &flag : flags) {
+        if (flag.replacement.isEmpty()) {
+            continue;
+        }
+        QAction *action =
+            menu.addAction(QStringLiteral("Change to %1").arg(flag.replacement));
+        action->setToolTip(flag.reason);
+        const QString replacement = flag.replacement;
+        connect(action, &QAction::triggered, this, [this, columnIndex, replacement] {
+            m_controller->setColumnText(verseId(), columnIndex, replacement);
+        });
+    }
+    for (const Suggestion &flag : flags) {
+        if (flag.kind == SuggestionKind::UnknownForm) {
+            const ConsensusColumn &consensus =
+                m_controller->draftFor(m_aligned).columns.at(columnIndex);
+            flaggedWord = consensus.text.value_or(QString());
+            break;
+        }
+    }
+    if (!flaggedWord.isEmpty()) {
+        QAction *accept = menu.addAction(
+            QStringLiteral("Add %1 to my dictionary").arg(flaggedWord));
+        accept->setToolTip(
+            QStringLiteral("Stops Milah asking about this word, in every project."));
+        connect(accept, &QAction::triggered, this, [this, flaggedWord] {
+            m_controller->addToDictionary(flaggedWord);
+        });
+    }
+    if (!menu.isEmpty()) {
+        menu.addSeparator();
+    }
     for (const SourceDocument *source : m_controller->manuscripts()) {
         const SourceToken *token = column.cell(source->id);
         if (!token) {
@@ -808,6 +843,24 @@ void VerseGridWidget::build()
         readings.append(manuscriptRow(source, reference, manuscriptList, acronyms));
     }
     const Row combined = combinedRow(draft);
+
+    // Reviewed once per build and kept, so the context menu can offer what was
+    // found without going over the verse again.
+    m_suggestions.clear();
+    QList<std::optional<QString>> combinedWords;
+    combinedWords.reserve(combined.cells.size());
+    for (const Cell &cell : combined.cells) {
+        combinedWords.append(
+            cell.plain.isEmpty() ? std::nullopt : std::optional<QString>(cell.plain));
+    }
+    for (const Suggestion &suggestion : reviewVerse(
+             combinedWords,
+             HebrewLexicon::shared(),
+             PhraseRules::shared(),
+             m_controller->dictionary().keys())) {
+        m_suggestions.insert(suggestion.column, suggestion);
+    }
+
     const bool showStrongs = m_controller->strongsVisible();
     const Row strongs = showStrongs ? strongsRow(combined) : Row();
 

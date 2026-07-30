@@ -28,6 +28,11 @@ public:
 
 private:
     void buildToolBar();
+    /// Undo and redo carry window-wide shortcuts, which reach them before the
+    /// focus widget sees the key. When the caret is inside a Combined word,
+    /// that word's own history is what the reader means.
+    void undo();
+    void redo();
     void rebuildAll();
     void rebuildChapterList();
     void rebuildPriorityList();

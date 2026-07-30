@@ -1,5 +1,6 @@
 #include "core/lexicon.h"
 
+#include "core/data_paths.h"
 #include "core/tokenize.h"
 
 #include <QFile>
@@ -80,7 +81,13 @@ HebrewLexicon HebrewLexicon::fromJson(const QJsonObject &document)
                 item.key(),
                 record.value(QStringLiteral("l")).toString(),
                 record.value(QStringLiteral("x")).toString(),
+                record.value(QStringLiteral("p")).toString(),
+                record.value(QStringLiteral("d")).toString(),
                 record.value(QStringLiteral("g")).toString(),
+                record.value(QStringLiteral("k")).toString(),
+                record.value(QStringLiteral("bg")).toString(),
+                record.value(QStringLiteral("bd")).toString(),
+                record.value(QStringLiteral("m")).toString(),
             });
     }
     return lexicon;
@@ -94,14 +101,66 @@ QString pointedKey(const QString &text)
     return result.normalized(QString::NormalizationForm_C).trimmed();
 }
 
+QString strongsTooltip(const QList<LexiconEntry> &entries)
+{
+    if (entries.isEmpty()) {
+        return QString();
+    }
+
+    QStringList blocks;
+    for (const LexiconEntry &entry : entries) {
+        QStringList lines;
+
+        // Headline: the number, how the word is written and said, and what
+        // part of speech it is.
+        QStringList headline{entry.strongs};
+        if (!entry.lemma.isEmpty()) {
+            headline.append(entry.lemma);
+        }
+        if (!entry.transliteration.isEmpty()) {
+            headline.append(QStringLiteral("(%1)").arg(entry.transliteration));
+        }
+        if (!entry.morphology.isEmpty()) {
+            headline.append(QStringLiteral("[%1]").arg(entry.morphology));
+        }
+        lines.append(headline.join(QLatin1Char(' ')));
+
+        if (!entry.briefGloss.isEmpty()) {
+            lines.append(entry.briefGloss);
+        }
+        if (!entry.meaning.isEmpty()) {
+            lines.append(QString());
+            lines.append(entry.meaning);
+        }
+
+        // Strong's own wording last: it is the older and more slanted of the
+        // two, and worth having but not worth leading with.
+        if (!entry.gloss.isEmpty() && entry.gloss != entry.briefGloss) {
+            lines.append(QString());
+            lines.append(QStringLiteral("Strong's: %1").arg(entry.gloss));
+        }
+        if (!entry.derivation.isEmpty()) {
+            lines.append(QStringLiteral("From: %1").arg(entry.derivation));
+        }
+        if (!entry.kjvUsage.isEmpty()) {
+            lines.append(QStringLiteral("KJV: %1").arg(entry.kjvUsage));
+        }
+
+        blocks.append(lines.join(QLatin1Char('\n')));
+    }
+
+    if (blocks.size() > 1) {
+        blocks.prepend(
+            QStringLiteral("%1 possible readings:").arg(blocks.size()));
+    }
+    return blocks.join(QStringLiteral("\n\n"));
+}
+
 const HebrewLexicon &HebrewLexicon::shared()
 {
     static const HebrewLexicon lexicon = [] {
-        QFile file(QStringLiteral(":/data/hebrew_lexicon.json"));
-        if (!file.open(QIODevice::ReadOnly)) {
-            return HebrewLexicon();
-        }
-        return parse(file.readAll());
+        const QString path = locateDataFile(QStringLiteral("hebrew_lexicon.json"));
+        return path.isEmpty() ? HebrewLexicon() : fromFile(path);
     }();
     return lexicon;
 }

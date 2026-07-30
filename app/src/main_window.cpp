@@ -1,17 +1,22 @@
 #include "main_window.h"
 
 #include "app_controller.h"
+#include "ui/icons.h"
 #include "ui/source_settings_widget.h"
 #include "ui/verse_grid_widget.h"
 
 #include <QAction>
+#include <QApplication>
 #include <QComboBox>
 #include <QDockWidget>
+#include <QKeySequence>
 #include <QLabel>
+#include <QLineEdit>
 #include <QScrollArea>
 #include <QSignalBlocker>
 #include <QStatusBar>
 #include <QToolBar>
+#include <QToolButton>
 #include <QVBoxLayout>
 
 namespace milah {
@@ -47,6 +52,11 @@ QLineEdit#combinedToken {
 QLineEdit#combinedToken:hover {
     border-bottom: 1px solid palette(mid);
 }
+/* Something was flagged for this word. Advisory only — right-click to see
+   what, and nothing changes until it is chosen. */
+QLineEdit#combinedToken[flagged="true"] {
+    border-bottom: 2px dotted rgba(214, 149, 46, 0.95);
+}
 QLineEdit#combinedToken:focus {
     background: palette(alternate-base);
     border-bottom: 2px solid palette(highlight);
@@ -70,6 +80,10 @@ QWidget#translationSpan QToolButton {
     max-width: 14px;
     font-size: 10px;
 }
+QLabel#dataWarning {
+    color: rgba(214, 149, 46, 1.0);
+    padding-right: 8px;
+}
 QLabel#verseFlags {
     color: rgba(176, 90, 43, 1.0);
     font-size: 11px;
@@ -79,6 +93,26 @@ QLabel#emptyState {
     font-size: 14px;
 }
 )CSS";
+
+/// Spells the accelerator out in the tooltip. There is no menu bar here, so a
+/// tooltip is the only place a shortcut gets advertised.
+void describeShortcut(QAction *action)
+{
+    const QString shortcut = action->shortcut().toString(QKeySequence::NativeText);
+    action->setToolTip(shortcut.isEmpty()
+        ? action->text()
+        : QStringLiteral("%1 (%2)").arg(action->text(), shortcut));
+}
+
+/// Drops an action's label while keeping it for the tooltip and for assistive
+/// technology. Used for the chapter arrows and the history pair, whose glyphs
+/// say nothing worth the width beside an icon.
+void showIconOnly(QToolBar *toolBar, QAction *action)
+{
+    if (auto *button = qobject_cast<QToolButton *>(toolBar->widgetForAction(action))) {
+        button->setToolButtonStyle(Qt::ToolButtonIconOnly);
+    }
+}
 
 } // namespace
 
@@ -124,6 +158,16 @@ MainWindow::MainWindow(QWidget *parent)
 
     statusBar()->showMessage(m_controller->message());
 
+    // A missing data file has to stay visible: an ordinary status message is
+    // replaced by the next thing that happens, and the symptom — a blank
+    // Strong's row — looks like the feature simply not existing.
+    if (!m_controller->dataWarning().isEmpty()) {
+        auto *warning = new QLabel(QStringLiteral("⚠ No lexicon"));
+        warning->setObjectName(QStringLiteral("dataWarning"));
+        warning->setToolTip(m_controller->dataWarning());
+        statusBar()->addPermanentWidget(warning);
+    }
+
     connect(m_controller, &AppController::sourcesChanged, this, &MainWindow::rebuildAll);
     connect(
         m_controller,
@@ -163,28 +207,50 @@ void MainWindow::openFiles(
 
 void MainWindow::buildToolBar()
 {
+    const QPalette windowPalette = palette();
+
     auto *toolBar = addToolBar(QStringLiteral("Main"));
     toolBar->setObjectName(QStringLiteral("mainToolBar"));
     toolBar->setMovable(false);
-    toolBar->setToolButtonStyle(Qt::ToolButtonTextOnly);
+    toolBar->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
 
     auto *loadManuscripts = toolBar->addAction(QStringLiteral("Load manuscripts"));
+    loadManuscripts->setIcon(appIcon(QStringLiteral("load-manuscript"), windowPalette));
+    loadManuscripts->setShortcut(QKeySequence(QStringLiteral("Ctrl+M")));
+    describeShortcut(loadManuscripts);
     connect(loadManuscripts, &QAction::triggered, this, [this] {
         m_controller->loadSources(SourceRole::Manuscript);
     });
 
     auto *loadTranslations = toolBar->addAction(QStringLiteral("Load translations"));
+    loadTranslations->setIcon(appIcon(QStringLiteral("load-translation"), windowPalette));
+    loadTranslations->setShortcut(QKeySequence(QStringLiteral("Ctrl+T")));
+    describeShortcut(loadTranslations);
     connect(loadTranslations, &QAction::triggered, this, [this] {
         m_controller->loadSources(SourceRole::Translation);
     });
 
     auto *openProject = toolBar->addAction(QStringLiteral("Open project"));
+    openProject->setIcon(actionIcon(
+        QIcon::ThemeIcon::DocumentOpen, QStringLiteral("document-open"), windowPalette));
+    openProject->setShortcut(QKeySequence::Open);
+    describeShortcut(openProject);
     connect(openProject, &QAction::triggered, m_controller, &AppController::openProject);
 
     m_saveAction = toolBar->addAction(QStringLiteral("Save project"));
+    m_saveAction->setIcon(actionIcon(
+        QIcon::ThemeIcon::DocumentSave, QStringLiteral("document-save"), windowPalette));
+    m_saveAction->setShortcut(QKeySequence::Save);
+    describeShortcut(m_saveAction);
     connect(m_saveAction, &QAction::triggered, m_controller, &AppController::saveProject);
 
     m_exportAction = toolBar->addAction(QStringLiteral("Export Combined"));
+    m_exportAction->setIcon(actionIcon(
+        QIcon::ThemeIcon::DocumentSaveAs,
+        QStringLiteral("document-save-as"),
+        windowPalette));
+    m_exportAction->setShortcut(QKeySequence(QStringLiteral("Ctrl+E")));
+    describeShortcut(m_exportAction);
     connect(
         m_exportAction, &QAction::triggered, m_controller, &AppController::exportCombined);
 
@@ -201,16 +267,24 @@ void MainWindow::buildToolBar()
     });
     toolBar->addWidget(m_chapterCombo);
 
-    m_previousAction = toolBar->addAction(QStringLiteral("‹"));
-    m_previousAction->setToolTip(QStringLiteral("Previous common chapter"));
+    m_previousAction = toolBar->addAction(QStringLiteral("Previous common chapter"));
+    m_previousAction->setIcon(actionIcon(
+        QIcon::ThemeIcon::GoPrevious, QStringLiteral("go-previous"), windowPalette));
+    m_previousAction->setShortcut(QKeySequence(QStringLiteral("Alt+Left")));
+    describeShortcut(m_previousAction);
+    showIconOnly(toolBar, m_previousAction);
     connect(
         m_previousAction,
         &QAction::triggered,
         m_controller,
         &AppController::goToPreviousLocation);
 
-    m_nextAction = toolBar->addAction(QStringLiteral("›"));
-    m_nextAction->setToolTip(QStringLiteral("Next common chapter"));
+    m_nextAction = toolBar->addAction(QStringLiteral("Next common chapter"));
+    m_nextAction->setIcon(actionIcon(
+        QIcon::ThemeIcon::GoNext, QStringLiteral("go-next"), windowPalette));
+    m_nextAction->setShortcut(QKeySequence(QStringLiteral("Alt+Right")));
+    describeShortcut(m_nextAction);
+    showIconOnly(toolBar, m_nextAction);
     connect(
         m_nextAction, &QAction::triggered, m_controller, &AppController::goToNextLocation);
 
@@ -232,20 +306,53 @@ void MainWindow::buildToolBar()
     connect(strongsAction, &QAction::toggled, m_controller, &AppController::setStrongsVisible);
 
     m_regenerateAction = toolBar->addAction(QStringLiteral("Regenerate"));
+    m_regenerateAction->setIcon(actionIcon(
+        QIcon::ThemeIcon::ViewRefresh, QStringLiteral("view-refresh"), windowPalette));
+    m_regenerateAction->setShortcut(QKeySequence(QStringLiteral("F5")));
+    describeShortcut(m_regenerateAction);
     connect(
         m_regenerateAction, &QAction::triggered, m_controller, &AppController::regenerate);
 
     toolBar->addSeparator();
 
-    m_undoAction = toolBar->addAction(QStringLiteral("↶"));
-    m_undoAction->setToolTip(QStringLiteral("Undo"));
+    m_undoAction = toolBar->addAction(QStringLiteral("Undo"));
+    m_undoAction->setIcon(actionIcon(
+        QIcon::ThemeIcon::EditUndo, QStringLiteral("edit-undo"), windowPalette));
     m_undoAction->setShortcut(QKeySequence::Undo);
-    connect(m_undoAction, &QAction::triggered, m_controller, &AppController::undo);
+    describeShortcut(m_undoAction);
+    showIconOnly(toolBar, m_undoAction);
+    connect(m_undoAction, &QAction::triggered, this, &MainWindow::undo);
 
-    m_redoAction = toolBar->addAction(QStringLiteral("↷"));
-    m_redoAction->setToolTip(QStringLiteral("Redo"));
+    m_redoAction = toolBar->addAction(QStringLiteral("Redo"));
+    m_redoAction->setIcon(actionIcon(
+        QIcon::ThemeIcon::EditRedo, QStringLiteral("edit-redo"), windowPalette));
     m_redoAction->setShortcut(QKeySequence::Redo);
-    connect(m_redoAction, &QAction::triggered, m_controller, &AppController::redo);
+    describeShortcut(m_redoAction);
+    showIconOnly(toolBar, m_redoAction);
+    connect(m_redoAction, &QAction::triggered, this, &MainWindow::redo);
+}
+
+void MainWindow::undo()
+{
+    // Ctrl+Z reaches the window's action before the focus widget sees the key,
+    // so a Combined word being typed in would otherwise lose the whole verse
+    // edit instead of the last few characters.
+    auto *editor = qobject_cast<QLineEdit *>(QApplication::focusWidget());
+    if (editor && editor->isUndoAvailable()) {
+        editor->undo();
+        return;
+    }
+    m_controller->undo();
+}
+
+void MainWindow::redo()
+{
+    auto *editor = qobject_cast<QLineEdit *>(QApplication::focusWidget());
+    if (editor && editor->isRedoAvailable()) {
+        editor->redo();
+        return;
+    }
+    m_controller->redo();
 }
 
 void MainWindow::updateWindowTitle()
