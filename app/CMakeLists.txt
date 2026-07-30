@@ -33,6 +33,8 @@ add_library(MilahCore STATIC
     src/core/books.h
     src/core/tokenize.cpp
     src/core/tokenize.h
+    src/core/diff.cpp
+    src/core/diff.h
     src/core/osis.cpp
     src/core/osis.h
     src/core/alignment.cpp
@@ -111,7 +113,7 @@ if(MILAH_BUILD_TESTS)
     enable_testing()
     find_package(Qt6 6.6 REQUIRED COMPONENTS Test)
 
-    foreach(test_name project_storage osis consensus apparatus)
+    foreach(test_name project_storage osis consensus apparatus diff acronym)
         # Plain add_executable, not qt_add_executable: the latter finalises the
         # target as a Windows GUI application, and a GUI-subsystem binary
         # discards the stdout QTest reports through, leaving a failing test

@@ -41,6 +41,10 @@ public:
     DocumentRefs translations() const;
     const QList<TranslationAssociation> &associations() const { return m_associations; }
     QHash<QString, QString> associationMap() const;
+    /// Short labels naming each source in the verse view, keyed by source id.
+    QHash<QString, QString> acronyms() const { return sourceAcronyms(m_sources); }
+    /// Which way the edition reads, taken from the reference manuscript.
+    Qt::LayoutDirection readingDirection() const;
     QString priorityId() const { return m_priorityId; }
     const QList<TranslationSpan> &translationSpans() const { return m_translationSpans; }
     const QList<Location> &locations() const { return m_locations; }
@@ -83,6 +87,8 @@ public slots:
 
     void setAssociation(const QString &translationId, const QString &manuscriptId);
     void chooseToken(const QString &verseId, int columnIndex, const QString &sourceId);
+    /// Sets one Combined word by hand. An empty text drops the word.
+    void setColumnText(const QString &verseId, int columnIndex, const QString &text);
     void setManualText(const QString &verseId, const QString &text);
 
     void moveSpan(const QString &spanId, int delta);
@@ -112,6 +118,10 @@ private:
     void refreshTranslationSpans();
     void commitCombined(const QMap<QString, CombinedDraft> &next);
     bool regenerateWith(const QString &nextPriority);
+    void applyColumn(
+        const QString &verseId,
+        int columnIndex,
+        const ConsensusColumn &column);
     QMap<QString, CombinedDraft> buildCombined(
         const DocumentRefs &manuscripts,
         const QString &priorityId) const;
@@ -120,6 +130,12 @@ private:
         const DocumentRefs &manuscripts) const;
     bool confirm(const QString &question);
     bool hasManualEdits() const;
+
+    /// The folder last used in a load/open dialog, remembered across runs via
+    /// QSettings. Empty until the user opens something.
+    QString lastDirectory() const;
+    /// Records the folder containing filePath as the last used directory.
+    void rememberDirectory(const QString &filePath);
 
     QWidget *m_dialogParent = nullptr;
 

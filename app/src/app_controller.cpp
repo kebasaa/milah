@@ -14,6 +14,7 @@
 #include <QMessageBox>
 #include <QSaveFile>
 #include <QSet>
+#include <QSettings>
 #include <QWidget>
 
 #include <algorithm>
@@ -322,19 +323,42 @@ bool AppController::regenerateWith(const QString &nextPriority)
     return true;
 }
 
+QString AppController::lastDirectory() const
+{
+    // Empty when nothing has been opened yet, which asks QFileDialog to fall
+    // back to its own default (the working or last-system directory).
+    return QSettings().value(QStringLiteral("paths/lastDirectory")).toString();
+}
+
+void AppController::rememberDirectory(const QString &filePath)
+{
+    if (filePath.isEmpty()) {
+        return;
+    }
+    QSettings().setValue(
+        QStringLiteral("paths/lastDirectory"),
+        QFileInfo(filePath).absolutePath());
+}
+
 void AppController::loadSources(SourceRole role)
 {
     const QString title = role == SourceRole::Translation
         ? QStringLiteral("Load translation OSIS files")
         : QStringLiteral("Load manuscript OSIS files");
 
-    loadPaths(
-        role,
-        QFileDialog::getOpenFileNames(
-            m_dialogParent,
-            title,
-            {},
-            QStringLiteral("OSIS files (*.osis *.xml);;All files (*)")));
+    const QStringList paths = QFileDialog::getOpenFileNames(
+        m_dialogParent,
+        title,
+        lastDirectory(),
+        QStringLiteral("OSIS files (*.osis *.xml);;All files (*)"));
+
+    // Reopen the same folder next time, even if the load below is cancelled or
+    // rejected further down.
+    if (!paths.isEmpty()) {
+        rememberDirectory(paths.first());
+    }
+
+    loadPaths(role, paths);
 }
 
 void AppController::loadPaths(SourceRole role, const QStringList &paths)
@@ -653,6 +677,70 @@ void AppController::setAssociation(
     emit locationChanged();
 }
 
+Qt::LayoutDirection AppController::readingDirection() const
+{
+    const DocumentRefs sources = manuscripts();
+    if (sources.isEmpty()) {
+        return Qt::LeftToRight;
+    }
+
+    const SourceDocument *reference = sources.first();
+    for (const SourceDocument *source : sources) {
+        if (source->id == m_priorityId) {
+            reference = source;
+            break;
+        }
+    }
+    return isRightToLeft(reference->metadata.language) ? Qt::RightToLeft
+                                                       : Qt::LeftToRight;
+}
+
+void AppController::applyColumn(
+    const QString &verseId,
+    int columnIndex,
+    const ConsensusColumn &column)
+{
+    const AlignedVerse *aligned = nullptr;
+    for (const AlignedVerse &candidate : m_alignedVerses) {
+        if (candidate.reference.id == verseId) {
+            aligned = &candidate;
+            break;
+        }
+    }
+    if (!aligned || columnIndex < 0 || columnIndex >= aligned->columns.size()) {
+        return;
+    }
+
+    CombinedDraft draft = draftFor(*aligned);
+    if (columnIndex >= draft.columns.size()) {
+        return;
+    }
+
+    // A project written before the Combined row became editable can still carry
+    // whole-verse manual text, which combinedText() prefers over the columns.
+    // Settling a word takes the verse back to its columns, so that the row and
+    // the preview agree again.
+    if (draft.manualText.has_value()
+        && !confirm(QStringLiteral(
+            "Replace the manual text for this verse with the chosen words?"))) {
+        return;
+    }
+
+    const ConsensusColumn &existing = draft.columns.at(columnIndex);
+    if (!draft.manualText.has_value() && existing.text == column.text
+        && existing.sourceId == column.sourceId && !existing.needsReview) {
+        return;
+    }
+
+    draft.columns[columnIndex] = column;
+    draft.manualText.reset();
+
+    QMap<QString, CombinedDraft> next = m_combined;
+    next.insert(verseId, draft);
+    commitCombined(next);
+    emit verseChanged(verseId);
+}
+
 void AppController::chooseToken(
     const QString &verseId,
     int columnIndex,
@@ -669,31 +757,30 @@ void AppController::chooseToken(
         return;
     }
 
-    CombinedDraft draft = draftFor(*aligned);
-    if (draft.manualText.has_value()
-        && !confirm(QStringLiteral(
-            "Replace the manual text with aligned token choices?"))) {
-        return;
-    }
-
-    if (columnIndex >= draft.columns.size()) {
-        return;
-    }
-
-    const SourceToken *token = aligned->columns.at(columnIndex).cell(sourceId);
+    // The reading came from a witness rather than from the keyboard, so the
+    // column records which one: the apparatus reports where a reading came from.
     ConsensusColumn column;
     column.sourceId = sourceId;
     column.needsReview = false;
-    if (token) {
+    if (const SourceToken *token = aligned->columns.at(columnIndex).cell(sourceId)) {
         column.text = token->text;
     }
-    draft.columns[columnIndex] = column;
-    draft.manualText.reset();
+    applyColumn(verseId, columnIndex, column);
+}
 
-    QMap<QString, CombinedDraft> next = m_combined;
-    next.insert(verseId, draft);
-    commitCombined(next);
-    emit verseChanged(verseId);
+void AppController::setColumnText(
+    const QString &verseId,
+    int columnIndex,
+    const QString &text)
+{
+    const QString trimmed = text.trimmed();
+
+    ConsensusColumn column;
+    column.needsReview = false;
+    if (!trimmed.isEmpty()) {
+        column.text = trimmed;
+    }
+    applyColumn(verseId, columnIndex, column);
 }
 
 void AppController::setManualText(const QString &verseId, const QString &text)
