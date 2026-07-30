@@ -8,13 +8,25 @@ class QJsonObject;
 
 namespace milah {
 
-/// One Strong's dictionary entry.
+/// One dictionary entry: Strong's own text, and the abridged
+/// Brown-Driver-Briggs that STEPBible keys to the same number.
 struct LexiconEntry
 {
     QString strongs;
     QString lemma;
     QString transliteration;
+    QString pronunciation;
+    QString derivation;
+    /// Strong's definition.
     QString gloss;
+    /// Strong's list of KJV renderings.
+    QString kjvUsage;
+    /// The brief gloss Tyndale scholars give the word.
+    QString briefGloss;
+    /// Abridged BDB, its senses one per line.
+    QString meaning;
+    /// Part of speech, in STEPBible's notation — "H:N-M" for a masculine noun.
+    QString morphology;
 };
 
 /// Strong's numbers for Hebrew words, looked up by the form as written.
@@ -56,5 +68,10 @@ private:
 /// The word with its niqqud but without cantillation, which manuscript text
 /// rarely carries. Complements comparisonKey(), which drops the points too.
 QString pointedKey(const QString &text);
+
+/// The dictionary entry as shown on hovering a Strong's number. Lives here
+/// rather than in the widget so that what the reader ends up seeing can be
+/// asserted on without a mouse.
+QString strongsTooltip(const QList<LexiconEntry> &entries);
 
 } // namespace milah

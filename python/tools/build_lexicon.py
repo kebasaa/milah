@@ -1,11 +1,15 @@
 """Build the Hebrew lexicon index Milah ships with.
 
-Two openly licensed sources are folded into one compact JSON file:
+Three openly licensed sources are folded into one compact JSON file:
 
 * Strong's Hebrew Dictionary (public domain, 1890), as published by the
   OpenScriptures project, for the entry text of each number.
 * The Westminster Leningrad Codex with morphology (OpenScriptures morphhb,
   CC BY 4.0), for the inflected forms each number actually appears as.
+* TBESH, the Translators Brief lexicon of Extended Strongs for Hebrew
+  (STEPBible.org, CC BY 4.0) — an abridged Brown-Driver-Briggs — for the gloss
+  a reader actually wants, Strong's 1890 wording being both dated and slanted
+  towards KJV renderings.
 
 The result is committed as ``app/data/hebrew_lexicon.json`` and compiled into
 the binary as a Qt resource; the raw downloads are not kept. Run it again only
@@ -16,6 +20,7 @@ Usage::
     python python/tools/build_lexicon.py \\
         --strongs  <dir>/strongs-hebrew-dictionary.js \\
         --wlc      <dir>/wlc \\
+        --tbesh    <dir>/tbesh.txt \\
         --out      app/data/hebrew_lexicon.json
 """
 
@@ -73,6 +78,13 @@ def pointed_key(text: str) -> str:
     return unicodedata.normalize("NFC", "".join(kept)).strip()
 
 
+def tidy(value: str) -> str:
+    """Strong's brackets uncertain glosses and marks idioms; neither belongs in
+    something a reader hovers."""
+    cleaned = (value or "").replace("{", "").replace("}", "").replace("[idiom]", "")
+    return _WHITESPACE.sub(" ", cleaned).strip()
+
+
 def load_strongs(path: Path) -> dict[str, dict[str, str]]:
     """Reads the dictionary out of its JavaScript wrapper."""
     text = path.read_text(encoding="utf-8")
@@ -82,19 +94,69 @@ def load_strongs(path: Path) -> dict[str, dict[str, str]]:
 
     entries: dict[str, dict[str, str]] = {}
     for number, record in raw.items():
-        gloss = (record.get("strongs_def") or record.get("kjv_def") or "").strip()
-        # The dictionary brackets uncertain glosses and marks idioms; neither
-        # reads well in a one-line interlinear cell.
-        gloss = gloss.replace("{", "").replace("}", "").replace("[idiom]", "").strip()
-        gloss = _WHITESPACE.sub(" ", gloss)
-        if len(gloss) > 90:
-            gloss = gloss[:87].rstrip(" ,;") + "…"
         entries[number] = {
             "l": record.get("lemma", ""),
             "x": record.get("xlit", ""),
-            "g": gloss,
+            "p": record.get("pron", ""),
+            "d": tidy(record.get("derivation", "")),
+            "g": tidy(record.get("strongs_def", "")),
+            "k": tidy(record.get("kjv_def", "")),
         }
     return entries
+
+
+def load_tbesh(path: Path, sense_limit: int, meaning_limit: int) -> dict[str, dict[str, str]]:
+    """Reads the STEPBible lexicon, keyed by the plain Strong's number.
+
+    Its ``eStrong#`` column is zero-padded and often carries a homonym letter,
+    and several extended entries can share one base number — H0001 covers both
+    "father" and a proper name. They are merged in file order, because that is
+    the order the lexicon itself considers primary.
+    """
+    glosses: dict[str, list[str]] = defaultdict(list)
+    meanings: dict[str, str] = {}
+    morphs: dict[str, str] = {}
+
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if not line.startswith("H") or "\t" not in line:
+            continue
+        fields = line.split("\t")
+        if len(fields) < 7:
+            continue
+
+        digits = re.match(r"H(\d+)", fields[0])
+        if not digits:
+            continue
+        number = "H" + str(int(digits.group(1)))
+
+        gloss = _WHITESPACE.sub(" ", fields[6]).strip()
+        if gloss and gloss not in glosses[number] and len(glosses[number]) < sense_limit:
+            glosses[number].append(gloss)
+
+        if number not in meanings and len(fields) > 7:
+            # BDB's senses are separated by <br>; anything else angle-bracketed
+            # is markup that would show through as literal text in a tooltip.
+            meaning = re.sub(r"<[Bb][Rr]\s*/?>", "\n", fields[7])
+            meaning = re.sub(r"<[^>]+>", "", meaning)
+            meaning = "\n".join(
+                _WHITESPACE.sub(" ", part).strip() for part in meaning.split("\n")
+            ).strip()
+            if len(meaning) > meaning_limit:
+                meaning = meaning[: meaning_limit - 1].rstrip(" ,;\n") + "…"
+            if meaning:
+                meanings[number] = meaning
+
+        if number not in morphs and fields[5].strip():
+            morphs[number] = fields[5].strip()
+
+    merged: dict[str, dict[str, str]] = {}
+    for number in set(glosses) | set(meanings) | set(morphs):
+        merged[number] = {
+            "bg": "; ".join(glosses.get(number, [])),
+            "bd": meanings.get(number, ""),
+            "m": morphs.get(number, ""),
+        }
+    return merged
 
 
 def strongs_numbers(lemma: str) -> list[str]:
@@ -179,6 +241,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--strongs", required=True, type=Path)
     parser.add_argument("--wlc", required=True, type=Path)
+    parser.add_argument("--tbesh", type=Path, help="STEPBible TBESH lexicon")
     parser.add_argument("--out", required=True, type=Path)
     parser.add_argument(
         "--max-candidates",
@@ -186,11 +249,34 @@ def main() -> int:
         default=4,
         help="how many Strong's numbers to keep per form",
     )
+    parser.add_argument(
+        "--max-senses",
+        type=int,
+        default=3,
+        help="how many TBESH glosses to keep per Strong's number",
+    )
+    parser.add_argument(
+        "--max-meaning",
+        type=int,
+        default=420,
+        help="characters of BDB to keep; it feeds a tooltip, not a reference work",
+    )
     arguments = parser.parse_args()
 
     print("Reading Strong's dictionary…", file=sys.stderr)
     entries = load_strongs(arguments.strongs)
     print(f"  {len(entries)} entries", file=sys.stderr)
+
+    if arguments.tbesh:
+        print("Reading the STEPBible lexicon…", file=sys.stderr)
+        tbesh = load_tbesh(arguments.tbesh, arguments.max_senses, arguments.max_meaning)
+        print(f"  {len(tbesh)} entries", file=sys.stderr)
+        matched = 0
+        for number, extra in tbesh.items():
+            if number in entries:
+                entries[number].update(extra)
+                matched += 1
+        print(f"  {matched} matched a Strong's entry", file=sys.stderr)
 
     print("Indexing the Westminster Leningrad Codex…", file=sys.stderr)
     forms, pointed = index_wlc(arguments.wlc)
@@ -207,8 +293,9 @@ def main() -> int:
     document = {
         "version": 1,
         "about": (
-            "Strong's Hebrew Dictionary (public domain) and the Westminster "
-            "Leningrad Codex morphology from OpenScriptures morphhb (CC BY 4.0). "
+            "Strong's Hebrew Dictionary (public domain); Westminster Leningrad "
+            "Codex morphology from OpenScriptures morphhb (CC BY 4.0); abridged "
+            "Brown-Driver-Briggs from STEP Bible, www.STEPBible.org (CC BY 4.0). "
             "See app/data/README.md."
         ),
         "entries": kept,

@@ -976,7 +976,16 @@ Write-Step 'Assembling portable Milah folder'
 
 New-Item -ItemType Directory -Force -Path $PortableDir | Out-Null
 $PortableExe = Join-Path $PortableDir 'Milah.exe'
-Copy-Item -LiteralPath $MilahExe -Destination $PortableExe -Force
+
+# Rebuilding with the app still open is an easy thing to do, and Windows will
+# not let a running executable be overwritten. Say so, rather than surfacing the
+# raw file-sharing error from three frames down.
+try {
+    Copy-Item -LiteralPath $MilahExe -Destination $PortableExe -Force -ErrorAction Stop
+}
+catch [System.IO.IOException] {
+    throw "Could not replace $PortableExe because it is in use. Milah is most likely still running: close it and run this script again, or pass -SkipPortable to build without repackaging. The freshly built executable is at $MilahExe."
+}
 Copy-Item -LiteralPath $QuaZipDll -Destination (Join-Path $PortableDir (Split-Path -Leaf $QuaZipDll)) -Force
 Copy-Item -LiteralPath $ZlibDll -Destination (Join-Path $PortableDir (Split-Path -Leaf $ZlibDll)) -Force
 
@@ -990,6 +999,23 @@ Invoke-LoggedCommand `
 
 Assert-PortableQtRuntime -PortableRoot $PortableDir -DllNames @('Qt6Core.dll', 'Qt6Gui.dll', 'Qt6Widgets.dll')
 Copy-ToolchainRuntimeDlls -ToolchainBin $MinGwBin -PortableRoot $PortableDir -Executables @($PortableExe)
+
+# The Hebrew lexicon and rule table are read from disk rather than compiled in,
+# so that they can be replaced without a rebuild. That also means a portable
+# copy without them silently loses its Strong's numbers, so they travel here.
+$DataSource = Join-Path $ResolvedAppSourceDir 'data'
+$DataTarget = Join-Path $PortableDir 'data'
+if (-not (Test-Path -LiteralPath $DataSource -PathType Container)) {
+    throw "The data directory is missing: $DataSource"
+}
+New-Item -ItemType Directory -Force -Path $DataTarget | Out-Null
+foreach ($dataFile in Get-ChildItem -LiteralPath $DataSource -File -Filter '*.json') {
+    Write-Host "Copying data file: $($dataFile.Name)"
+    Copy-Item -LiteralPath $dataFile.FullName -Destination $DataTarget -Force
+}
+if (-not (Test-Path -LiteralPath (Join-Path $DataTarget 'hebrew_lexicon.json') -PathType Leaf)) {
+    throw "hebrew_lexicon.json did not reach $DataTarget"
+}
 
 if (-not $KeepBuildArtifacts) {
     Write-Step 'Cleaning transient build folder'

@@ -1,6 +1,8 @@
 #include "app_controller.h"
 
 #include "core/coverage.h"
+#include "core/data_paths.h"
+#include "core/lexicon.h"
 #include "core/osis.h"
 #include "core/project.h"
 #include "core/serialize.h"
@@ -46,6 +48,18 @@ AppController::AppController(QWidget *dialogParent, QObject *parent)
     , m_dialogParent(dialogParent)
     , m_message(QStringLiteral("Load two or more manuscript OSIS files to begin."))
 {
+    // The lexicon is a file beside the executable rather than part of it, so it
+    // can go missing. Without it the Strong's row is empty and the spelling
+    // check stands down, neither of which is obvious. This is kept apart from
+    // the status message, which the next action would overwrite; the window
+    // shows it as a standing indicator instead.
+    if (HebrewLexicon::shared().isEmpty()) {
+        m_dataWarning = QStringLiteral(
+                            "hebrew_lexicon.json was not found, so Strong's "
+                            "numbers and the spelling check are unavailable.\n\n"
+                            "Looked in:\n  %1")
+                            .arg(dataSearchPaths().join(QStringLiteral("\n  ")));
+    }
 }
 
 DocumentRefs AppController::manuscripts() const
@@ -701,6 +715,19 @@ void AppController::setStrongsVisible(bool visible)
         return;
     }
     m_strongsVisible = visible;
+    emit displayOptionsChanged();
+}
+
+void AppController::addToDictionary(const QString &word)
+{
+    if (word.trimmed().isEmpty()) {
+        return;
+    }
+    if (!m_dictionary.add(word)) {
+        setMessage(
+            QStringLiteral("Could not save the word to your dictionary; it will "
+                           "be forgotten when Milah closes."));
+    }
     emit displayOptionsChanged();
 }
 

@@ -1,9 +1,11 @@
 #pragma once
 
 #include "core/alignment.h"
+#include "core/suggestions.h"
 #include "core/types.h"
 
 #include <QFont>
+#include <QMultiHash>
 #include <QPlainTextEdit>
 #include <QWidget>
 
@@ -113,6 +115,9 @@ private:
 
     QFont m_readingFont;
     QFont m_acronymFont;
+    /// What the last build found worth flagging, keyed by aligned column, so
+    /// the context menu can offer it without reviewing the verse again.
+    QMultiHash<int, Suggestion> m_suggestions;
     /// Width the current bands were packed for. Reflowing keys off this rather
     /// than off the card's own width, which follows the content it is given.
     int m_builtForAvailable = -1;

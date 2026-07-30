@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24"
+     fill="none" stroke="#000" stroke-width="1.7"
+     stroke-linecap="round" stroke-linejoin="round">
+  <!-- Two sheets: a translation always stands beside the witness it renders. -->
+  <path d="M9.6 3.5h5.2L18 6.7v8.4a1.5 1.5 0 0 1-1.5 1.5H9.6a1.5 1.5 0 0 1-1.5-1.5V5a1.5 1.5 0 0 1 1.5-1.5z"/>
+  <path d="M14.6 3.7v3.3H18"/>
+  <path d="M5.2 7.6A1.5 1.5 0 0 0 4 9.1V19a1.5 1.5 0 0 0 1.5 1.5h7A1.5 1.5 0 0 0 14 19v-2.4"/>
+</svg>

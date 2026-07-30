@@ -1,6 +1,7 @@
 #pragma once
 
 #include "core/alignment.h"
+#include "core/suggestions.h"
 #include "core/types.h"
 
 #include <QHash>
@@ -49,6 +50,9 @@ public:
     /// it is not part of the project.
     bool strongsVisible() const { return m_strongsVisible; }
     void setStrongsVisible(bool visible);
+    /// Words the editor has accepted, so the spelling checks stop asking.
+    const UserDictionary &dictionary() const { return m_dictionary; }
+    void addToDictionary(const QString &word);
     QString priorityId() const { return m_priorityId; }
     const QList<TranslationSpan> &translationSpans() const { return m_translationSpans; }
     const QList<Location> &locations() const { return m_locations; }
@@ -59,6 +63,9 @@ public:
     bool canUndo() const { return !m_undoStack.isEmpty(); }
     bool canRedo() const { return !m_redoStack.isEmpty(); }
     QString message() const { return m_message; }
+    /// Set when a data file Milah needs is missing. Empty when all is well.
+    /// Kept out of message(), which any later action would overwrite.
+    QString dataWarning() const { return m_dataWarning; }
 
     ReviewFilters filters() const { return m_filters; }
     void setFilters(const ReviewFilters &filters);
@@ -149,6 +156,7 @@ private:
     QList<TranslationAssociation> m_associations;
     QString m_priorityId;
     bool m_strongsVisible = true;
+    UserDictionary m_dictionary{UserDictionary::defaultPath()};
     QMap<QString, CombinedDraft> m_combined;
     QList<TranslationSpan> m_translationSpans;
     std::optional<Location> m_location;
@@ -162,6 +170,7 @@ private:
     ReviewFilters m_filters;
     bool m_dirty = false;
     QString m_message;
+    QString m_dataWarning;
     QString m_lastError;
 };
 
