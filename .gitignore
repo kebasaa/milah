@@ -4,4 +4,6 @@ __pycache__/
 .pytest_cache/
 .pytest-tmp/
 
-node_modules/
+# Milah desktop app build output
+/build/
+/milah-portable/
