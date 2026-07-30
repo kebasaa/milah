@@ -1,8 +1,8 @@
 <?xml version='1.0' encoding='UTF-8'?>
 <osis xmlns="http://www.bibletechnologies.net/2003/OSIS/namespace" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.bibletechnologies.net/2003/OSIS/namespace http://www.bibletechnologies.net/osisCore.2.1.1.xsd">
-  <osisText osisIDWork="MS.Oo.1.32_MAT_Hebrew_Commented" osisRefWork="bible" xml:lang="he">
+  <osisText osisIDWork="CochinOo.1.32_MAT_Hebrew" osisRefWork="bible" xml:lang="he">
     <header>
-      <work osisWork="MS.Oo.1.32_MAT_Hebrew_Commented">
+      <work osisWork="CochinOo.1.32_MAT_Hebrew">
         <title>Matthew (Cochin MS Oo.1.32)</title>
         <date event="original" type="ISO">ca. 1730</date>
         <description>The Cochin Hebrew New Testament manuscripts are significant 18th-century Hebrew versions of the New Testament. This file encodes Matthew from Cambridge MS Oo.1.32.</description>
@@ -11,7 +11,7 @@
         <description type="x-editorial">Each verse is set with the Hebrew transcription, an English translation, The Scriptures 2009 for comparison, a Syriac Aramaic witness with its own English rendering, and an interlinear gloss table.</description>
         <publisher>Project Truth Ministries</publisher>
         <type type="x-manuscript">Manuscript</type>
-        <identifier type="OSIS">MS.Oo.1.32_MAT_Hebrew_Commented</identifier>
+        <identifier type="OSIS">CochinOo.1.32_MAT_Hebrew</identifier>
         <identifier type="x-shelfmark">MS.Oo.1.32</identifier>
         <identifier type="URI">https://projecttruthministries.org/studies/cochin-matthew/</identifier>
         <source>Text, translation and commentary from Janice F. Baca, 'The Cochin Hebrew Book of Matthew' (Project Truth Ministries, 2025).</source>
@@ -142,7 +142,7 @@
         <verse sID="Matt.5.14" osisID="Matt.5.14" n="14"/>אתם האור של עולם שלא יוכל להסתר במדינה גבוהה הבנויה על הר גדול׃<verse eID="Matt.5.14"/>
         <verse sID="Matt.5.15" osisID="Matt.5.15" n="15"/>ואין מדליקים נר ומניחים תחת הפרגוד אלא מדליקים במנורה שמאיר לכל בני בית׃<verse eID="Matt.5.15"/>
         <verse sID="Matt.5.16" osisID="Matt.5.16" n="16"/>כך אתם מאירים בזוהר לעיני כל אדם מעשים טובים ומשבחים לאביהם שבשמים׃<verse eID="Matt.5.16"/>
-        <verse sID="Matt.5.17" osisID="Matt.5.17" n="17"/>אל תחשבו שבאתי:<note type="explanation" placement="foot" n="23" osisRef="Matt.5.17" osisID="Matt.5.17!note.23">This appears to be a misspelled word and should be תִּלְּמְדו “you will learn.” It appears to be a defective spelling of “you (mp) will learn.”</note> לבטל את התורה או דברי נבֵיא<note type="explanation" placement="foot" n="24" osisRef="Matt.5.17" osisID="Matt.5.17!note.24">Literally, “If it is you, command that I, he will come…” Thus,</note> אלא לקיים׃<verse eID="Matt.5.17"/>
+        <verse sID="Matt.5.17" osisID="Matt.5.17" n="17"/>אל תחשבו שבאתי: לבטל את התורה או דברי נבֵיא אלא לקיים׃<verse eID="Matt.5.17"/>
         <verse sID="Matt.5.18" osisID="Matt.5.18" n="18"/>אע פ֝ שיבוטלו שמים וארץ לא יבוטל אפילו אות או נקודה אחת מן התורה אלא יתקיים׃<verse eID="Matt.5.18"/>
         <verse sID="Matt.5.19" osisID="Matt.5.19" n="19"/>כל מי שיבטל מצוה אחת קטנה שיש בתורה וילמד לאחרים כך קטן יתקרא במלכות שמים וכל מי שמקים אותם וילמד לאחרים לעשות גדול יתקרא במלכות שמים׃<verse eID="Matt.5.19"/>
         <verse sID="Matt.5.20" osisID="Matt.5.20" n="20"/>אומר לכם שלא יוסיפו במשפט יותר שיש בספר או סופרים ובזה תזכו לעלות לשמים׃<verse eID="Matt.5.20"/>
@@ -205,7 +205,7 @@
         <verse sID="Matt.6.27" osisID="Matt.6.27" n="27"/>מי מכם שיגעים שיוכל להוסיף על קומתו אמה חד׃<verse eID="Matt.6.27"/>
         <verse sID="Matt.6.28" osisID="Matt.6.28" n="28"/>ואם על הלבוש אתם תקוצו תראו בפרחים של מדבר איך גדלים דלא יגעים ולא טוים:<verse eID="Matt.6.28"/>
         <verse sID="Matt.6.29" osisID="Matt.6.29" n="29"/>אומר לכם אפילו שלמה המלך בכל תושבחותיו לא נתלבש כאחד מהם׃<verse eID="Matt.6.29"/>
-        <verse sID="Matt.6.30" osisID="Matt.6.30" n="30"/>אם זה השבולת השדה שהיום יש ומחר נופל בתנור כך אלהים מלבישהם<note type="explanation" placement="foot" n="24" osisRef="Matt.6.30" osisID="Matt.6.30!note.24">Literally, “If it is you, command that I, he will come…” Thus,</note> הלא די לכם כך קטני אמנה:<verse eID="Matt.6.30"/>
+        <verse sID="Matt.6.30" osisID="Matt.6.30" n="30"/>אם זה השבולת השדה שהיום יש ומחר נופל בתנור כך אלהים מלבישהם הלא די לכם כך קטני אמנה:<verse eID="Matt.6.30"/>
         <verse sID="Matt.6.31" osisID="Matt.6.31" n="31"/>לא תדאגו לומר מה נאכל מה נשתה ומה אלבוש׃<verse eID="Matt.6.31"/>
         <verse sID="Matt.6.32" osisID="Matt.6.32" n="32"/>כל זה מבקשים עמי הארצות אבל אבוכון שבשמים יודע אתכם שמבקשים כל זה׃<verse eID="Matt.6.32"/>
         <verse sID="Matt.6.33" osisID="Matt.6.33" n="33"/>תבקשו זה מלפני אדון שמים שהוא צדקותיו ובזה יהיה מוסיף לכם׃<verse eID="Matt.6.33"/>
@@ -215,7 +215,7 @@
         <verse sID="Matt.7.1" osisID="Matt.7.1" n="1"/>לא תדין ולא תידון:<verse eID="Matt.7.1"/>
         <verse sID="Matt.7.2" osisID="Matt.7.2" n="2"/>כשם שאתה דן את חבירך ידונו לך ובמידה שאתה מודד בה לך מודדין:<verse eID="Matt.7.2"/>
         <verse sID="Matt.7.3" osisID="Matt.7.3" n="3"/>אך אתה רואה קסם של עין חבירך וקורא דעינך אינך רואה׃<verse eID="Matt.7.3"/>
-        <verse sID="Matt.7.4" osisID="Matt.7.4" n="4"/>עיניך<note type="explanation" placement="foot" n="7" osisRef="Matt.7.4" osisID="Matt.7.4!note.7">See Exodus 21:17 and Leviticus 20:9.</note> איך אתה אומר לאחיך טול קסם מבין שינך והרי קורא בין עינך׃<verse eID="Matt.7.4"/>
+        <verse sID="Matt.7.4" osisID="Matt.7.4" n="4"/>עיניך איך אתה אומר לאחיך טול קסם מבין שינך והרי קורא בין עינך׃<verse eID="Matt.7.4"/>
         <verse sID="Matt.7.5" osisID="Matt.7.5" n="5"/>הכופר תסיר קודם הקורה שמבין עניך ואח׳כ תסיר הקיסם שבין עיני אחיך:<verse eID="Matt.7.5"/>
         <verse sID="Matt.7.6" osisID="Matt.7.6" n="6"/>לא תשליכו דבר קודש לפני הכלבים ולא תשליכו המרגליות לפני חזירים אולי ירמסון ברגליהום ויתהפכו להפסדכון׃<verse eID="Matt.7.6"/>
         <verse sID="Matt.7.7" osisID="Matt.7.7" n="7"/>שאלו ואתן לכם בקשו ותמצאו וקשו בפתח ואפתח לכם׃<verse eID="Matt.7.7"/>
@@ -353,7 +353,7 @@
         <verse sID="Matt.10.32" osisID="Matt.10.32" n="32"/>כל איש שיודה בפני ב׳א אני אודה בו קודם אבי שבשמים:<verse eID="Matt.10.32"/>
         <verse sID="Matt.10.33" osisID="Matt.10.33" n="33"/>כל מי שיכפור בי קדם֞ ב׳א אף אני אכפור בו קודם אבי שבשמים:<verse eID="Matt.10.33"/>
         <verse sID="Matt.10.34" osisID="Matt.10.34" n="34"/>לא תחשבו שבאתי להניח שלום בארץ לא באתי כי אם חרב:<verse eID="Matt.10.34"/>
-        <verse sID="Matt.10.35" osisID="Matt.10.35" n="35"/>באתי להניח מחלוקת בין אב לבנו ובין בת לאמה ובין<note type="explanation" placement="foot" n="25" osisRef="Matt.10.35" osisID="Matt.10.35!note.25">The word קדמונים is the Hebrew equivalent of the Aramaic ܐܝܡܕܩ (qaddimāya), meaning the “first ones” from the ancient world. While accurately</note> כלה֞ לחמותה:<verse eID="Matt.10.35"/>
+        <verse sID="Matt.10.35" osisID="Matt.10.35" n="35"/>באתי להניח מחלוקת בין אב לבנו ובין בת לאמה ובין כלה֞ לחמותה:<verse eID="Matt.10.35"/>
         <verse sID="Matt.10.36" osisID="Matt.10.36" n="36"/>ואויבי איש אנשי ביתו:<verse eID="Matt.10.36"/>
         <verse sID="Matt.10.37" osisID="Matt.10.37" n="37"/>כל מי שרוצה לאביו ולאימו יותר ממני אינו ממנו֞ וכל מי שאוהב לבנו או לבתו יותר ממני אינו ממני:<verse eID="Matt.10.37"/>
         <verse sID="Matt.10.38" osisID="Matt.10.38" n="38"/>וכל מי שאינו לוקח צלימתו ויבא אחרי אינו֞ ממני:<verse eID="Matt.10.38"/>
@@ -482,7 +482,7 @@
         <verse sID="Matt.13.33" osisID="Matt.13.33" n="33"/>משל אחר אומר לכון שדומה מלכות שמים לשאור שלקחה אשה והטמינה בג׳ סאין של קמח עד שהחמיץ כולו:<verse eID="Matt.13.33"/>
         <verse sID="Matt.13.34" osisID="Matt.13.34" n="34"/>זה הכל היה במשלים לקהילות ומה שאין בו משל ופלא לא דיבר עמהם׃<verse eID="Matt.13.34"/>
         <verse sID="Matt.13.35" osisID="Matt.13.35" n="35"/>כמו שנאמר ביד נביא אפתחה במשל פי אביעה חידות מיני קדם:<verse eID="Matt.13.35"/>
-        <verse sID="Matt.13.36" osisID="Matt.13.36" n="36"/>אז שבק יש׳ו לקהילה ובא לבית וקרבו תלמידיו ואמרו פתור לנו זה של זיונים<note type="explanation" placement="foot" n="39" osisRef="Matt.13.36" osisID="Matt.13.36!note.39">See Leviticus 19:17. The Torah commands were always commands of the heart.”</note> והארץ:<verse eID="Matt.13.36"/>
+        <verse sID="Matt.13.36" osisID="Matt.13.36" n="36"/>אז שבק יש׳ו לקהילה ובא לבית וקרבו תלמידיו ואמרו פתור לנו זה של זיונים והארץ:<verse eID="Matt.13.36"/>
         <verse sID="Matt.13.37" osisID="Matt.13.37" n="37"/>ענה יש׳ו אמר זה שזרע זרע טוב הם בני אנשים:<verse eID="Matt.13.37"/>
         <verse sID="Matt.13.38" osisID="Matt.13.38" n="38"/>והארץ הוא עולם זרע זה הטוב הוא בנים הם זיונא שיש בו בנים רעים:<verse eID="Matt.13.38"/>
         <verse sID="Matt.13.39" osisID="Matt.13.39" n="39"/>ואוייבים הם שזרע אותם הוא שדים קצירה שלו הוא תשובה ומעשים טובים של עולם וקוצרים הם המלאכים:<verse eID="Matt.13.39"/>

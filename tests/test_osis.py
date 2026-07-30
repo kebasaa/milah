@@ -50,7 +50,7 @@ def test_osis_escapes_text_declares_work_and_interleaves_note() -> None:
     assert verse_text(root, "Rev.1.1") == "אלה A & B& הסודות"
     osis_text = root.find(f"{{{OSIS_NS}}}osisText")
     assert osis_text is not None
-    assert osis_text.get("osisIDWork") == "MS.Oo.1.16.2_REV_Hebrew_Commented"
+    assert osis_text.get("osisIDWork") == "CochinOo.1.16.2_REV_Hebrew_Commented"
 
 
 def test_combined_source_range_uses_stable_id_and_range_label() -> None:

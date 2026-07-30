@@ -1,8 +1,8 @@
 <?xml version='1.0' encoding='UTF-8'?>
 <osis xmlns="http://www.bibletechnologies.net/2003/OSIS/namespace" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.bibletechnologies.net/2003/OSIS/namespace http://www.bibletechnologies.net/osisCore.2.1.1.xsd">
-  <osisText osisIDWork="MS.Oo.1.32_MAT_PTM" osisRefWork="bible" xml:lang="en">
+  <osisText osisIDWork="CochinOo.1.32_MAT_PTM" osisRefWork="bible" xml:lang="en">
     <header>
-      <work osisWork="MS.Oo.1.32_MAT_PTM">
+      <work osisWork="CochinOo.1.32_MAT_PTM">
         <title>Translation of Matthew (Cochin MS Oo.1.32)</title>
         <contributor role="ctb" file-as="Baca, Janice F.">Janice F. Baca</contributor>
         <creator role="trl">Project Truth Ministries</creator>
@@ -13,7 +13,7 @@
         <description type="x-editorial">Each verse is set with the Hebrew transcription, an English translation, The Scriptures 2009 for comparison, a Syriac Aramaic witness with its own English rendering, and an interlinear gloss table.</description>
         <publisher>Project Truth Ministries</publisher>
         <type type="x-bible">Edition</type>
-        <identifier type="OSIS">MS.Oo.1.32_MAT_PTM</identifier>
+        <identifier type="OSIS">CochinOo.1.32_MAT_PTM</identifier>
         <identifier type="x-shelfmark">MS.Oo.1.32</identifier>
         <identifier type="URI">https://projecttruthministries.org/studies/cochin-matthew/</identifier>
         <source>Text, translation and commentary from Janice F. Baca, 'The Cochin Hebrew Book of Matthew' (Project Truth Ministries, 2025).</source>

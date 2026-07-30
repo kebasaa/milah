@@ -38,6 +38,13 @@ converter parses and validates every document before replacing any existing
 output. Its JSON report lists coverage, empty and alternate verses, note
 counts, excluded markers and source anomalies.
 
+Output is named `<BOOK>_<Manuscript>_<variant>.osis` — book code first, then the
+manuscript, as in `REV_CochinOo.1.16.2_hebrew_commented.osis` or
+`LUK_Ebr530_translation.osis`. `<BOOK>` is the three-letter code (`REV`, `JAS`,
+`MAT`, `LUK`, `JOH`) and `<variant>` is `hebrew`, `hebrew_commented`,
+`translation` or `hebrew_consonantal`. Every filename derives from
+`BookProfile.stem`, so that field is the single place the convention lives.
+
 ### Pointed manuscripts
 
 MuPDF ≥1.26 already returns Hebrew in logical order, so nothing reverses it —

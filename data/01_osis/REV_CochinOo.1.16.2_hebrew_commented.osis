@@ -1,14 +1,14 @@
 <?xml version='1.0' encoding='UTF-8'?>
 <osis xmlns="http://www.bibletechnologies.net/2003/OSIS/namespace" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.bibletechnologies.net/2003/OSIS/namespace http://www.bibletechnologies.net/osisCore.2.1.1.xsd">
-  <osisText osisIDWork="MS.Oo.1.16.2_REV_Hebrew_Commented" osisRefWork="bible" xml:lang="he">
+  <osisText osisIDWork="CochinOo.1.16.2_REV_Hebrew_Commented" osisRefWork="bible" xml:lang="he">
     <header>
-      <work osisWork="MS.Oo.1.16.2_REV_Hebrew_Commented">
+      <work osisWork="CochinOo.1.16.2_REV_Hebrew_Commented">
         <title>Revelation (Cochin MS Oo.1.16.2)</title>
         <date event="original" type="ISO">ca. 1730</date>
         <description>The Cochin Hebrew New Testament manuscripts are significant 18th-century Hebrew versions of the New Testament. This file encodes Revelation from Cambridge MS Oo.1.16.2.</description>
         <publisher>Project Truth Ministries</publisher>
         <type type="x-manuscript">Manuscript</type>
-        <identifier type="OSIS">MS.Oo.1.16.2_REV_Hebrew_Commented</identifier>
+        <identifier type="OSIS">CochinOo.1.16.2_REV_Hebrew_Commented</identifier>
         <identifier type="x-shelfmark">MS.Oo.1.16.2</identifier>
         <identifier type="URI">https://projecttruthministries.org/studies/cochin-revelation/</identifier>
         <language>he</language>
