@@ -67,6 +67,45 @@ several of its entries can share one plain Strong's number: H1 covers both
 "father" and a proper name. Those are merged in file order and only the leading
 senses are kept, because this feeds a tooltip rather than a reference work.
 
+## rabbinic.words.txt
+
+The vocabulary the unknown-word check accepts beyond the Hebrew Bible.
+Generated — but plain text, so words may be **appended by hand**; blank lines
+and `#` comments are ignored:
+
+```bash
+python python/tools/build_wordlist.py --out app/data/rabbinic.words.txt
+```
+
+Any file named `*.words.txt` in a data directory is read and merged, so your
+own list can sit beside this one without touching it or rebuilding Milah.
+
+### Why it exists
+
+The lexicon indexes the Hebrew Bible. A Hebrew New Testament is full of words
+the Tanakh has not — `יֵשׁוּעַ`, `יוֹחָנָן`, and ordinary post-biblical vocabulary —
+so on its own the check flags legitimate text. The Mishnah and Tosefta are the
+1st–3rd century register those manuscripts inhabit.
+
+A word being in this list means it is **attested**, not that it has a Strong's
+number. Strong's covers only the Hebrew Bible, so such words show **`M`** in
+the interlinear row rather than a number or a dash.
+
+### Sources and licences
+
+Hebrew texts of the **Mishnah** and **Tosefta** from the
+[Sefaria export](https://github.com/Sefaria/Sefaria-Export). Sefaria licenses
+per *version*, and some are CC-BY-NC — its plain-text API serves one such
+version by default. The generator therefore reads the export bucket, where the
+version is a path segment and each file states its own licence, and **refuses
+anything outside Public Domain, CC0 and CC-BY**. The versions actually used,
+and any refused, are listed in the header of the generated file.
+
+Commentaries are excluded. Sefaria files them under the text they comment on,
+so `json/Mishnah/` holds five times more Bartenura and Tosafot Yom Tov than
+Mishnah; that is medieval Hebrew, and admitting it would make the list so
+permissive it stopped catching anything.
+
 ### Not used, but worth knowing about
 
 **TAHOT** (same repository and licence) could replace morphhb as the form

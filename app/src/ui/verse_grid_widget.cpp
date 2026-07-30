@@ -5,6 +5,7 @@
 #include "core/diff.h"
 #include "core/lexicon.h"
 #include "core/suggestions.h"
+#include "core/tokenize.h"
 
 #include <QFocusEvent>
 #include <QFontMetrics>
@@ -437,10 +438,20 @@ VerseGridWidget::Row VerseGridWidget::strongsRow(const Row &combined) const
 
         const QList<LexiconEntry> entries = lexicon.lookup(word.plain);
         if (entries.isEmpty()) {
-            cell.plain = QStringLiteral("—");
+            // Strong's covers the Hebrew Bible only, so a post-biblical word
+            // has no number and never will. Saying which kind of absence this
+            // is keeps the row from reading as though the word were doubtful.
+            const bool rabbinic = AttestedForms::shared().contains(word.plain);
+            cell.plain = rabbinic ? QStringLiteral("M") : QStringLiteral("—");
             cell.html = cell.plain;
-            cell.tooltip =
-                QStringLiteral("%1 is not attested in the Hebrew Bible.").arg(word.plain);
+            cell.tooltip = rabbinic
+                ? QStringLiteral("%1 is attested in the Mishnah or Tosefta. "
+                                 "Strong's covers only the Hebrew Bible, so "
+                                 "there is no number for it.")
+                      .arg(word.plain)
+                : QStringLiteral("%1 is not attested in the Hebrew Bible, the "
+                                 "Mishnah or the Tosefta.")
+                      .arg(word.plain);
             row.cells.append(cell);
             continue;
         }
@@ -628,6 +639,54 @@ void VerseGridWidget::showWitnessMenu(int columnIndex, const QPoint &globalPosit
             break;
         }
     }
+    // Dividing is offered only where there is something to divide at, and it
+    // says what the two words will be so the result is not a surprise.
+    const CombinedDraft draft = m_controller->draftFor(m_aligned);
+    const QString combinedWord = columnIndex < draft.columns.size()
+        ? draft.columns.at(columnIndex).text.value_or(QString())
+        : QString();
+    const QStringList parts = dividedWords(combinedWord);
+    if (parts.size() > 1) {
+        QAction *split = menu.addAction(
+            QStringLiteral("Split into %1").arg(parts.join(QStringLiteral(" + "))));
+        split->setToolTip(QStringLiteral(
+            "Gives each word a column of its own. The witnesses still read one "
+            "word here, so their rows show a gap beside it."));
+        connect(split, &QAction::triggered, this, [this, columnIndex] {
+            m_controller->splitColumn(verseId(), columnIndex);
+        });
+    }
+
+    // Joining back is offered only between two halves of a word this editor
+    // divided; where the witnesses read two words there is nothing to undo.
+    // Each entry names its neighbour, so which way it goes is not left to the
+    // reader to work out from a right-to-left row.
+    const auto neighbourWord = [&draft](int column) {
+        return column >= 0 && column < draft.columns.size()
+            ? draft.columns.at(column).text.value_or(QString())
+            : QString();
+    };
+    if (m_controller->canMergeWithPrevious(verseId(), columnIndex)) {
+        QAction *merge = menu.addAction(
+            QStringLiteral("Merge with the previous word, %1")
+                .arg(neighbourWord(columnIndex - 1)));
+        merge->setToolTip(
+            QStringLiteral("Puts the two back in one column, undoing a split."));
+        connect(merge, &QAction::triggered, this, [this, columnIndex] {
+            m_controller->mergeColumns(verseId(), columnIndex - 1);
+        });
+    }
+    if (m_controller->canMergeWithNext(verseId(), columnIndex)) {
+        QAction *merge = menu.addAction(
+            QStringLiteral("Merge with the next word, %1")
+                .arg(neighbourWord(columnIndex + 1)));
+        merge->setToolTip(
+            QStringLiteral("Puts the two back in one column, undoing a split."));
+        connect(merge, &QAction::triggered, this, [this, columnIndex] {
+            m_controller->mergeColumns(verseId(), columnIndex);
+        });
+    }
+
     if (!flaggedWord.isEmpty()) {
         QAction *accept = menu.addAction(
             QStringLiteral("Add %1 to my dictionary").arg(flaggedWord));
@@ -857,7 +916,7 @@ void VerseGridWidget::build()
              combinedWords,
              HebrewLexicon::shared(),
              PhraseRules::shared(),
-             m_controller->dictionary().keys())) {
+             m_controller->acceptedForms())) {
         m_suggestions.insert(suggestion.column, suggestion);
     }
 

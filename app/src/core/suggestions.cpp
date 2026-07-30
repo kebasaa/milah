@@ -200,6 +200,60 @@ const PhraseRules &PhraseRules::shared()
     return rules;
 }
 
+AttestedForms AttestedForms::fromFile(const QString &path)
+{
+    AttestedForms forms;
+    QFile file(path);
+    if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        return forms;
+    }
+
+    QTextStream stream(&file);
+    while (!stream.atEnd()) {
+        const QString line = stream.readLine().trimmed();
+        // The lists are meant to be read and appended to by hand, so they
+        // carry a header explaining where they came from.
+        if (line.isEmpty() || line.startsWith(QLatin1Char('#'))) {
+            continue;
+        }
+        const QString key = comparisonKey(line);
+        if (!key.isEmpty()) {
+            forms.m_keys.insert(key);
+        }
+    }
+    return forms;
+}
+
+void AttestedForms::unite(const AttestedForms &other)
+{
+    m_keys.unite(other.m_keys);
+}
+
+bool AttestedForms::contains(const QString &word) const
+{
+    const QString key = comparisonKey(word);
+    return !key.isEmpty() && m_keys.contains(key);
+}
+
+const AttestedForms &AttestedForms::shared()
+{
+    static const AttestedForms forms = [] {
+        AttestedForms loaded;
+        // Every list in every search path, merged: one may ship with Milah
+        // while another is the editor's own.
+        for (const QString &directory : dataSearchPaths()) {
+            const QDir folder(directory);
+            const QStringList names =
+                folder.entryList({QStringLiteral("*.words.txt")}, QDir::Files, QDir::Name);
+            for (const QString &name : names) {
+                loaded.unite(fromFile(folder.filePath(name)));
+            }
+        }
+        return loaded;
+    }();
+    return forms;
+}
+
 QString UserDictionary::defaultPath()
 {
     const QString directory =
@@ -289,8 +343,14 @@ QList<Suggestion> reviewVerse(
         }
 
         const QString key = comparisonKey(*word);
-        if (!canJudgeVocabulary || key.isEmpty() || accepted.contains(key)
-            || lexicon.knows(*word)) {
+        if (!canJudgeVocabulary || key.isEmpty()) {
+            continue;
+        }
+        // The Hebrew Bible first: it is the authority, and a word it holds is
+        // settled without consulting anything else. Only what it does not have
+        // is put to the shipped corpora and the editor's own dictionary, which
+        // say a word is attested somewhere, not that it is biblical.
+        if (lexicon.knows(*word) || accepted.contains(key)) {
             continue;
         }
         suggestions.append(Suggestion{

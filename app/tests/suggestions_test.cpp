@@ -142,6 +142,68 @@ private slots:
         QCOMPARE(of(found, SuggestionKind::Orthography).size(), 1);
     }
 
+    // --- attested forms ---------------------------------------------------
+
+    void theShippedCorpusListLoads()
+    {
+        QVERIFY2(
+            !AttestedForms::shared().isEmpty(),
+            "rabbinic.words.txt was not found beside the executable");
+    }
+
+    void aPostBiblicalWordThatTheLexiconRejectsIsNotFlagged()
+    {
+        // The whole point. סנהדרין is a Greek loanword the Hebrew Bible does
+        // not have, so the lexicon rightly knows nothing of it, but it is
+        // ordinary Mishnaic Hebrew and must not be called a misspelling.
+        const QString word = QString::fromUtf8("סַנְהֶדְרִין");
+        QVERIFY2(!m_lexicon.knows(word), "expected the lexicon not to know it");
+        QVERIFY2(AttestedForms::shared().contains(word), "expected the corpus to attest it");
+
+        QVERIFY(of(reviewVerse(
+                       verse({word}), m_lexicon, PhraseRules(),
+                       AttestedForms::shared().keys()),
+                   SuggestionKind::UnknownForm)
+                    .isEmpty());
+    }
+
+    void nonsenseIsStillFlaggedWithTheCorpusLoaded()
+    {
+        // A list this large could smother the check; it must not.
+        const QString word = QString::fromUtf8("זזזזזז");
+        QVERIFY(!AttestedForms::shared().contains(word));
+
+        QCOMPARE(
+            of(reviewVerse(
+                   verse({word}), m_lexicon, PhraseRules(),
+                   AttestedForms::shared().keys()),
+               SuggestionKind::UnknownForm)
+                .size(),
+            1);
+    }
+
+    void aWordListIgnoresItsHeaderAndBlankLines()
+    {
+        QTemporaryDir directory;
+        QVERIFY(directory.isValid());
+        const QString path = directory.filePath(QStringLiteral("sample.words.txt"));
+
+        QFile file(path);
+        QVERIFY(file.open(QIODevice::WriteOnly | QIODevice::Text));
+        QTextStream stream(&file);
+        stream << "# a header line\n\n"
+               << QString::fromUtf8("שלום") << "\n"
+               << "   \n"
+               << "#another comment\n"
+               << QString::fromUtf8("תלמיד") << "\n";
+        file.close();
+
+        const AttestedForms forms = AttestedForms::fromFile(path);
+        QCOMPARE(forms.keys().size(), 2);
+        QVERIFY(forms.contains(QString::fromUtf8("שָׁלוֹם")));
+        QVERIFY(!forms.contains(QStringLiteral("#")));
+    }
+
     void anAcceptedWordIsNotFlagged()
     {
         const QString word = QString::fromUtf8("זזזזזז");

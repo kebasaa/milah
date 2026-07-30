@@ -70,6 +70,7 @@ target_include_directories(MilahCore PUBLIC src)
 set(MILAH_DATA_FILES
     "${CMAKE_CURRENT_SOURCE_DIR}/data/hebrew_lexicon.json"
     "${CMAKE_CURRENT_SOURCE_DIR}/data/hebrew_phrase_rules.json"
+    "${CMAKE_CURRENT_SOURCE_DIR}/data/rabbinic.words.txt"
 )
 
 add_custom_command(

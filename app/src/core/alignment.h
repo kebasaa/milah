@@ -35,6 +35,19 @@ AlignedVerse alignVerse(
     const DocumentRefs &manuscripts,
     const QString &priorityId);
 
+/// Widens the columns the editor has divided, so the Combined edition can read
+/// two words where a witness writes one — `אֲשֶׁר־בָּהּ` as `אֲשֶׁר בָּהּ`.
+///
+/// `splits` holds indices into the columns `alignVerse` produced, once per
+/// extra column wanted; an index repeated twice yields two extra. The inserted
+/// columns follow their original and carry no witness reading, because the
+/// division belongs to the edition and not to the manuscripts.
+///
+/// The alignment is recomputed whenever the sources, the chapter or the
+/// reference witness change, so this has to be reapplied every time or the
+/// Combined draft stops lining up with the columns it describes.
+AlignedVerse applyColumnSplits(AlignedVerse aligned, const QList<int> &splits);
+
 /// Picks a reading for each column: the majority where there is one, otherwise
 /// the priority witness, flagging the column for review.
 CombinedDraft generateCombined(

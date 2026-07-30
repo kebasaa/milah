@@ -73,6 +73,22 @@ int collapsedPrefixLength(const QString &raw, int offset)
     return int(prefix.size());
 }
 
+QStringList dividedWords(const QString &text)
+{
+    // Maqaf, hyphen and whitespace all join two words into what the witness
+    // wrote as one; the edition may want them apart.
+    static const QRegularExpression joiners(QStringLiteral("[\\x{05BE}\\-\\s]+"));
+
+    QStringList words;
+    for (const QString &part : text.split(joiners, Qt::SkipEmptyParts)) {
+        const QString word = part.trimmed();
+        if (!word.isEmpty()) {
+            words.append(word);
+        }
+    }
+    return words.isEmpty() ? QStringList{text} : words;
+}
+
 QString comparisonKey(const QString &text)
 {
     QString result = text.normalized(QString::NormalizationForm_D);
