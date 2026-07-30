@@ -110,6 +110,15 @@ struct SourceDocument
     void appendVerse(const SourceVerse &verse);
 };
 
+/// Short labels naming each source in the verse view, keyed by source id.
+/// Taken from the OSIS work id, and unique across the sources given: two
+/// witnesses that shorten to the same thing are told apart by a qualifier.
+QHash<QString, QString> sourceAcronyms(const QList<SourceDocument> &sources);
+
+/// Whether a language code, as carried in OSIS `xml:lang`, is written right to
+/// left. Hebrew, Arabic and Syriac all answer yes without a hand-kept list.
+bool isRightToLeft(const QString &language);
+
 /// A column of the alignment grid. A source with no reading in this column is
 /// simply absent from `cells`.
 struct AlignmentColumn
@@ -130,6 +139,8 @@ struct ConsensusColumn
 {
     std::optional<QString> text;
     std::optional<QString> sourceId;
+    /// The reading was picked automatically without a majority behind it and
+    /// the editor has not settled it since. Such words are shown muted.
     bool needsReview = false;
 };
 

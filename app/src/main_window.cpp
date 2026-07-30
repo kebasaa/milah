@@ -26,42 +26,32 @@ QWidget#verseCard {
 QLabel#verseHeading {
     font-weight: 600;
 }
-QLabel#rowLabel {
-    color: palette(mid);
-    font-size: 11px;
-    padding-top: 1px;
-    padding-bottom: 4px;
+/* Names the row it sits beside, at the right-hand edge of the readings. Its
+   size and colour are set in code, not here: the band packing measures the
+   font, and the colour has to hold up in a light and a dark palette alike. */
+QLabel#rowAcronym {
+    padding-left: 8px;
 }
-QPushButton[variant="true"] {
-    background: rgba(214, 149, 46, 0.20);
-    border: 1px solid rgba(214, 149, 46, 0.55);
-    border-radius: 4px;
-    padding: 4px 6px;
-}
-QPushButton[variant="false"] {
-    background: rgba(90, 150, 110, 0.14);
-    border: 1px solid rgba(90, 150, 110, 0.40);
-    border-radius: 4px;
-    padding: 4px 6px;
-}
-QPushButton[gap="true"] {
+/* Readings carry no box and no padding: a cell is exactly as wide as the
+   word in it, which is what keeps the columns measurable and the rows
+   readable as running text. Their size is set in code, not here, so that
+   measuring a reading and drawing it agree. */
+/* The Combined row is where the edition is built. Each word is an editable
+   field that looks like plain text until it is being worked on. */
+QLineEdit#combinedToken {
     background: transparent;
-    border: 1px dashed palette(mid);
-    color: palette(mid);
+    border: none;
+    border-bottom: 1px solid transparent;
+    color: palette(text);
 }
-QPushButton[hasNote="true"] {
-    border-bottom: 2px solid rgba(176, 125, 43, 0.9);
+QLineEdit#combinedToken:hover {
+    border-bottom: 1px solid palette(mid);
 }
-QLabel#combinedToken {
+QLineEdit#combinedToken:focus {
     background: palette(alternate-base);
-    border: 1px solid palette(mid);
-    border-radius: 4px;
-    padding: 4px 6px;
+    border-bottom: 2px solid palette(highlight);
 }
-QLabel#combinedToken[needsReview="true"] {
-    border: 1px solid rgba(200, 60, 60, 0.75);
-}
-QLabel#combinedToken[gap="true"] {
+QFrame#bandRule {
     color: palette(mid);
 }
 QWidget#translationSpan {
@@ -71,6 +61,14 @@ QWidget#translationSpan {
 }
 QWidget#translationSpan[uncertain="true"] {
     border: 1px dashed rgba(200, 120, 40, 0.85);
+}
+/* Span controls sit inside a cell only as wide as the readings above it. */
+QWidget#translationSpan QToolButton {
+    padding: 0px;
+    margin: 0px;
+    min-width: 14px;
+    max-width: 14px;
+    font-size: 10px;
 }
 QLabel#verseFlags {
     color: rgba(176, 90, 43, 1.0);
@@ -112,6 +110,9 @@ MainWindow::MainWindow(QWidget *parent)
     m_verseArea->setWidget(m_verseHost);
     m_verseArea->setWidgetResizable(true);
     m_verseArea->setFrameShape(QFrame::NoFrame);
+    // Verse cards wrap themselves to the viewport. A scrollbar that comes and
+    // goes would change that width under them, so it is always reserved.
+    m_verseArea->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOn);
     setCentralWidget(m_verseArea);
 
     m_settings = new SourceSettingsWidget(m_controller);
@@ -207,7 +208,7 @@ void MainWindow::buildToolBar()
         m_nextAction, &QAction::triggered, m_controller, &AppController::goToNextLocation);
 
     toolBar->addSeparator();
-    toolBar->addWidget(new QLabel(QStringLiteral(" Priority ")));
+    toolBar->addWidget(new QLabel(QStringLiteral(" Reference ")));
 
     m_priorityCombo = new QComboBox;
     m_priorityCombo->setMinimumWidth(180);
