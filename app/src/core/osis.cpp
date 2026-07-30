@@ -41,8 +41,8 @@ const QRegularExpression &forbiddenDeclarations()
     return expression;
 }
 
-/// Matches saxes' attribute lookup: exact qualified name first, then any
-/// attribute whose local name matches, so `xml:lang` answers to `lang`.
+/// Looks an attribute up by exact qualified name first, then by local name, so
+/// that `xml:lang` answers to `lang` whatever prefix the document declares.
 QString attributeValue(const QXmlStreamAttributes &attributes, QLatin1String name)
 {
     for (const QXmlStreamAttribute &attribute : attributes) {
