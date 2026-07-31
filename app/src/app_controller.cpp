@@ -371,8 +371,16 @@ AlignedVerse AppController::alignedFor(
     const DocumentRefs &sources,
     const QString &priorityId) const
 {
+    // The tables are already loaded -- the constructor forces them for the
+    // spell check -- so naming them here costs nothing at startup.
+    AlignmentOptions options;
+    options.abbreviations = &AbbreviationTable::shared();
+    options.lexicon = &HebrewLexicon::shared();
+    options.attested = &AttestedForms::shared();
+
     return applyColumnSplits(
-        alignVerse(verseId, sources, priorityId), m_columnSplits.value(verseId));
+        alignVerse(verseId, sources, priorityId, options),
+        m_columnSplits.value(verseId));
 }
 
 void AppController::rebuildAlignedVerses()

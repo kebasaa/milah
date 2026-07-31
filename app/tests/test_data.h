@@ -1,5 +1,9 @@
 #pragma once
 
+#include "core/alignment.h"
+#include "core/types.h"
+
+#include <QList>
 #include <QString>
 #include <QStringList>
 
@@ -36,5 +40,14 @@ QString witnessOsis(const QString &id, const QString &text);
 /// — for coverage tests, where only which places a manuscript reaches matters
 /// and not what it says there.
 QString witnessOsisCovering(const QString &id, const QStringList &chapters);
+
+/// A parsed single-verse manuscript reading `text` at Matt.1.1, ready to align.
+/// Shared by the consensus and alignment tests so both agree on what a witness
+/// is; a second copy would be free to drift.
+milah::SourceDocument witness(const QString &id, const QString &text);
+
+/// Borrows every document in `documents`, in order. The result points into the
+/// list, so it has to outlive the refs.
+milah::DocumentRefs refs(const QList<milah::SourceDocument> &documents);
 
 } // namespace milah_test

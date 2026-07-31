@@ -9,26 +9,10 @@ using namespace milah;
 
 namespace {
 
-SourceDocument witness(const QString &id, const QString &text)
-{
-    const QString osis = milah_test::witnessOsis(id, text);
-
-    ParseOptions options;
-    options.id = id;
-    options.name = id + QStringLiteral(".osis");
-    options.role = SourceRole::Manuscript;
-    return parseOsis(osis, options);
-}
-
-DocumentRefs refs(const QList<SourceDocument> &documents)
-{
-    DocumentRefs result;
-    result.reserve(documents.size());
-    for (const SourceDocument &document : documents) {
-        result.append(&document);
-    }
-    return result;
-}
+// Shared with alignment_test.cpp so the two cannot develop different ideas of
+// what a witness is.
+using milah_test::refs;
+using milah_test::witness;
 
 } // namespace
 
