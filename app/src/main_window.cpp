@@ -10,6 +10,7 @@
 #include "ui/verse_grid_widget.h"
 
 #include <QAction>
+#include <QCloseEvent>
 #include <QApplication>
 #include <QComboBox>
 #include <QDockWidget>
@@ -127,6 +128,9 @@ MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
 {
     setWindowTitle(QStringLiteral("Milah"));
+    // Not the size Milah opens at — main.cpp maximises it. This is the size it
+    // returns to when the window is restored, so it still has to be wide enough
+    // for a verse to read as one band.
     resize(1440, 900);
     setMinimumSize(900, 600);
     setStyleSheet(QString::fromUtf8(kStyleSheet));
@@ -276,6 +280,15 @@ void MainWindow::createActions()
     describeShortcut(m_saveAction);
     connect(m_saveAction, &QAction::triggered, m_controller, &AppController::saveProject);
 
+    m_closeAction = new QAction(QStringLiteral("Close project"), this);
+    // Written out rather than QKeySequence::Close: on Windows that offers
+    // Ctrl+F4 first and Ctrl+W second, and setShortcut takes only the first —
+    // so the standard key would bind the MDI-child shortcut nobody expects
+    // here. Same reason the quit action writes Ctrl+Q out.
+    m_closeAction->setShortcut(QKeySequence(QStringLiteral("Ctrl+W")));
+    describeShortcut(m_closeAction);
+    connect(m_closeAction, &QAction::triggered, m_controller, &AppController::closeProject);
+
     m_exportAction = new QAction(QStringLiteral("Export Combined"), this);
     m_exportAction->setIcon(actionIcon(
         QIcon::ThemeIcon::DocumentSaveAs,
@@ -411,6 +424,7 @@ void MainWindow::buildMenuBar()
     QMenu *file = menuBar()->addMenu(QStringLiteral("&File"));
     file->addAction(m_openAction);
     file->addAction(m_saveAction);
+    file->addAction(m_closeAction);
     file->addSeparator();
     file->addAction(m_loadManuscriptsAction);
     file->addAction(m_loadTranslationsAction);
@@ -519,6 +533,17 @@ void MainWindow::buildToolBar()
     connect(strongsAction, &QAction::toggled, m_controller, &AppController::setStrongsVisible);
 
     toolBar->addAction(m_regenerateAction);
+}
+
+void MainWindow::closeEvent(QCloseEvent *event)
+{
+    if (!m_controller->confirmDiscard()) {
+        // Changed their mind: the window stays open and Milah stays running,
+        // rather than dying half-shut.
+        event->ignore();
+        return;
+    }
+    QMainWindow::closeEvent(event);
 }
 
 void MainWindow::showAbout()
@@ -706,6 +731,7 @@ void MainWindow::rebuildPriorityList()
     m_priorityCombo->setEnabled(hasManuscripts);
     m_regenerateAction->setEnabled(hasManuscripts);
     m_saveAction->setEnabled(hasManuscripts);
+    m_closeAction->setEnabled(hasManuscripts);
     m_exportAction->setEnabled(hasManuscripts);
 }
 
