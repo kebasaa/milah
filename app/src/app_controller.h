@@ -72,7 +72,15 @@ public:
     void setStrongsVisible(bool visible);
     /// Words the editor has accepted, so the spelling checks stop asking.
     const UserDictionary &dictionary() const { return m_dictionary; }
+    /// Asks what the word means, then accepts it. Cancelling the dialog leaves
+    /// the dictionary untouched.
     void addToDictionary(const QString &word);
+    /// Writes a copy of the dictionary somewhere the editor chooses, for their
+    /// own backup. Where Milah keeps its own is unaffected.
+    void saveDictionaryAs();
+    /// Reads a saved dictionary and folds it in. Nothing already accepted is
+    /// dropped and no definition is taken twice, so this is safe to repeat.
+    void loadDictionary();
     /// Everything the unknown-word check should let pass: what the editor has
     /// accepted, plus what the shipped corpora attest.
     const QSet<QString> &acceptedForms() const { return m_acceptedForms; }

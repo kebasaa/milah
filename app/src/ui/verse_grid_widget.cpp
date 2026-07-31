@@ -484,7 +484,11 @@ VerseGridWidget::Row VerseGridWidget::strongsRow(const Row &combined) const
     row.acronym = QStringLiteral("Strong's");
     row.tooltip = QStringLiteral(
         "Strong's numbers for the Combined words, from the Hebrew Bible.\n"
-        "A dash means the form is not attested there — not that it is wrong.");
+        "M is attested in the Mishnah or Tosefta; a dash is attested in "
+        "neither — not that the word is wrong.\n"
+        "·D marks a word you have defined yourself, and rides beside whatever "
+        "else is known about it. D alone is a word only you have defined. "
+        "Either way the meaning is in the tooltip.");
     row.cells.reserve(combined.cells.size());
 
     for (const Cell &word : combined.cells) {
@@ -494,34 +498,60 @@ VerseGridWidget::Row VerseGridWidget::strongsRow(const Row &combined) const
             continue;
         }
 
+        // What the editor has written about this word themselves, which is
+        // worth reading whether or not the Hebrew Bible has heard of it.
+        const QStringList defined = m_controller->dictionary().definitionsFor(word.plain);
+
         const QList<LexiconEntry> entries = lexicon.lookup(word.plain);
         if (entries.isEmpty()) {
             // Strong's covers the Hebrew Bible only, so a post-biblical word
             // has no number and never will. Saying which kind of absence this
             // is keeps the row from reading as though the word were doubtful.
             const bool rabbinic = AttestedForms::shared().contains(word.plain);
-            cell.plain = rabbinic ? QStringLiteral("M") : QStringLiteral("—");
-            cell.html = cell.plain;
-            cell.tooltip = rabbinic
-                ? QStringLiteral("%1 is attested in the Mishnah or Tosefta. "
-                                 "Strong's covers only the Hebrew Bible, so "
-                                 "there is no number for it.")
-                      .arg(word.plain)
-                : QStringLiteral("%1 is not attested in the Hebrew Bible, the "
-                                 "Mishnah or the Tosefta.")
-                      .arg(word.plain);
-            row.cells.append(cell);
-            continue;
+            if (rabbinic) {
+                cell.plain = QStringLiteral("M");
+                cell.tooltip =
+                    QStringLiteral("%1 is attested in the Mishnah or Tosefta. "
+                                   "Strong's covers only the Hebrew Bible, so "
+                                   "there is no number for it.")
+                        .arg(word.plain);
+            } else if (!defined.isEmpty()) {
+                // A dash says nothing knows this word, which stops being true
+                // the moment the editor defines it. So D stands alone here
+                // rather than riding on a dash it contradicts.
+                cell.plain = QStringLiteral("D");
+            } else {
+                cell.plain = QStringLiteral("—");
+                cell.tooltip =
+                    QStringLiteral("%1 is not attested in the Hebrew Bible, the "
+                                   "Mishnah or the Tosefta.")
+                        .arg(word.plain);
+            }
+        } else {
+            // Several words can share a consonantal skeleton, so the likeliest
+            // reading is shown with a mark and the alternatives kept in reach
+            // rather than one of them being passed off as the answer.
+            cell.plain = entries.size() > 1
+                ? QStringLiteral("%1?").arg(entries.first().strongs)
+                : entries.first().strongs;
+            cell.tooltip = strongsTooltip(entries);
         }
 
-        // Several words can share a consonantal skeleton, so the likeliest
-        // reading is shown with a mark and the alternatives kept in reach
-        // rather than one of them being passed off as the answer.
-        cell.plain = entries.size() > 1
-            ? QStringLiteral("%1?").arg(entries.first().strongs)
-            : entries.first().strongs;
+        // A word can be both attested and worth a note of one's own. What the
+        // corpora say keeps the cell — it is the harder fact — and the note
+        // rides beside it so an annotated word can be seen without hovering.
+        // The one exception is handled above: D never follows a dash.
+        if (!defined.isEmpty() && cell.plain != QStringLiteral("D")) {
+            cell.plain += QStringLiteral("·D");
+        }
+        if (!defined.isEmpty()) {
+            cell.tooltip = cell.tooltip.isEmpty()
+                ? QStringLiteral("%1\n\nYour own definition.")
+                      .arg(numberedDefinitions(defined))
+                : QStringLiteral("Your own definition:\n%1\n\n%2")
+                      .arg(numberedDefinitions(defined), cell.tooltip);
+        }
         cell.html = cell.plain.toHtmlEscaped();
-        cell.tooltip = strongsTooltip(entries);
 
         row.cells.append(cell);
     }
@@ -830,7 +860,6 @@ void VerseGridWidget::showWitnessMenu(int columnIndex, const QPoint &globalPosit
     // What was flagged comes first: it is the reason the word is marked, and
     // nothing here is applied until it is chosen.
     const QList<Suggestion> flags = m_suggestions.values(columnIndex);
-    QString flaggedWord;
     for (const Suggestion &flag : flags) {
         if (flag.replacement.isEmpty()) {
             continue;
@@ -843,14 +872,7 @@ void VerseGridWidget::showWitnessMenu(int columnIndex, const QPoint &globalPosit
             m_controller->setColumnText(verseId(), columnIndex, replacement);
         });
     }
-    for (const Suggestion &flag : flags) {
-        if (flag.kind == SuggestionKind::UnknownForm) {
-            const ConsensusColumn &consensus =
-                m_controller->draftFor(m_aligned).columns.at(columnIndex);
-            flaggedWord = consensus.text.value_or(QString());
-            break;
-        }
-    }
+
     // Dividing is offered only where there is something to divide at, and it
     // says what the two words will be so the result is not a surprise.
     const CombinedDraft draft = m_controller->draftFor(m_aligned);
@@ -916,13 +938,18 @@ void VerseGridWidget::showWitnessMenu(int columnIndex, const QPoint &globalPosit
         m_controller->requestNoteEditing();
     });
 
-    if (!flaggedWord.isEmpty()) {
-        QAction *accept = menu.addAction(
-            QStringLiteral("Add %1 to my dictionary").arg(flaggedWord));
-        accept->setToolTip(
-            QStringLiteral("Stops Milah asking about this word, in every project."));
-        connect(accept, &QAction::triggered, this, [this, flaggedWord] {
-            m_controller->addToDictionary(flaggedWord);
+    // Offered for any word the edition reads, not only one Milah has queried.
+    // A word attested in the Mishnah is never flagged and so was never
+    // offered — yet it is exactly the kind with no definition anywhere, and
+    // the kind worth writing one for.
+    if (!combinedWord.isEmpty()) {
+        QAction *define = menu.addAction(
+            QStringLiteral("Define %1 in my dictionary").arg(combinedWord));
+        define->setToolTip(QStringLiteral(
+            "Records what the word means, and stops Milah asking about it, in "
+            "every project."));
+        connect(define, &QAction::triggered, this, [this, combinedWord] {
+            m_controller->addToDictionary(combinedWord);
         });
     }
 

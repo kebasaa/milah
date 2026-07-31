@@ -8,6 +8,7 @@
 #include "core/serialize.h"
 #include "core/tokenize.h"
 #include "project_storage.h"
+#include "ui/dictionary_entry_dialog.h"
 
 #include <QDateTime>
 #include <QFile>
@@ -1421,13 +1422,87 @@ void AppController::addToDictionary(const QString &word)
     if (word.trimmed().isEmpty()) {
         return;
     }
-    if (!m_dictionary.add(word)) {
+
+    // Asked before anything is written: cancelling has to leave the dictionary
+    // as it was, or the dialog would be describing a decision already taken.
+    DictionaryEntryDialog dialog(
+        word, m_dictionary.definitionsFor(word), m_dialogParent);
+    if (dialog.exec() != QDialog::Accepted) {
+        return;
+    }
+
+    if (!m_dictionary.save(word, dialog.definitions())) {
         setMessage(
             QStringLiteral("Could not save the word to your dictionary; it will "
                            "be forgotten when Milah closes."));
     }
     m_acceptedForms.unite(m_dictionary.keys());
     emit displayOptionsChanged();
+}
+
+void AppController::saveDictionaryAs()
+{
+    if (m_dictionary.isEmpty()) {
+        setMessage(QStringLiteral("There is nothing in your dictionary yet."));
+        return;
+    }
+
+    const QString path = QFileDialog::getSaveFileName(
+        m_dialogParent,
+        QStringLiteral("Save my dictionary as"),
+        lastDirectory().isEmpty()
+            ? QStringLiteral("milah-dictionary.json")
+            : lastDirectory() + QStringLiteral("/milah-dictionary.json"),
+        QStringLiteral("Milah dictionary (*.json);;All files (*)"));
+    if (path.isEmpty()) {
+        return;
+    }
+    rememberDirectory(path);
+
+    if (!m_dictionary.writeTo(path)) {
+        setMessage(QStringLiteral("Could not write %1.").arg(QFileInfo(path).fileName()));
+        return;
+    }
+    setMessage(
+        QStringLiteral("Saved your dictionary to %1.").arg(QFileInfo(path).fileName()));
+}
+
+void AppController::loadDictionary()
+{
+    const QString path = QFileDialog::getOpenFileName(
+        m_dialogParent,
+        QStringLiteral("Load a dictionary"),
+        lastDirectory(),
+        QStringLiteral("Milah dictionary (*.json);;All files (*)"));
+    if (path.isEmpty()) {
+        return;
+    }
+    rememberDirectory(path);
+
+    const QString name = QFileInfo(path).fileName();
+    const int changed = m_dictionary.mergeFrom(path);
+    if (changed < 0) {
+        setMessage(
+            QStringLiteral("%1 is not a Milah dictionary; nothing was changed.")
+                .arg(name));
+        return;
+    }
+    if (changed == 0) {
+        // The merge keeps everything and adds only what is new, so re-reading a
+        // file already taken in is a no-op rather than a doubling. Saying so is
+        // better than looking like nothing happened.
+        setMessage(
+            QStringLiteral("Nothing new in %1; your dictionary already has it all.")
+                .arg(name));
+        return;
+    }
+
+    m_acceptedForms.unite(m_dictionary.keys());
+    emit displayOptionsChanged();
+    setMessage(
+        changed == 1
+            ? QStringLiteral("Added one word from %1.").arg(name)
+            : QStringLiteral("Added %1 words from %2.").arg(changed).arg(name));
 }
 
 void AppController::applyColumn(
