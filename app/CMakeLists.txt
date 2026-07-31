@@ -1,6 +1,11 @@
 cmake_minimum_required(VERSION 3.24)
 
-project(Milah VERSION 0.1.0 LANGUAGES CXX)
+# The one place the application version is written. It reaches the binary as
+# MILAH_VERSION (below), the About dialog, `Milah.exe --version`, and the
+# Windows VERSIONINFO resource. It is unrelated to the `.milah` project file
+# format version, which is pinned to 1 in src/core/project.cpp and gates
+# whether a saved project can be opened at all.
+project(Milah VERSION 1.0.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -35,6 +40,10 @@ add_library(MilahCore STATIC
     src/core/tokenize.h
     src/core/diff.cpp
     src/core/diff.h
+    src/core/hebrew_forms.cpp
+    src/core/hebrew_forms.h
+    src/core/align_score.cpp
+    src/core/align_score.h
     src/core/data_paths.cpp
     src/core/data_paths.h
     src/core/lexicon.cpp
@@ -68,8 +77,10 @@ target_include_directories(MilahCore PUBLIC src)
 # --------------------------------------------------------------------------
 
 set(MILAH_DATA_FILES
+    "${CMAKE_CURRENT_SOURCE_DIR}/data/hebrew_abbreviations.json"
     "${CMAKE_CURRENT_SOURCE_DIR}/data/hebrew_lexicon.json"
     "${CMAKE_CURRENT_SOURCE_DIR}/data/hebrew_phrase_rules.json"
+    "${CMAKE_CURRENT_SOURCE_DIR}/data/hebrew_roots.json"
     "${CMAKE_CURRENT_SOURCE_DIR}/data/rabbinic.words.txt"
 )
 
@@ -104,6 +115,8 @@ qt_add_executable(Milah WIN32
     src/main_window.h
     src/ui/about_dialog.cpp
     src/ui/about_dialog.h
+    src/ui/dictionary_entry_dialog.cpp
+    src/ui/dictionary_entry_dialog.h
     src/ui/icons.cpp
     src/ui/icons.h
     src/ui/notes_widget.cpp
@@ -145,14 +158,27 @@ qt_add_resources(Milah "milah_icons"
         img/icons/view-refresh.svg
 )
 
-# Windows executable file icon (what Explorer shows). The .rc is compiled by the
-# RC toolchain, which only exists on Windows builds.
+# Windows executable file icon and version metadata (what Explorer shows under
+# Properties). Generated from img/milah.rc.in so the version comes from the
+# project() declaration above rather than being written out a second time. The
+# RC toolchain only exists on Windows builds.
 if(WIN32)
-    target_sources(Milah PRIVATE img/milah.rc)
+    configure_file(
+        "${CMAKE_CURRENT_SOURCE_DIR}/img/milah.rc.in"
+        "${CMAKE_CURRENT_BINARY_DIR}/milah.rc"
+        @ONLY
+    )
+    target_sources(Milah PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/milah.rc")
 endif()
+
+# Stamped at configure time rather than left to __DATE__, which records when a
+# translation unit was last compiled and so goes stale on an incremental build.
+# build_milah_windows.ps1 reconfigures on every run, so this is refreshed with it.
+string(TIMESTAMP MILAH_BUILD_DATE "%Y-%m-%d" UTC)
 
 target_compile_definitions(Milah PRIVATE
     MILAH_VERSION="${PROJECT_VERSION}"
+    MILAH_BUILD_DATE="${MILAH_BUILD_DATE}"
 )
 
 if(WIN32 AND MILAH_DEPLOY_QT)
@@ -174,7 +200,7 @@ if(MILAH_BUILD_TESTS)
 
     foreach(test_name
             project_storage osis consensus apparatus diff acronym lexicon suggestions
-            coverage)
+            coverage alignment)
         # Plain add_executable, not qt_add_executable: the latter finalises the
         # target as a Windows GUI application, and a GUI-subsystem binary
         # discards the stdout QTest reports through, leaving a failing test

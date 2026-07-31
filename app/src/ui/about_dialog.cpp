@@ -4,6 +4,7 @@
 #include <QHBoxLayout>
 #include <QIcon>
 #include <QLabel>
+#include <QSysInfo>
 #include <QVBoxLayout>
 
 namespace milah {
@@ -55,8 +56,16 @@ AboutDialog::AboutDialog(QWidget *parent)
     setObjectName(QStringLiteral("aboutDialog"));
 
     QStringList build;
-    build << QStringLiteral("Built with %1 against Qt %2")
-                 .arg(compilerDescription(), QStringLiteral(QT_VERSION_STR));
+    // The date comes from CMake rather than __DATE__ on purpose. __DATE__ is
+    // when this one file was last compiled, so an incremental build that did
+    // not touch it would keep reporting an older day; the build script
+    // reconfigures on every run, so the stamp is refreshed each time.
+    build << QStringLiteral("Built %1 with %2 against Qt %3, for %4")
+                 .arg(
+                     QStringLiteral(MILAH_BUILD_DATE),
+                     compilerDescription(),
+                     QStringLiteral(QT_VERSION_STR),
+                     QSysInfo::buildCpuArchitecture());
     // A portable folder can meet a different Qt than it was built with, and
     // that is worth knowing when something misbehaves.
     if (QLatin1String(qVersion()) != QLatin1String(QT_VERSION_STR)) {

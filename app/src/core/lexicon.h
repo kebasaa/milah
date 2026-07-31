@@ -52,6 +52,34 @@ public:
     QList<LexiconEntry> lookup(const QString &word) const;
     bool knows(const QString &word) const;
 
+    /// The Strong's numbers `word` may stand for, likeliest first.
+    ///
+    /// Two spellings that share one are inflections of the same lemma, which
+    /// is what lets the alignment recognise שֶׁנְּתָנוֹ as נתן where no amount of
+    /// comparing letters would. Ambiguous forms carry several candidates, so a
+    /// shared number is good evidence rather than proof.
+    QStringList strongsFor(const QString &word) const;
+
+    /// The Strong's numbers of the roots `word` is built on, where the
+    /// dictionary records a derivation.
+    ///
+    /// Weaker evidence than a shared number: this says the two words are
+    /// related, not that they are the same word. מלך "king" derives from מלך
+    /// "to reign", but אדם "man" derives from אדם "to be red", and only one of
+    /// those pairs belongs in the same column. The chain is walked a bounded
+    /// number of steps for exactly that reason — see python/tools/build_roots.py.
+    ///
+    /// Empty when no roots file was found, which stands the rung down rather
+    /// than changing any other answer.
+    QStringList rootsFor(const QString &word) const;
+
+    /// True when a roots file was loaded alongside the dictionary.
+    bool hasRoots() const { return !m_roots.isEmpty(); }
+
+    /// Overlays a roots file. A path that is empty or unreadable leaves the
+    /// lexicon as it was, so the rung stands down instead of failing.
+    void loadRoots(const QString &path);
+
 private:
     /// The numbers `word` may stand for, as a space-separated list.
     QString numbersFor(const QString &word) const;
@@ -63,6 +91,9 @@ private:
     QHash<QString, QString> m_pointed;
     QHash<QString, QString> m_forms;
     QHash<QString, LexiconEntry> m_entries;
+    /// A Strong's number to the number of the root it derives from. Read from
+    /// a separate file, so an older data directory without one still loads.
+    QHash<QString, QString> m_roots;
 };
 
 /// The word with its niqqud but without cantillation, which manuscript text

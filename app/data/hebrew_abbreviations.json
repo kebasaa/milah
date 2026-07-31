@@ -1,0 +1,60 @@
+{
+  "version": 1,
+  "about": [
+    "Scribal abbreviations in the manuscripts Milah collates.",
+    "",
+    "A word is treated as an abbreviation because it carries one of the marks",
+    "scribes write them with -- geresh U+05F3, gershayim U+05F4, or the accents",
+    "U+059C and U+059E used for the same purpose -- so `stem` holds only the",
+    "letters. That is why a plain he is not mistaken for the divine name: the",
+    "mark is the signal, and comparisonKey throws it away, which is why the",
+    "table cannot live in hebrew_phrase_rules.json.",
+    "",
+    "One entry covers every prefixed spelling: ל, ו and the other prefix",
+    "letters are peeled before the lookup and put back on the expansion, so",
+    "לה֞ resolves through the same row as ה֞.",
+    "",
+    "A single-letter stem is also offered for a token with NO mark, because",
+    "copyists leave it off: Cochin's James writes the divine name as a bare ה",
+    "ten times. That is a suggestion only, never an alignment decision --",
+    "Sloane 237 writes a bare ה too, and there it is a detached definite",
+    "article. Longer stems are never matched unmarked, since an unmarked ישו",
+    "is just the bare form the phrase rules speak to.",
+    "",
+    "Expansions are listed most likely first, and written POINTED. They are",
+    "stripped automatically when the Combined verse they would go into has no",
+    "vowel points, so a pointed edition gets אֱלֹהִים and an unpointed one",
+    "gets אלהים from this one entry. Write them pointed and let Milah reduce.",
+    "",
+    "Numeric abbreviations (א׳ for one, י׳ב for twelve) are deliberately",
+    "absent: they expand to numbers rather than to words, and matching them",
+    "against a witness that spells the number out is a different problem."
+  ],
+  "entries": [
+    {
+      "stem": "ה",
+      "expansions": ["אֱלֹהִים", "יְהוָה", "אֲדֹנָי"],
+      "note": "The divine name, left unwritten. Also matched without a mark."
+    },
+    {
+      "stem": "ישו",
+      "expansions": ["יֵשׁוּעַ", "יְהוֹשֻׁעַ"],
+      "note": "Jesus. Sloane 237 writes it out as יְהוֹשֻׁעַ, Cochin abbreviates."
+    },
+    {
+      "stem": "עי",
+      "expansions": ["עַל יְדֵי"],
+      "note": "By the hand of. Written four ways across the witnesses — ע֞י and וע֞י in Revelation, ע״י in James, ע׳י in Matthew — and all four reach this one row, which is keyed on the letters alone. Sloane 237 says the same thing at Rev 1:1 with בְּיַד; the expansion here is the acronym's own letters, so the collation does not join the two readings."
+    },
+    {
+      "stem": "אחכ",
+      "expansions": ["אַחַר כָּךְ"],
+      "note": "Afterwards."
+    },
+    {
+      "stem": "גכ",
+      "expansions": ["גַּם כֵּן"],
+      "note": "Likewise."
+    }
+  ]
+}

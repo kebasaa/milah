@@ -27,6 +27,13 @@ public:
     /// without going through the file dialogs.
     void openFiles(const QStringList &manuscripts, const QStringList &translations);
 
+protected:
+    /// Every ordinary way out of Milah ends here — the title-bar X, Alt+F4,
+    /// Ctrl+Q and File ▸ Quit, the last two because the quit action is wired to
+    /// QWidget::close rather than to qApp->quit(). So this is the one place
+    /// that can stand between the editor and an unsaved edition.
+    void closeEvent(QCloseEvent *event) override;
+
 private:
     /// Every command the window offers, made once. The menus and the toolbar
     /// then show the same objects, so a shortcut or an enabled state is stated
@@ -46,6 +53,8 @@ private:
     /// with. Milah is handed round as a portable folder rather than installed,
     /// so a copy has nothing else to say which one it is.
     void showAbout();
+    /// There is nothing to back up until a word has been accepted.
+    void updateDictionaryActions();
     void rebuildAll();
     void rebuildBookList();
     void rebuildChapterList();
@@ -74,6 +83,7 @@ private:
     QAction *m_loadTranslationsAction = nullptr;
     QAction *m_openAction = nullptr;
     QAction *m_saveAction = nullptr;
+    QAction *m_closeAction = nullptr;
     QAction *m_exportAction = nullptr;
     QAction *m_quitAction = nullptr;
     QAction *m_regenerateAction = nullptr;
@@ -87,6 +97,10 @@ private:
     QAction *m_mergePreviousAction = nullptr;
     QAction *m_mergeNextAction = nullptr;
     QAction *m_dictionaryAction = nullptr;
+    /// Backing the dictionary up, and taking one back in. Held because saving
+    /// is offered only once there is something to save.
+    QAction *m_saveDictionaryAction = nullptr;
+    QAction *m_loadDictionaryAction = nullptr;
 
     QScrollArea *m_verseArea = nullptr;
     QWidget *m_verseHost = nullptr;

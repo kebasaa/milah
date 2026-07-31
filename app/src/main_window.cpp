@@ -10,6 +10,7 @@
 #include "ui/verse_grid_widget.h"
 
 #include <QAction>
+#include <QCloseEvent>
 #include <QApplication>
 #include <QComboBox>
 #include <QDockWidget>
@@ -38,12 +39,12 @@ QWidget#verseCard {
 QLabel#verseHeading {
     font-weight: 600;
 }
-/* Names the row it sits beside, at the right-hand edge of the readings. Its
-   size and colour are set in code, not here: the band packing measures the
-   font, and the colour has to hold up in a light and a dark palette alike. */
-QLabel#rowAcronym {
-    padding-left: 8px;
-}
+/* Names the row it sits beside, at the right-hand edge of the readings. Nothing
+   about it is set here: its size, colour and the gap to the reading beside it
+   are all applied in code. The band packing measures the font, the colour has
+   to hold up in a light and a dark palette alike, and the gap is a named
+   constant because the combined-text preview insets itself by the same amount
+   to line up with the first word. See AcronymPadding in verse_grid_widget.cpp. */
 /* Readings carry no box and no padding: a cell is exactly as wide as the
    word in it, which is what keeps the columns measurable and the rows
    readable as running text. Their size is set in code, not here, so that
@@ -127,6 +128,9 @@ MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
 {
     setWindowTitle(QStringLiteral("Milah"));
+    // Not the size Milah opens at — main.cpp maximises it. This is the size it
+    // returns to when the window is restored, so it still has to be wide enough
+    // for a verse to read as one band.
     resize(1440, 900);
     setMinimumSize(900, 600);
     setStyleSheet(QString::fromUtf8(kStyleSheet));
@@ -204,6 +208,7 @@ MainWindow::MainWindow(QWidget *parent)
         for (VerseGridWidget *card : m_verseCards) {
             card->refresh();
         }
+        updateDictionaryActions();
     });
     connect(m_controller, &AppController::messageChanged, this, [this](const QString &text) {
         statusBar()->showMessage(text);
@@ -275,6 +280,15 @@ void MainWindow::createActions()
     describeShortcut(m_saveAction);
     connect(m_saveAction, &QAction::triggered, m_controller, &AppController::saveProject);
 
+    m_closeAction = new QAction(QStringLiteral("Close project"), this);
+    // Written out rather than QKeySequence::Close: on Windows that offers
+    // Ctrl+F4 first and Ctrl+W second, and setShortcut takes only the first —
+    // so the standard key would bind the MDI-child shortcut nobody expects
+    // here. Same reason the quit action writes Ctrl+Q out.
+    m_closeAction->setShortcut(QKeySequence(QStringLiteral("Ctrl+W")));
+    describeShortcut(m_closeAction);
+    connect(m_closeAction, &QAction::triggered, m_controller, &AppController::closeProject);
+
     m_exportAction = new QAction(QStringLiteral("Export Combined"), this);
     m_exportAction->setIcon(actionIcon(
         QIcon::ThemeIcon::DocumentSaveAs,
@@ -334,7 +348,32 @@ void MainWindow::createActions()
         }
     });
 
-    m_dictionaryAction = new QAction(QStringLiteral("Add word to my dictionary"), this);
+    m_saveDictionaryAction =
+        new QAction(QStringLiteral("Save my dictionary as…"), this);
+    m_saveDictionaryAction->setToolTip(
+        QStringLiteral("Write a copy of your dictionary somewhere of your own. "
+                       "Milah goes on using its own."));
+    connect(
+        m_saveDictionaryAction,
+        &QAction::triggered,
+        m_controller,
+        &AppController::saveDictionaryAs);
+
+    m_loadDictionaryAction = new QAction(QStringLiteral("Load a dictionary…"), this);
+    m_loadDictionaryAction->setToolTip(
+        QStringLiteral("Read a saved dictionary in. Nothing you already have is "
+                       "lost, and nothing is taken twice."));
+    connect(
+        m_loadDictionaryAction,
+        &QAction::triggered,
+        m_controller,
+        &AppController::loadDictionary);
+
+    m_dictionaryAction =
+        new QAction(QStringLiteral("Define word in my dictionary"), this);
+    m_dictionaryAction->setToolTip(QStringLiteral(
+        "Records what the selected word means, and stops Milah asking about "
+        "it, in every project."));
     connect(m_dictionaryAction, &QAction::triggered, this, [this] {
         const QString word = m_controller->selectedWord();
         if (!word.isEmpty()) {
@@ -385,13 +424,18 @@ void MainWindow::buildMenuBar()
     QMenu *file = menuBar()->addMenu(QStringLiteral("&File"));
     file->addAction(m_openAction);
     file->addAction(m_saveAction);
+    file->addAction(m_closeAction);
     file->addSeparator();
     file->addAction(m_loadManuscriptsAction);
     file->addAction(m_loadTranslationsAction);
     file->addSeparator();
     file->addAction(m_exportAction);
     file->addSeparator();
+    file->addAction(m_saveDictionaryAction);
+    file->addAction(m_loadDictionaryAction);
+    file->addSeparator();
     file->addAction(m_quitAction);
+    updateDictionaryActions();
 
     QMenu *edit = menuBar()->addMenu(QStringLiteral("&Edit"));
     edit->addAction(m_undoAction);
@@ -491,9 +535,27 @@ void MainWindow::buildToolBar()
     toolBar->addAction(m_regenerateAction);
 }
 
+void MainWindow::closeEvent(QCloseEvent *event)
+{
+    if (!m_controller->confirmDiscard()) {
+        // Changed their mind: the window stays open and Milah stays running,
+        // rather than dying half-shut.
+        event->ignore();
+        return;
+    }
+    QMainWindow::closeEvent(event);
+}
+
 void MainWindow::showAbout()
 {
     AboutDialog(this).exec();
+}
+
+void MainWindow::updateDictionaryActions()
+{
+    if (m_saveDictionaryAction) {
+        m_saveDictionaryAction->setEnabled(!m_controller->dictionary().isEmpty());
+    }
 }
 
 void MainWindow::undo()
@@ -669,6 +731,7 @@ void MainWindow::rebuildPriorityList()
     m_priorityCombo->setEnabled(hasManuscripts);
     m_regenerateAction->setEnabled(hasManuscripts);
     m_saveAction->setEnabled(hasManuscripts);
+    m_closeAction->setEnabled(hasManuscripts);
     m_exportAction->setEnabled(hasManuscripts);
 }
 

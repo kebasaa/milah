@@ -1,6 +1,10 @@
 #include "core/suggestions.h"
 
 #include "core/data_paths.h"
+#include "core/hebrew_forms.h"
+// hebrew_forms brings isHebrewLetter, isAbbreviated, hasNiqqud and
+// withoutNiqqud, all shared with the alignment so the two cannot disagree
+// about what a vowel point or an abbreviation mark is.
 #include "core/lexicon.h"
 #include "core/tokenize.h"
 
@@ -17,59 +21,9 @@
 namespace milah {
 namespace {
 
-/// The five letters written differently at the end of a word.
-struct FinalForm
-{
-    QChar plain;
-    QChar final;
-};
-
-const QList<FinalForm> &finalForms()
-{
-    static const QList<FinalForm> forms = {
-        {QChar(0x05DB), QChar(0x05DA)}, // kaf
-        {QChar(0x05DE), QChar(0x05DD)}, // mem
-        {QChar(0x05E0), QChar(0x05DF)}, // nun
-        {QChar(0x05E4), QChar(0x05E3)}, // pe
-        {QChar(0x05E6), QChar(0x05E5)}, // tsadi
-    };
-    return forms;
-}
-
-bool isHebrewLetter(QChar character)
-{
-    return character.unicode() >= 0x05D0 && character.unicode() <= 0x05EA;
-}
-
-std::optional<QChar> finalOf(QChar letter)
-{
-    for (const FinalForm &form : finalForms()) {
-        if (form.plain == letter) {
-            return form.final;
-        }
-    }
-    return std::nullopt;
-}
-
-std::optional<QChar> plainOf(QChar letter)
-{
-    for (const FinalForm &form : finalForms()) {
-        if (form.final == letter) {
-            return form.plain;
-        }
-    }
-    return std::nullopt;
-}
-
-int lastLetterIndex(const QString &word)
-{
-    for (int index = word.size() - 1; index >= 0; --index) {
-        if (isHebrewLetter(word.at(index))) {
-            return index;
-        }
-    }
-    return -1;
-}
+// The final-form table these checks need lives in core/hebrew_forms.h, shared
+// with the alignment's folding so the two cannot disagree about which letters
+// have a final shape.
 
 /// Checks that need no view about the language, only about how Hebrew is
 /// written. Each returns the corrected spelling so the editor can accept it in
@@ -200,6 +154,121 @@ const PhraseRules &PhraseRules::shared()
     return rules;
 }
 
+void AbbreviationTable::append(const AbbreviationTable &other)
+{
+    for (auto entry = other.m_entries.constBegin();
+         entry != other.m_entries.constEnd();
+         ++entry) {
+        // The editor's own file wins: it is the more specific of the two.
+        m_entries.insert(entry.key(), entry.value());
+    }
+}
+
+AbbreviationTable AbbreviationTable::fromJson(const QJsonObject &document)
+{
+    AbbreviationTable table;
+    for (const QJsonValue &value :
+         document.value(QStringLiteral("entries")).toArray()) {
+        const QJsonObject entry = value.toObject();
+
+        // Keyed the same way a token will be, so a stem written pointed or
+        // with its abbreviation mark still finds its row.
+        const QString stem =
+            abbreviationStem(entry.value(QStringLiteral("stem")).toString());
+
+        QStringList expansions;
+        for (const QJsonValue &word :
+             entry.value(QStringLiteral("expansions")).toArray()) {
+            const QString expansion =
+                word.toString().normalized(QString::NormalizationForm_C);
+            if (!expansion.isEmpty()) {
+                expansions.append(expansion);
+            }
+        }
+
+        if (stem.isEmpty() || expansions.isEmpty()) {
+            continue;
+        }
+        table.m_entries.insert(stem, expansions);
+    }
+    return table;
+}
+
+AbbreviationTable AbbreviationTable::fromFile(const QString &path)
+{
+    QFile file(path);
+    if (!file.open(QIODevice::ReadOnly)) {
+        return AbbreviationTable();
+    }
+    const QJsonDocument document = QJsonDocument::fromJson(file.readAll());
+    return document.isObject() ? fromJson(document.object()) : AbbreviationTable();
+}
+
+const AbbreviationTable &AbbreviationTable::shared()
+{
+    static const AbbreviationTable table = [] {
+        AbbreviationTable loaded =
+            fromFile(locateDataFile(QStringLiteral("hebrew_abbreviations.json")));
+        const QString directory =
+            QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
+        if (!directory.isEmpty()) {
+            loaded.append(
+                fromFile(directory + QStringLiteral("/hebrew_abbreviations.json")));
+        }
+        return loaded;
+    }();
+    return table;
+}
+
+QStringList AbbreviationTable::expansionsFor(const QString &rawText) const
+{
+    // The mark is the whole signal. Without this test the divine name's entry
+    // would answer for every bare ה in the corpus.
+    if (m_entries.isEmpty() || !isAbbreviated(rawText)) {
+        return QStringList();
+    }
+
+    const QString stem = abbreviationStem(rawText);
+    const auto exact = m_entries.constFind(stem);
+    if (exact != m_entries.constEnd()) {
+        return exact.value();
+    }
+
+    // One agglutinated prefix letter, put back on whatever it resolves to, so
+    // לה֞ reads through the same row as ה֞ and comes out לאלהים.
+    static const QString prefixes = QStringLiteral("ובכלמהש");
+    if (stem.size() >= 2 && prefixes.contains(stem.at(0))) {
+        const auto peeled = m_entries.constFind(stem.mid(1));
+        if (peeled != m_entries.constEnd()) {
+            QStringList prefixed;
+            prefixed.reserve(peeled.value().size());
+            for (const QString &expansion : peeled.value()) {
+                prefixed.append(stem.at(0) + expansion);
+            }
+            return prefixed;
+        }
+    }
+
+    return QStringList();
+}
+
+QStringList AbbreviationTable::unmarkedExpansionsFor(const QString &rawText) const
+{
+    if (m_entries.isEmpty() || isAbbreviated(rawText)) {
+        return QStringList();
+    }
+
+    // One letter and nothing else. Without the mark this is the only signal
+    // worth acting on: a lone letter is not a Hebrew word, whereas a longer
+    // unmarked word is simply that word.
+    const QString stem = abbreviationStem(rawText);
+    if (stem.size() != 1 || !isHebrewLetter(stem.at(0))) {
+        return QStringList();
+    }
+
+    return m_entries.value(stem);
+}
+
 AttestedForms AttestedForms::fromFile(const QString &path)
 {
     AttestedForms forms;
@@ -254,6 +323,54 @@ const AttestedForms &AttestedForms::shared()
     return forms;
 }
 
+namespace {
+
+/// Drops blanks and trims what is left, so a stray newline in the editor's
+/// field cannot become a numbered note that says nothing, and so two notes
+/// differing only in spacing count as one.
+QStringList tidyDefinitions(const QStringList &definitions)
+{
+    QStringList tidied;
+    tidied.reserve(definitions.size());
+    for (const QString &definition : definitions) {
+        const QString trimmed = definition.trimmed();
+        if (!trimmed.isEmpty() && !tidied.contains(trimmed)) {
+            tidied.append(trimmed);
+        }
+    }
+    return tidied;
+}
+
+/// Where the dictionary is kept now. The older one-key-per-line file sits
+/// beside it and is read when this is absent.
+QString legacyDictionaryPath(const QString &path)
+{
+    if (!path.endsWith(QStringLiteral(".json"))) {
+        return QString();
+    }
+    return path.chopped(5) + QStringLiteral(".txt");
+}
+
+} // namespace
+
+QString numberedDefinitions(const QStringList &definitions)
+{
+    if (definitions.isEmpty()) {
+        return QString();
+    }
+    if (definitions.size() == 1) {
+        return definitions.first();
+    }
+
+    QStringList lines;
+    lines.reserve(definitions.size());
+    for (int index = 0; index < definitions.size(); ++index) {
+        lines.append(
+            QStringLiteral("Def. %1  %2").arg(index + 1).arg(definitions.at(index)));
+    }
+    return lines.join(QLatin1Char('\n'));
+}
+
 QString UserDictionary::defaultPath()
 {
     const QString directory =
@@ -261,68 +378,313 @@ QString UserDictionary::defaultPath()
     if (directory.isEmpty()) {
         return QString();
     }
-    return directory + QStringLiteral("/user-dictionary.txt");
+    return directory + QStringLiteral("/user-dictionary.json");
+}
+
+QHash<QString, DictionaryEntry> UserDictionary::readEntries(const QString &path)
+{
+    QHash<QString, DictionaryEntry> entries;
+    if (path.isEmpty()) {
+        return entries;
+    }
+
+    QFile file(path);
+    if (!file.open(QIODevice::ReadOnly)) {
+        return entries;
+    }
+    const QByteArray contents = file.readAll();
+
+    const QJsonDocument document = QJsonDocument::fromJson(contents);
+    if (document.isObject()) {
+        const QJsonArray listed =
+            document.object().value(QStringLiteral("entries")).toArray();
+        for (const QJsonValue &value : listed) {
+            const QJsonObject record = value.toObject();
+            // Keyed the way every lookup will be, whatever the file says, so a
+            // hand-edited pointed headword still finds its word.
+            const QString word = record.value(QStringLiteral("word")).toString();
+            QString key = record.value(QStringLiteral("key")).toString();
+            if (key.isEmpty()) {
+                key = comparisonKey(word);
+            } else {
+                key = comparisonKey(key);
+            }
+            if (key.isEmpty()) {
+                continue;
+            }
+
+            DictionaryEntry entry;
+            entry.word = word;
+            QStringList definitions;
+            for (const QJsonValue &definition :
+                 record.value(QStringLiteral("definitions")).toArray()) {
+                definitions.append(definition.toString());
+            }
+            entry.definitions = tidyDefinitions(definitions);
+            entries.insert(key, entry);
+        }
+        return entries;
+    }
+
+    // Not JSON: the one-key-per-line text older versions wrote, which a backup
+    // taken back then will also be.
+    QTextStream stream(contents);
+    while (!stream.atEnd()) {
+        const QString line = stream.readLine();
+        const QString key = comparisonKey(line);
+        if (key.isEmpty()) {
+            continue;
+        }
+        DictionaryEntry entry;
+        entry.word = line.trimmed();
+        entries.insert(key, entry);
+    }
+    return entries;
+}
+
+bool UserDictionary::writeEntries(
+    const QString &path, const QHash<QString, DictionaryEntry> &entries)
+{
+    if (path.isEmpty()) {
+        return false;
+    }
+    QDir().mkpath(QFileInfo(path).absolutePath());
+
+    QStringList ordered(entries.keyBegin(), entries.keyEnd());
+    ordered.sort();
+
+    QJsonArray listed;
+    for (const QString &key : ordered) {
+        const DictionaryEntry &entry = entries.value(key);
+        QJsonObject record;
+        record.insert(QStringLiteral("key"), key);
+        if (!entry.word.isEmpty()) {
+            record.insert(QStringLiteral("word"), entry.word);
+        }
+        if (!entry.definitions.isEmpty()) {
+            record.insert(
+                QStringLiteral("definitions"),
+                QJsonArray::fromStringList(entry.definitions));
+        }
+        listed.append(record);
+    }
+
+    QJsonObject document;
+    document.insert(QStringLiteral("version"), 1);
+    document.insert(QStringLiteral("entries"), listed);
+
+    QSaveFile file(path);
+    if (!file.open(QIODevice::WriteOnly)) {
+        return false;
+    }
+    file.write(QJsonDocument(document).toJson(QJsonDocument::Indented));
+    return file.commit();
 }
 
 UserDictionary::UserDictionary(const QString &path)
     : m_path(path)
+    , m_entries(readEntries(path))
 {
-    QFile file(m_path);
-    if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+    if (!m_entries.isEmpty()) {
         return;
     }
-    QTextStream stream(&file);
-    while (!stream.atEnd()) {
-        const QString key = comparisonKey(stream.readLine());
-        if (!key.isEmpty()) {
-            m_keys.insert(key);
-        }
-    }
+    // Nothing here yet: carry over the words an older Milah accepted. That file
+    // is left where it is rather than moved or removed — it is the editor's,
+    // and the JSON simply becomes the store from the first save onward.
+    m_entries = readEntries(legacyDictionaryPath(path));
 }
 
 bool UserDictionary::contains(const QString &word) const
 {
     const QString key = comparisonKey(word);
-    return !key.isEmpty() && m_keys.contains(key);
+    return !key.isEmpty() && m_entries.contains(key);
 }
 
-bool UserDictionary::add(const QString &word)
+QStringList UserDictionary::definitionsFor(const QString &word) const
+{
+    const QString key = comparisonKey(word);
+    if (key.isEmpty()) {
+        return QStringList();
+    }
+    return m_entries.value(key).definitions;
+}
+
+QSet<QString> UserDictionary::keys() const
+{
+    return QSet<QString>(m_entries.keyBegin(), m_entries.keyEnd());
+}
+
+bool UserDictionary::save(const QString &word, const QStringList &definitions)
 {
     const QString key = comparisonKey(word);
     if (key.isEmpty()) {
         return false;
     }
-    if (m_keys.contains(key)) {
+
+    DictionaryEntry entry = m_entries.value(key);
+    // The spelling the editor last saw wins: it is the one they were looking at
+    // when they wrote the note.
+    if (!word.trimmed().isEmpty()) {
+        entry.word = word.trimmed();
+    }
+    entry.definitions = tidyDefinitions(definitions);
+    m_entries.insert(key, entry);
+
+    return writeEntries(m_path, m_entries);
+}
+
+bool UserDictionary::writeTo(const QString &path) const
+{
+    return writeEntries(path, m_entries);
+}
+
+int UserDictionary::mergeFrom(const QString &path)
+{
+    if (path.isEmpty() || !QFileInfo::exists(path)) {
+        return -1;
+    }
+    const QHash<QString, DictionaryEntry> incoming = readEntries(path);
+    if (incoming.isEmpty()) {
+        // Either unreadable or holding nothing this understands. Both are worth
+        // saying out loud rather than reporting as a successful no-op.
+        return -1;
+    }
+
+    int changed = 0;
+    for (auto item = incoming.constBegin(); item != incoming.constEnd(); ++item) {
+        const DictionaryEntry &offered = item.value();
+        const auto held = m_entries.constFind(item.key());
+        if (held == m_entries.constEnd()) {
+            m_entries.insert(item.key(), offered);
+            ++changed;
+            continue;
+        }
+
+        // Everything already here stays, and only what is genuinely new is
+        // added after it. This is what makes loading the same file twice a
+        // no-op rather than a doubling.
+        DictionaryEntry merged = held.value();
+        bool gained = false;
+        for (const QString &definition : offered.definitions) {
+            if (!merged.definitions.contains(definition)) {
+                merged.definitions.append(definition);
+                gained = true;
+            }
+        }
+        if (merged.word.isEmpty() && !offered.word.isEmpty()) {
+            merged.word = offered.word;
+        }
+        if (gained) {
+            m_entries.insert(item.key(), merged);
+            ++changed;
+        }
+    }
+
+    if (changed > 0 && !writeEntries(m_path, m_entries)) {
+        return -1;
+    }
+    return changed;
+}
+
+namespace {
+
+/// Writes a replacement the way the edition around it is written, so accepting
+/// a suggestion does not point an unpointed text a word at a time.
+QString spelledLikeTheEdition(const QString &replacement, bool pointed)
+{
+    return pointed ? replacement : withoutNiqqud(replacement);
+}
+
+/// Offers what a scribal abbreviation stands for. The most likely reading is
+/// what accepting proposes; the rest are named in the reason, because choosing
+/// among the divine names is an editorial decision and not Milah's to make.
+std::optional<Suggestion> abbreviation(
+    const QString &word,
+    int column,
+    const AbbreviationTable &table,
+    bool pointed)
+{
+    // Marked first. Failing that, a lone letter may be an abbreviation whose
+    // mark was left off -- but only the editor can tell that from a detached
+    // definite article, so the two are worded differently.
+    const QStringList marked = table.expansionsFor(word);
+    const QStringList expansions =
+        marked.isEmpty() ? table.unmarkedExpansionsFor(word) : marked;
+    if (expansions.isEmpty()) {
+        return std::nullopt;
+    }
+
+    QStringList offered;
+    offered.reserve(expansions.size());
+    for (const QString &expansion : expansions) {
+        offered.append(spelledLikeTheEdition(expansion, pointed));
+    }
+
+    QString reason = marked.isEmpty()
+        ? QStringLiteral("A lone %1 is usually the divine name with its mark "
+                         "left off, but it may be a detached definite article. "
+                         "For %2")
+              .arg(abbreviationStem(word), offered.first())
+        : QStringLiteral("Written as an abbreviation, for %1").arg(offered.first());
+    if (offered.size() > 1) {
+        reason += QStringLiteral(" — or %1")
+                      .arg(offered.mid(1).join(QStringLiteral(", ")));
+    }
+    reason += QLatin1Char('.');
+
+    return Suggestion{
+        column, offered.first(), reason, SuggestionKind::Abbreviation};
+}
+
+} // namespace
+
+bool readingsArePointed(const QList<std::optional<QString>> &words)
+{
+    int countable = 0;
+    int pointed = 0;
+    for (const std::optional<QString> &word : words) {
+        if (!word.has_value() || word->isEmpty()) {
+            continue;
+        }
+        // A word of one letter cannot show a convention either way, and the
+        // abbreviations this has to judge are exactly those.
+        int letters = 0;
+        for (const QChar character : *word) {
+            if (isHebrewLetter(character)) {
+                ++letters;
+            }
+        }
+        if (letters < 2) {
+            continue;
+        }
+        ++countable;
+        if (hasNiqqud(*word)) {
+            ++pointed;
+        }
+    }
+
+    // Nothing to go on: leave a replacement as its table authored it. Points
+    // can be stripped afterwards, but not invented.
+    if (countable == 0) {
         return true;
     }
-    m_keys.insert(key);
-
-    if (m_path.isEmpty()) {
-        return false;
-    }
-    QDir().mkpath(QFileInfo(m_path).absolutePath());
-
-    QSaveFile file(m_path);
-    if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) {
-        return false;
-    }
-    QStringList ordered(m_keys.constBegin(), m_keys.constEnd());
-    ordered.sort();
-    QTextStream stream(&file);
-    for (const QString &entry : ordered) {
-        stream << entry << '\n';
-    }
-    stream.flush();
-    return file.commit();
+    return pointed * 2 > countable;
 }
 
 QList<Suggestion> reviewVerse(
     const QList<std::optional<QString>> &words,
     const HebrewLexicon &lexicon,
     const PhraseRules &rules,
-    const QSet<QString> &accepted)
+    const QSet<QString> &accepted,
+    const AbbreviationTable &abbreviations)
 {
     QList<Suggestion> suggestions;
+    QSet<int> abbreviated;
+
+    // Settled once for the whole verse: every replacement below comes from a
+    // data table written pointed, and has to be written the way this edition
+    // is written before it is offered.
+    const bool pointed = readingsArePointed(words);
 
     // Without a lexicon every word is "not attested", which would mark the
     // whole verse and say nothing. The orthography and phrase checks do not
@@ -332,6 +694,16 @@ QList<Suggestion> reviewVerse(
     for (int column = 0; column < words.size(); ++column) {
         const std::optional<QString> &word = words.at(column);
         if (!word.has_value() || word->isEmpty()) {
+            continue;
+        }
+
+        // Before anything else: an abbreviation is not misspelt, and the
+        // lexicon will happily recognise the letters it is written with while
+        // missing the word entirely — ה֞ looks like a definite article.
+        if (const std::optional<Suggestion> found =
+                abbreviation(*word, column, abbreviations, pointed)) {
+            suggestions.append(*found);
+            abbreviated.insert(column);
             continue;
         }
 
@@ -385,8 +757,22 @@ QList<Suggestion> reviewVerse(
 
             for (int offset = 0; offset < span; ++offset) {
                 const int column = spoken.at(start + offset);
-                const QString &replacement = rule.replace.at(offset);
-                if (replacement.isEmpty() || replacement == *words.at(column)) {
+                if (rule.replace.at(offset).isEmpty()) {
+                    continue;
+                }
+                // Spelled to match the edition before the comparison, not
+                // after: an unpointed edition already reading ישוע would
+                // otherwise keep being offered the pointed יֵשׁוּעַ as a change.
+                const QString replacement =
+                    spelledLikeTheEdition(rule.replace.at(offset), pointed);
+                if (replacement == *words.at(column)) {
+                    continue;
+                }
+                // A rule matched on the skeleton cannot see the abbreviation
+                // mark, so it reads יש֞ו as the bare ישו and offers its own
+                // reason for it — which for an abbreviation is the wrong
+                // reason. The expansion already said the useful thing.
+                if (abbreviated.contains(column)) {
                     continue;
                 }
                 suggestions.append(Suggestion{
