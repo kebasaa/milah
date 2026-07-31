@@ -2,6 +2,7 @@
 
 #include "core/books.h"
 
+#include <QHash>
 #include <QRegularExpression>
 #include <QRegularExpressionMatch>
 #include <QSet>
@@ -10,11 +11,6 @@
 
 namespace milah {
 namespace {
-
-QString locationKey(const Location &location)
-{
-    return QStringLiteral("%1.%2").arg(location.book).arg(location.chapter);
-}
 
 /// A verse number split into its leading number and whatever follows, so that
 /// "10" sorts after "9" and "9a" after "9".
@@ -59,58 +55,55 @@ bool verseKeyLess(const VerseKey &left, const VerseKey &right)
 
 } // namespace
 
-QList<Location> commonLocations(const DocumentRefs &manuscripts)
+QList<LocationCoverage> coveredLocations(const DocumentRefs &manuscripts)
 {
-    QList<Location> result;
+    QList<LocationCoverage> result;
     if (manuscripts.isEmpty()) {
         return result;
     }
 
-    QList<QList<Location>> perSource;
-    QList<QSet<QString>> perSourceKeys;
-    perSource.reserve(manuscripts.size());
-    perSourceKeys.reserve(manuscripts.size());
+    // Counted rather than collected per source: what matters afterwards is how
+    // many witnesses reach a place, not which list it came from.
+    QHash<QString, int> reachedBy;
+    QHash<QString, int> position;
 
     for (const SourceDocument *source : manuscripts) {
-        QList<Location> locations;
-        QSet<QString> keys;
+        QSet<QString> seenInThisSource;
         for (const SourceVerse &verse : source->verses) {
             Location location;
             location.book = verse.reference.book;
             location.chapter = verse.reference.chapter;
             const QString key = locationKey(location);
-            if (!keys.contains(key)) {
-                keys.insert(key);
-                locations.append(location);
+            if (seenInThisSource.contains(key)) {
+                continue;
             }
+            seenInThisSource.insert(key);
+
+            if (!position.contains(key)) {
+                position.insert(key, int(result.size()));
+                LocationCoverage coverage;
+                coverage.location = location;
+                result.append(coverage);
+            }
+            reachedBy[key] += 1;
         }
-        perSource.append(locations);
-        perSourceKeys.append(keys);
     }
 
-    for (const Location &location : perSource.first()) {
-        const QString key = locationKey(location);
-        bool inEvery = true;
-        for (int index = 1; index < perSourceKeys.size(); ++index) {
-            if (!perSourceKeys.at(index).contains(key)) {
-                inEvery = false;
-                break;
-            }
-        }
-        if (inEvery) {
-            result.append(location);
-        }
+    for (LocationCoverage &coverage : result) {
+        const QString key = locationKey(coverage.location);
+        coverage.sourceCount = reachedBy.value(key);
+        coverage.complete = coverage.sourceCount == int(manuscripts.size());
     }
 
     std::stable_sort(
         result.begin(),
         result.end(),
-        [](const Location &left, const Location &right) {
-            const int bookOrder = compareBooks(left.book, right.book);
+        [](const LocationCoverage &left, const LocationCoverage &right) {
+            const int bookOrder = compareBooks(left.location.book, right.location.book);
             if (bookOrder != 0) {
                 return bookOrder < 0;
             }
-            return left.chapter < right.chapter;
+            return left.location.chapter < right.location.chapter;
         });
 
     return result;

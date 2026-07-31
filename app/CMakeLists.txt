@@ -102,8 +102,12 @@ qt_add_executable(Milah WIN32
     src/app_controller.h
     src/main_window.cpp
     src/main_window.h
+    src/ui/about_dialog.cpp
+    src/ui/about_dialog.h
     src/ui/icons.cpp
     src/ui/icons.h
+    src/ui/notes_widget.cpp
+    src/ui/notes_widget.h
     src/ui/source_settings_widget.cpp
     src/ui/source_settings_widget.h
     src/ui/verse_grid_widget.cpp
@@ -134,7 +138,9 @@ qt_add_resources(Milah "milah_icons"
         img/icons/edit-undo.svg
         img/icons/go-next.svg
         img/icons/go-previous.svg
+        img/icons/help-about.svg
         img/icons/load-manuscript.svg
+        img/icons/note-marker.svg
         img/icons/load-translation.svg
         img/icons/view-refresh.svg
 )
@@ -167,7 +173,8 @@ if(MILAH_BUILD_TESTS)
     find_package(Qt6 6.6 REQUIRED COMPONENTS Test)
 
     foreach(test_name
-            project_storage osis consensus apparatus diff acronym lexicon suggestions)
+            project_storage osis consensus apparatus diff acronym lexicon suggestions
+            coverage)
         # Plain add_executable, not qt_add_executable: the latter finalises the
         # target as a Windows GUI application, and a GUI-subsystem binary
         # discards the stdout QTest reports through, leaving a failing test

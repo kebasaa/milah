@@ -1,5 +1,7 @@
 #include "test_data.h"
 
+#include <QMap>
+
 namespace milah_test {
 
 const char *const kSampleOsis = R"OSIS(<?xml version="1.0" encoding="UTF-8"?>
@@ -38,6 +40,46 @@ QString witnessOsis(const QString &id, const QString &text)
     </osis>)OSIS";
 
     return QString::fromUtf8(kTemplate).arg(id, text);
+}
+
+QString witnessOsisCovering(const QString &id, const QStringList &chapters)
+{
+    // Chapters are grouped under the book they belong to, in the order they are
+    // first named, so the document is shaped the way a real one is rather than
+    // relying on the parser to tolerate a loose one.
+    QStringList books;
+    QMap<QString, QStringList> byBook;
+    for (const QString &chapter : chapters) {
+        const QString book = chapter.section(QLatin1Char('.'), 0, 0);
+        if (!byBook.contains(book)) {
+            books.append(book);
+        }
+        byBook[book].append(chapter);
+    }
+
+    QString divs;
+    for (const QString &book : books) {
+        QString inner;
+        for (const QString &chapter : byBook.value(book)) {
+            inner += QStringLiteral(
+                         "<chapter osisID=\"%1\">"
+                         "<verse osisID=\"%1.1\">דבר</verse>"
+                         "</chapter>")
+                         .arg(chapter);
+        }
+        divs += QStringLiteral("<div type=\"book\" osisID=\"%1\">%2</div>")
+                    .arg(book, inner);
+    }
+
+    static const char *const kTemplate =
+        R"OSIS(<osis xmlns="http://www.bibletechnologies.net/2003/OSIS/namespace">
+      <osisText osisIDWork="%1" osisRefWork="bible">
+        <header><work osisWork="%1"><title>%1</title></work></header>
+        %2
+      </osisText>
+    </osis>)OSIS";
+
+    return QString::fromUtf8(kTemplate).arg(id, divs);
 }
 
 } // namespace milah_test

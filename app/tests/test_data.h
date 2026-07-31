@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QString>
+#include <QStringList>
 
 /**
  * Sample OSIS documents used by the tests.
@@ -26,7 +27,14 @@ extern const char *const kDoctypeDeclaration;
  */
 extern const char *const kApparatusManuscript;
 
-/// A single-verse witness carrying `text`, for consensus tests.
+/// A single-verse witness carrying `text`, for consensus tests. `text` is
+/// substituted into the verse element as it stands, so it may carry inline OSIS
+/// markup — a `<note>` among the words, for instance.
 QString witnessOsis(const QString &id, const QString &text);
+
+/// A witness holding one verse in each of `chapters`, each named "Book.Chapter"
+/// — for coverage tests, where only which places a manuscript reaches matters
+/// and not what it says there.
+QString witnessOsisCovering(const QString &id, const QStringList &chapters);
 
 } // namespace milah_test

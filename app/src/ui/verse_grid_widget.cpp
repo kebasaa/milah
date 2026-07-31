@@ -6,13 +6,15 @@
 #include "core/lexicon.h"
 #include "core/suggestions.h"
 #include "core/tokenize.h"
+#include "ui/icons.h"
 
+#include <QAction>
 #include <QFocusEvent>
 #include <QFontMetrics>
 #include <QFrame>
 #include <QGridLayout>
 #include <QHBoxLayout>
-#include <QAction>
+#include <QInputDialog>
 #include <QLabel>
 #include <QLineEdit>
 #include <QMenu>
@@ -43,6 +45,10 @@ constexpr int FirstReadingColumn = 1;
 constexpr int MeasurementSlack = 4;
 /// Room for the caret at either end of an editable Combined word.
 constexpr int CaretCushion = 10;
+/// Room for the note marker inside a Combined field. Qt takes a side action's
+/// space out of the text area, so a marked word needs this much more cell or
+/// the word itself is squeezed.
+constexpr int NoteMarkerWidth = 18;
 /// Width assumed before the card has been laid out for the first time.
 constexpr int UnlaidOutWidth = 900;
 /// Ignore width changes smaller than this, so scrollbar jitter cannot start a
@@ -94,6 +100,15 @@ QString unsettledColor(const QPalette &palette)
     return palette.color(QPalette::Base).lightness() < 128
         ? QStringLiteral("#8fa3bf")
         : QStringLiteral("#5a6c8c");
+}
+
+/// The asterisk marking a word a manuscript comments on. Red, and lightened on
+/// a dark background where a saturated red goes muddy against the base.
+QColor noteMarkerColor(const QPalette &palette)
+{
+    return palette.color(QPalette::Base).lightness() < 128
+        ? QColor(QStringLiteral("#ff6b6b"))
+        : QColor(QStringLiteral("#c02626"));
 }
 
 QString acronymColor(const QPalette &palette)
@@ -294,6 +309,17 @@ void VerseGridWidget::resizeEvent(QResizeEvent *event)
     });
 }
 
+bool VerseGridWidget::eventFilter(QObject *watched, QEvent *event)
+{
+    if (event->type() == QEvent::FocusIn) {
+        const QVariant column = watched->property("columnIndex");
+        if (column.isValid()) {
+            m_controller->selectWord(verseId(), column.toInt());
+        }
+    }
+    return QWidget::eventFilter(watched, event);
+}
+
 void VerseGridWidget::clearBands()
 {
     while (QLayoutItem *item = m_bandLayout->takeAt(0)) {
@@ -351,6 +377,7 @@ VerseGridWidget::Row VerseGridWidget::manuscriptRow(
     row.objectName = QStringLiteral("manuscriptToken");
     row.font = m_readingFont;
     row.acronym = acronyms.value(source->id, source->id);
+    row.sourceId = source->id;
     // The acronym is all the reader sees, so the full title — and anything the
     // loader complained about — has to be reachable from it.
     QStringList tooltip{sourceLabel(source)};
@@ -399,6 +426,11 @@ VerseGridWidget::Row VerseGridWidget::combinedRow(const CombinedDraft &draft) co
     row.acronym = QStringLiteral("Combined");
     row.cells.reserve(m_aligned.columns.size());
 
+    // Asked once for the whole row: the note belongs to the column, so a word
+    // is marked whichever witness carries the remark, and even where the
+    // edition itself reads nothing there.
+    const DocumentRefs sources = m_controller->manuscripts();
+
     for (int index = 0; index < m_aligned.columns.size(); ++index) {
         Cell cell;
         if (index < draft.columns.size()) {
@@ -409,9 +441,30 @@ VerseGridWidget::Row VerseGridWidget::combinedRow(const CombinedDraft &draft) co
             }
             cell.unsettled = column.needsReview;
         }
+        cell.noted = !columnNotes(m_aligned.columns.at(index), sources).isEmpty();
         row.cells.append(cell);
     }
 
+    return row;
+}
+
+VerseGridWidget::Row VerseGridWidget::interlinearRow() const
+{
+    Row row;
+    row.objectName = QStringLiteral("interlinearToken");
+    row.font = m_acronymFont;
+    row.acronym = QStringLiteral("Interlinear");
+    row.tooltip = QStringLiteral(
+        "The translation under each Combined word, several words to one joined "
+        "by a dash. Type here to word it yourself; empty it to follow the "
+        "translation again. This is what the interlinear export is made of.");
+    row.cells.reserve(m_aligned.columns.size());
+
+    for (int index = 0; index < m_aligned.columns.size(); ++index) {
+        Cell cell;
+        cell.plain = m_controller->interlinearWord(verseId(), index);
+        row.cells.append(cell);
+    }
     return row;
 }
 
@@ -499,10 +552,31 @@ void VerseGridWidget::addRowAcronym(
     QGridLayout *grid,
     int row,
     const QString &text,
-    const QString &tooltip)
+    const QString &tooltip,
+    const QString &sourceId,
+    bool translation)
 {
     auto *label = new QLabel(text);
     label->setObjectName(QStringLiteral("rowAcronym"));
+
+    // A source's own row: right-clicking its name reaches what can be done with
+    // that source here — reading the verse against a manuscript, or closing a
+    // translation.
+    if (!sourceId.isEmpty()) {
+        label->setContextMenuPolicy(Qt::CustomContextMenu);
+        connect(
+            label,
+            &QLabel::customContextMenuRequested,
+            this,
+            [this, label, sourceId, text, translation](const QPoint &position) {
+                const QPoint global = label->mapToGlobal(position);
+                if (translation) {
+                    showTranslationMenu(sourceId, global);
+                } else {
+                    showReferenceMenu(sourceId, text, global);
+                }
+            });
+    }
     // Latin in a right-to-left band: the label reads left to right within its
     // own cell, which sits at the right-hand edge of the row.
     label->setLayoutDirection(Qt::LeftToRight);
@@ -540,7 +614,7 @@ int VerseGridWidget::addCells(QGridLayout *grid, int row, const Band &band, cons
         grid->addWidget(label, row, FirstReadingColumn + index - band.start);
     }
 
-    addRowAcronym(grid, row, data.acronym, data.tooltip);
+    addRowAcronym(grid, row, data.acronym, data.tooltip, data.sourceId);
     return row + 1;
 }
 
@@ -585,6 +659,28 @@ int VerseGridWidget::addCombinedCells(
             "Type to change this word, or right-click for readings and suggestions."));
         field->setToolTip(tip.join(QStringLiteral("\n\n")));
 
+        // A word some witness comments on. The marker is an action inside the
+        // field rather than anything in its text: the text is the edition, and
+        // an asterisk typed into it would be saved and exported as one.
+        if (cell.noted) {
+            QAction *marker = field->addAction(
+                tintedIcon(QStringLiteral(":/img/icons/note-marker.svg"),
+                           noteMarkerColor(palette())),
+                QLineEdit::TrailingPosition);
+            marker->setToolTip(QStringLiteral(
+                "A manuscript notes this word. Click it to read the note in the "
+                "Notes panel."));
+            connect(marker, &QAction::triggered, this, [this, field] {
+                field->setFocus(Qt::MouseFocusReason);
+            });
+        }
+
+        // Focus is what "the word being worked on" means, so the Notes panel
+        // and the Edit menu follow the caret whether it got here by a click or
+        // by tabbing along the row.
+        field->setProperty("columnIndex", index);
+        field->installEventFilter(this);
+
         connect(field, &QLineEdit::editingFinished, this, [this, field, index] {
             m_controller->setColumnText(verseId(), index, field->text());
         });
@@ -603,6 +699,115 @@ int VerseGridWidget::addCombinedCells(
 
     addRowAcronym(grid, row, data.acronym, data.tooltip);
     return row + 1;
+}
+
+int VerseGridWidget::addInterlinearCells(
+    QGridLayout *grid,
+    int row,
+    const Band &band,
+    const Row &data)
+{
+    for (int index = band.start; index < band.end; ++index) {
+        const Cell &cell = data.cells.at(index);
+
+        auto *field = new QLineEdit(cell.plain);
+        field->setObjectName(QStringLiteral("interlinearToken"));
+        field->setFont(data.font);
+        field->setFrame(false);
+        field->setTextMargins(0, 0, 0, 0);
+        field->setAlignment(Qt::AlignCenter);
+        // Latin under a right-to-left reading: the gloss reads left to right
+        // inside its own cell, which still sits under the Hebrew word.
+        field->setLayoutDirection(Qt::LeftToRight);
+        field->setAccessibleName(cell.plain.isEmpty()
+            ? QStringLiteral("Empty interlinear word")
+            : cell.plain);
+        field->setToolTip(data.tooltip);
+        if (!data.color.isEmpty()) {
+            field->setStyleSheet(QStringLiteral("color: %1;").arg(data.color));
+        }
+
+        connect(field, &QLineEdit::editingFinished, this, [this, field, index] {
+            m_controller->setInterlinearWord(verseId(), index, field->text());
+        });
+
+        grid->addWidget(field, row, FirstReadingColumn + index - band.start);
+    }
+
+    addRowAcronym(grid, row, data.acronym, data.tooltip);
+    return row + 1;
+}
+
+void VerseGridWidget::showTranslationMenu(
+    const QString &sourceId,
+    const QPoint &globalPosition)
+{
+    QMenu menu(this);
+
+    // Which manuscript this translation belongs to, which is what decides the
+    // columns its words are spread across — so it is the first thing to reach
+    // for when a translation sits against the wrong words.
+    const QString current = m_controller->associationMap().value(sourceId);
+    const QHash<QString, QString> acronyms = m_controller->acronyms();
+    QMenu *align = menu.addMenu(QStringLiteral("Align with"));
+    for (const SourceDocument *manuscript : m_controller->manuscripts()) {
+        QAction *action = align->addAction(
+            acronyms.value(manuscript->id, manuscript->id));
+        action->setCheckable(true);
+        action->setChecked(manuscript->id == current);
+        const QString manuscriptId = manuscript->id;
+        connect(action, &QAction::triggered, this, [this, sourceId, manuscriptId] {
+            m_controller->setAssociation(sourceId, manuscriptId);
+        });
+    }
+    align->setEnabled(!align->isEmpty());
+    align->setToolTip(QStringLiteral(
+        "Spreads this translation across that manuscript's words, so its first "
+        "word sits under that manuscript's first."));
+
+    menu.addSeparator();
+
+    QAction *close = menu.addAction(QStringLiteral("Close translation"));
+    close->setToolTip(QStringLiteral(
+        "Unloads this translation and the alignment made for it. What you have "
+        "typed into the Interlinear row stays."));
+    connect(close, &QAction::triggered, this, [this, sourceId] {
+        m_controller->closeTranslation(sourceId);
+    });
+    menu.exec(globalPosition);
+}
+
+void VerseGridWidget::showReferenceMenu(
+    const QString &sourceId,
+    const QString &acronym,
+    const QPoint &globalPosition)
+{
+    const QString current = m_controller->referenceFor(verseId());
+
+    QMenu menu(this);
+    QAction *use = menu.addAction(
+        QStringLiteral("Read this verse against %1").arg(acronym));
+    use->setCheckable(true);
+    use->setChecked(sourceId == current);
+    use->setToolTip(QStringLiteral(
+        "The other manuscripts are marked against the one this verse is read "
+        "against. Only this verse changes."));
+    connect(use, &QAction::triggered, this, [this, sourceId] {
+        m_controller->setVerseReference(verseId(), sourceId);
+    });
+
+    // Only worth offering where a choice has actually been made, since without
+    // one the verse already follows the chapter.
+    if (!m_controller->selection().verseId.isEmpty() || sourceId != current) {
+        QAction *clear = menu.addAction(
+            QStringLiteral("Follow the chapter's reference"));
+        clear->setEnabled(sourceId == current || current != m_controller->priorityId());
+        connect(clear, &QAction::triggered, this, [this] {
+            m_controller->setVerseReference(verseId(), QString());
+        });
+    }
+
+    menu.exec(globalPosition);
 }
 
 void VerseGridWidget::showWitnessMenu(int columnIndex, const QPoint &globalPosition)
@@ -691,6 +896,19 @@ void VerseGridWidget::showWitnessMenu(int columnIndex, const QPoint &globalPosit
         });
     }
 
+    // The editor's own remark on this word. One entry either way, because
+    // whether a note is there yet is not worth two different menus.
+    QAction *note = menu.addAction(QStringLiteral("Add/edit note"));
+    note->setToolTip(QStringLiteral(
+        "Writes your own remark on this word, in the Notes panel beneath what "
+        "the manuscripts say."));
+    connect(note, &QAction::triggered, this, [this, columnIndex] {
+        // Selecting it is what points the panel at this word; the panel then
+        // puts the caret in its editor.
+        m_controller->selectWord(verseId(), columnIndex);
+        m_controller->requestNoteEditing();
+    });
+
     if (!flaggedWord.isEmpty()) {
         QAction *accept = menu.addAction(
             QStringLiteral("Add %1 to my dictionary").arg(flaggedWord));
@@ -700,6 +918,25 @@ void VerseGridWidget::showWitnessMenu(int columnIndex, const QPoint &globalPosit
             m_controller->addToDictionary(flaggedWord);
         });
     }
+
+    // Which manuscript this verse is read against — the same choice the row
+    // labels offer, reached from the word the editor already has in hand.
+    const QString currentReference = m_controller->referenceFor(verseId());
+    QMenu *reference = menu.addMenu(QStringLiteral("Reference for this verse"));
+    for (const SourceDocument *source : m_controller->manuscripts()) {
+        if (!source->hasVerse(verseId())) {
+            continue; // A witness silent here cannot be read against.
+        }
+        QAction *action = reference->addAction(acronyms.value(source->id, source->id));
+        action->setCheckable(true);
+        action->setChecked(source->id == currentReference);
+        const QString sourceId = source->id;
+        connect(action, &QAction::triggered, this, [this, sourceId] {
+            m_controller->setVerseReference(verseId(), sourceId);
+        });
+    }
+    reference->setEnabled(!reference->isEmpty());
+
     if (!menu.isEmpty()) {
         menu.addSeparator();
     }
@@ -739,8 +976,10 @@ int VerseGridWidget::addTranslationRows(
 
     QList<TranslationSpan> spans;
     for (const TranslationSpan &span : m_controller->translationSpans()) {
+        // A group the editor took out keeps its place in the project so the
+        // verse is not regenerated from scratch, but it is not drawn.
         if (span.translationId == translation->id
-            && span.verseId == m_aligned.reference.id) {
+            && span.verseId == m_aligned.reference.id && !span.removed) {
             spans.append(span);
         }
     }
@@ -773,14 +1012,10 @@ int VerseGridWidget::addTranslationRows(
             rowEnds[lane] = end;
         }
 
-        QStringList words;
-        if (verse && !continued) {
-            for (int index = span.tokenStart;
-                 index < span.tokenEnd && index < verse->tokens.size();
-                 ++index) {
-                words.append(verse->tokens.at(index).text);
-            }
-        }
+        // The editor's wording where they have given one, which is why this
+        // asks the controller rather than reading the tokens directly.
+        const QStringList words =
+            continued ? QStringList() : m_controller->spanWords(span);
 
         auto *cell = new QWidget;
         cell->setObjectName(QStringLiteral("translationSpan"));
@@ -819,26 +1054,37 @@ int VerseGridWidget::addTranslationRows(
             controlLayout->addStretch(1);
 
             const QString spanId = span.id;
+            // Column 0 is the rightmost in a right-to-left band, so raising a
+            // span's column index moves it *left* on screen. The arrows name
+            // what the reader sees, so their delta is turned round to match.
+            const int leftward =
+                m_controller->readingDirection() == Qt::RightToLeft ? 1 : -1;
+
             struct Control
             {
                 const char *glyph;
                 const char *tooltip;
                 int delta;
-                int kind; // 0 move, 1 resize, 2 merge, 3 split
+                int kind; // 0 move, 1 resize, 2 merge, 3 split, 4 remove
+                bool directional;
             };
+            // Aligning only: the wording itself is corrected in the Interlinear
+            // row, which is what the export is made of.
             static const Control controlSpecs[] = {
-                {"←", "Move translation span left", -1, 0},
-                {"→", "Move translation span right", 1, 0},
-                {"−", "Narrow translation span", -1, 1},
-                {"+", "Widen translation span", 1, 1},
-                {"⧉", "Merge with the next translation span", 0, 2},
-                {"⋮", "Split this translation span", 0, 3},
+                {"←", "Move this translation left", 1, 0, true},
+                {"→", "Move this translation right", -1, 0, true},
+                {"−", "Narrow translation span", -1, 1, false},
+                {"+", "Widen translation span", 1, 1, false},
+                {"⧉", "Merge with the next translation span", 0, 2, false},
+                {"⋮", "Split this translation span", 0, 3, false},
+                {"🗑", "Remove this translation", 0, 4, false},
             };
 
             for (const Control &spec : controlSpecs) {
                 QToolButton *button = spanButton(
                     QString::fromUtf8(spec.glyph), QString::fromUtf8(spec.tooltip));
-                const int delta = spec.delta;
+                const int delta =
+                    spec.directional ? spec.delta * leftward : spec.delta;
                 const int kind = spec.kind;
                 connect(button, &QToolButton::clicked, this, [this, spanId, delta, kind] {
                     switch (kind) {
@@ -851,8 +1097,11 @@ int VerseGridWidget::addTranslationRows(
                     case 2:
                         m_controller->mergeSpan(spanId);
                         break;
-                    default:
+                    case 3:
                         m_controller->splitSpan(spanId);
+                        break;
+                    default:
+                        m_controller->removeSpan(spanId);
                         break;
                     }
                 });
@@ -874,7 +1123,9 @@ int VerseGridWidget::addTranslationRows(
         grid,
         row,
         acronyms.value(translation->id, translation->id),
-        tooltip.join(QStringLiteral("\n")));
+        tooltip.join(QStringLiteral("\n")),
+        translation->id,
+        true);
     return row + usedRows;
 }
 
@@ -887,8 +1138,10 @@ void VerseGridWidget::build()
     const DocumentRefs translationList = m_controller->translations();
 
     // The reference witness reads first; everything else is marked against it.
+    // Asked per verse, because a verse its usual witness is silent for is read
+    // against one that is not.
     DocumentRefs manuscriptList = m_controller->manuscripts();
-    const QString referenceId = m_controller->priorityId();
+    const QString referenceId = m_controller->referenceFor(verseId());
     for (int index = 0; index < manuscriptList.size(); ++index) {
         if (manuscriptList.at(index)->id == referenceId) {
             manuscriptList.move(index, 0);
@@ -926,6 +1179,9 @@ void VerseGridWidget::build()
 
     const bool showStrongs = m_controller->strongsVisible();
     const Row strongs = showStrongs ? strongsRow(combined) : Row();
+    // Always drawn, whether or not a translation is loaded: it is a line of the
+    // edition the editor may write themselves, not a view of a source.
+    const Row interlinear = interlinearRow();
 
     // A column is as wide as its widest reading, so corresponding words line
     // up without any of them being padded out to a fixed cell.
@@ -939,16 +1195,24 @@ void VerseGridWidget::build()
         }
         // The Combined cell is a line edit, not rich text: measure its plain
         // text and leave room for the caret, or the last word of a band clips.
+        // A note marker sits inside the same field and takes its room from the
+        // text, so a marked word is measured wider by exactly what it costs.
         widths[index] = std::max(
             widths.at(index),
             readingMetrics.horizontalAdvance(combined.cells.at(index).plain)
-                + CaretCushion);
+                + CaretCushion
+                + (combined.cells.at(index).noted ? NoteMarkerWidth : 0));
         if (showStrongs) {
             widths[index] = std::max(
                 widths.at(index),
                 strongsMetrics.horizontalAdvance(strongs.cells.at(index).plain)
                     + MeasurementSlack);
         }
+        // A line edit like the Combined one, so it needs the caret's room too.
+        widths[index] = std::max(
+            widths.at(index),
+            strongsMetrics.horizontalAdvance(interlinear.cells.at(index).plain)
+                + CaretCushion);
     }
 
     // The acronym column is not a reading, but it takes real room: the
@@ -971,6 +1235,8 @@ void VerseGridWidget::build()
         acronymWidth =
             std::max(acronymWidth, acronymMetrics.horizontalAdvance(strongs.acronym));
     }
+    acronymWidth =
+        std::max(acronymWidth, acronymMetrics.horizontalAdvance(interlinear.acronym));
 
     QList<Band> bands;
     const int available = availableWidth();
@@ -1006,8 +1272,9 @@ void VerseGridWidget::build()
         }
         row = addCombinedCells(grid, row, band, combined);
         if (showStrongs) {
-            addCells(grid, row, band, strongs);
+            row = addCells(grid, row, band, strongs);
         }
+        addInterlinearCells(grid, row, band, interlinear);
 
         // Slack collects on the far side of the readings, so the columns stay
         // as tight as the text rather than being spread across the card.

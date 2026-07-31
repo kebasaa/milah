@@ -158,6 +158,203 @@ private slots:
         QCOMPARE(last.size, 1);
     }
 
+    // --- the notes a column carries -----------------------------------------
+
+    void aWitnessNoteIsFoundOnItsColumn()
+    {
+        const QList<SourceDocument> documents = {
+            witness(
+                QStringLiteral("a"),
+                QString::fromUtf8("ספר<note n=\"1\">a scribal remark</note> דוד")),
+            witness(QStringLiteral("b"), QString::fromUtf8("ספר דוד")),
+        };
+        const DocumentRefs sources = refs(documents);
+        const AlignedVerse aligned =
+            alignVerse(QStringLiteral("Matt.1.1"), sources, QStringLiteral("a"));
+
+        const QList<ColumnNote> notes = columnNotes(aligned.columns.at(0), sources);
+        QCOMPARE(notes.size(), 1);
+        QCOMPARE(notes.first().sourceId, QStringLiteral("a"));
+        QCOMPARE(notes.first().note.number, QStringLiteral("1"));
+        QCOMPARE(notes.first().note.text, QStringLiteral("a scribal remark"));
+
+        // The word the note follows, and no other.
+        QVERIFY(columnNotes(aligned.columns.at(1), sources).isEmpty());
+    }
+
+    void notesFromSeveralWitnessesComeBackInSourceOrder()
+    {
+        const QList<SourceDocument> documents = {
+            witness(
+                QStringLiteral("a"),
+                QString::fromUtf8("ספר<note n=\"1\">alpha</note> דוד")),
+            witness(
+                QStringLiteral("b"),
+                QString::fromUtf8("ספר<note n=\"2\">beta</note> דוד")),
+        };
+        const DocumentRefs sources = refs(documents);
+        const AlignedVerse aligned =
+            alignVerse(QStringLiteral("Matt.1.1"), sources, QStringLiteral("a"));
+
+        const QList<ColumnNote> notes = columnNotes(aligned.columns.at(0), sources);
+        QCOMPARE(notes.size(), 2);
+        QCOMPARE(notes.at(0).sourceId, QStringLiteral("a"));
+        QCOMPARE(notes.at(1).sourceId, QStringLiteral("b"));
+
+        // The caller's order decides, so the panel can list witnesses however
+        // the window does and never reshuffle between one selection and the next.
+        const DocumentRefs reversed = {sources.at(1), sources.at(0)};
+        const QList<ColumnNote> swapped = columnNotes(aligned.columns.at(0), reversed);
+        QCOMPARE(swapped.at(0).sourceId, QStringLiteral("b"));
+        QCOMPARE(swapped.at(1).sourceId, QStringLiteral("a"));
+    }
+
+    void anUnannotatedVerseHasNoNotesAnywhere()
+    {
+        const QList<SourceDocument> documents = {
+            witness(QStringLiteral("a"), QString::fromUtf8("ספר דוד")),
+        };
+        const DocumentRefs sources = refs(documents);
+        const AlignedVerse aligned =
+            alignVerse(QStringLiteral("Matt.1.1"), sources, QStringLiteral("a"));
+
+        for (const AlignmentColumn &column : aligned.columns) {
+            QVERIFY(columnNotes(column, sources).isEmpty());
+        }
+    }
+
+    // --- spreading a translation over its own manuscript's columns ----------
+
+    void aTranslationStartsOnItsOwnManuscriptsFirstWord()
+    {
+        // Columns 0 and 2 belong to another witness; this manuscript reads 1, 3
+        // and 4. Spread across the whole verse the first word would land on
+        // column 0, which its manuscript is silent for.
+        const QList<TranslationSpan> spans = alignTranslation(
+            QStringLiteral("t"), QStringLiteral("Matt.1.1"), 3, {1, 3, 4});
+
+        QCOMPARE(spans.size(), 3);
+        QCOMPARE(spans.at(0).columnStart, 1);
+        QCOMPARE(spans.at(1).columnStart, 3);
+        QCOMPARE(spans.at(2).columnStart, 4);
+        // Counts match, so nothing here was guessed at.
+        QCOMPARE(spans.at(0).confidence, SpanConfidence::High);
+
+        // No span may begin on a column the manuscript does not read.
+        for (const TranslationSpan &span : spans) {
+            QVERIFY(QList<int>({1, 3, 4}).contains(span.columnStart));
+            QVERIFY(span.columnEnd > span.columnStart);
+        }
+    }
+
+    void moreWordsThanColumnsStillFitInside()
+    {
+        const QList<TranslationSpan> spans = alignTranslation(
+            QStringLiteral("t"), QStringLiteral("Matt.1.1"), 5, {2, 3});
+
+        QCOMPARE(spans.size(), 5);
+        for (const TranslationSpan &span : spans) {
+            QVERIFY(span.columnStart >= 2);
+            QVERIFY(span.columnEnd <= 4);
+            // A guess, since the counts do not match.
+            QCOMPARE(span.confidence, SpanConfidence::Low);
+        }
+    }
+
+    void withNoColumnsNothingIsAligned()
+    {
+        QVERIFY(alignTranslation(
+                    QStringLiteral("t"), QStringLiteral("Matt.1.1"), 3, {})
+                    .isEmpty());
+        QVERIFY(alignTranslation(
+                    QStringLiteral("t"), QStringLiteral("Matt.1.1"), 0, {0, 1})
+                    .isEmpty());
+    }
+
+    // --- which manuscript a verse is read against ---------------------------
+
+    void thePreferredManuscriptIsUsedWhereItHasTheVerse()
+    {
+        const QList<SourceDocument> documents = {
+            witness(QStringLiteral("a"), QString::fromUtf8("ספר דוד")),
+            witness(QStringLiteral("b"), QString::fromUtf8("ספר דוד")),
+        };
+        QCOMPARE(
+            referenceForVerse(
+                QStringLiteral("Matt.1.1"), refs(documents), QStringLiteral("b")),
+            QStringLiteral("b"));
+    }
+
+    void aSilentManuscriptCannotBeTheReference()
+    {
+        // The point of the rule: reading a verse against a witness that has
+        // nothing there would begin the alignment from no words at all, and
+        // the consensus would then find nothing to choose.
+        QList<SourceDocument> documents = {
+            witness(QStringLiteral("absent"), QString::fromUtf8("ספר")),
+            witness(QStringLiteral("present"), QString::fromUtf8("ספר")),
+        };
+        documents[0].verses.clear();
+        documents[0].verseIndex.clear();
+
+        QCOMPARE(
+            referenceForVerse(
+                QStringLiteral("Matt.1.1"), refs(documents), QStringLiteral("absent")),
+            QStringLiteral("present"));
+    }
+
+    void noManuscriptWithTheVerseMeansNoReference()
+    {
+        const QList<SourceDocument> documents = {
+            witness(QStringLiteral("a"), QString::fromUtf8("ספר")),
+        };
+        QVERIFY(referenceForVerse(
+                    QStringLiteral("Rev.9.9"), refs(documents), QStringLiteral("a"))
+                    .isEmpty());
+        QVERIFY(referenceForVerse(QStringLiteral("Matt.1.1"), {}, QStringLiteral("a"))
+                    .isEmpty());
+    }
+
+    // --- anchoring a note to a word ----------------------------------------
+
+    void aColumnKnowsWhereItsWordBegins()
+    {
+        CombinedDraft draft;
+        for (const QString &word :
+             {QString::fromUtf8("ספר"),
+              QString::fromUtf8("דוד"),
+              QString::fromUtf8("בן")}) {
+            ConsensusColumn column;
+            column.text = word;
+            draft.columns.append(column);
+        }
+
+        const QString text = combinedText(draft);
+        QCOMPARE(columnCharOffset(draft, 0), 0);
+        // Each offset has to land on the word itself, not beside it.
+        QCOMPARE(
+            text.mid(columnCharOffset(draft, 1), 3), QString::fromUtf8("דוד"));
+        QCOMPARE(text.mid(columnCharOffset(draft, 2), 2), QString::fromUtf8("בן"));
+
+        // Past the end is clamped rather than run off the string.
+        QCOMPARE(columnCharOffset(draft, 99), int(text.size()));
+        QCOMPARE(columnCharOffset(draft, -1), 0);
+    }
+
+    void aManualVerseHasNoWordToPointAt()
+    {
+        CombinedDraft draft;
+        ConsensusColumn column;
+        column.text = QString::fromUtf8("ספר");
+        draft.columns.append(column);
+        draft.manualText = QString::fromUtf8("טקסט אחר לגמרי");
+
+        // The columns no longer describe the text, so there is no place in it
+        // that belongs to any one of them.
+        QCOMPARE(columnCharOffset(draft, 0), 0);
+        QCOMPARE(columnCharOffset(draft, 1), 0);
+    }
+
     void aWordIsDividedAtItsMaqafOrSpace()
     {
         const QStringList maqaf = dividedWords(QString::fromUtf8("אֲשֶׁר־בָּהּ"));

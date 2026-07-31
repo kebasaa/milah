@@ -13,6 +13,7 @@
 #include <QFile>
 #include <QFileDialog>
 #include <QFileInfo>
+#include <QRegularExpression>
 #include <QJsonObject>
 #include <QMessageBox>
 #include <QSaveFile>
@@ -41,6 +42,49 @@ struct OpenedFile
     QString name;
     QString content;
 };
+
+/// Names a Combined word: its verse and its place among that verse's columns.
+/// Both the notes and the interlinear wording are keyed this way, so a division
+/// that shifts words along shifts what was said about them — see
+/// shiftColumnKeys().
+QString columnKey(const QString &verseId, int columnIndex)
+{
+    return QStringLiteral("%1:%2").arg(verseId).arg(columnIndex);
+}
+
+/// Moves a verse's per-column entries along when a column is inserted at or
+/// removed from `at`, so what was written about a word stays with it. `delta`
+/// is +1 for a division and -1 for a join; an entry on a removed column goes
+/// with it.
+QMap<QString, QString> shiftColumnKeys(
+    const QMap<QString, QString> &notes,
+    const QString &verseId,
+    int at,
+    int delta)
+{
+    const QString prefix = verseId + QLatin1Char(':');
+    QMap<QString, QString> result;
+    for (auto item = notes.constBegin(); item != notes.constEnd(); ++item) {
+        if (!item.key().startsWith(prefix)) {
+            result.insert(item.key(), item.value());
+            continue;
+        }
+
+        bool numeric = false;
+        const int column = QStringView(item.key()).mid(prefix.size()).toInt(&numeric);
+        if (!numeric) {
+            result.insert(item.key(), item.value());
+            continue;
+        }
+
+        if (delta < 0 && column == at) {
+            continue; // The column is going; so is what was said about it.
+        }
+        const int moved = column >= at ? column + delta : column;
+        result.insert(columnKey(verseId, moved), item.value());
+    }
+    return result;
+}
 
 } // namespace
 
@@ -109,7 +153,7 @@ CombinedDraft AppController::draftFor(const AlignedVerse &aligned) const
     if (existing != m_combined.constEnd()) {
         return existing.value();
     }
-    return generateCombined(aligned, manuscripts(), m_priorityId);
+    return generateCombined(aligned, manuscripts(), referenceFor(aligned.reference.id));
 }
 
 bool AppController::matchesFilters(const AlignedVerse &aligned) const
@@ -190,13 +234,59 @@ bool AppController::confirm(const QString &question)
 
 bool AppController::hasManualEdits() const
 {
-    // A divided word is the editor's work as much as a typed one, and
-    // regenerating discards it, so it earns the same warning.
     if (!m_columnSplits.isEmpty()) {
         return true;
     }
     for (const CombinedDraft &draft : m_combined) {
         if (draft.manualText.has_value()) {
+            return true;
+        }
+    }
+    return false;
+}
+
+namespace {
+
+/// Whether any of these verses has an entry in a per-column map.
+bool touchesVerses(
+    const QMap<QString, QString> &entries,
+    const QStringList &verseIds)
+{
+    for (const QString &verseId : verseIds) {
+        const QString prefix = verseId + QLatin1Char(':');
+        for (auto item = entries.constKeyValueBegin();
+             item != entries.constKeyValueEnd();
+             ++item) {
+            if ((*item).first.startsWith(prefix)) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+} // namespace
+
+bool AppController::hasNotes(const QStringList &verseIds) const
+{
+    return touchesVerses(m_combinedNotes, verseIds);
+}
+
+bool AppController::hasInterlinearEdits(const QStringList &verseIds) const
+{
+    return touchesVerses(m_interlinearWords, verseIds);
+}
+
+bool AppController::hasManualEdits(const QStringList &verseIds) const
+{
+    for (const QString &verseId : verseIds) {
+        // A divided word is the editor's work as much as a typed one, and
+        // regenerating discards it, so it earns the same warning.
+        if (m_columnSplits.contains(verseId)) {
+            return true;
+        }
+        const auto draft = m_combined.constFind(verseId);
+        if (draft != m_combined.constEnd() && draft->manualText.has_value()) {
             return true;
         }
     }
@@ -236,22 +326,44 @@ QString AppController::suggestAssociation(
 }
 
 QMap<QString, CombinedDraft> AppController::buildCombined(
-    const DocumentRefs &manuscriptList,
-    const QString &priority) const
+    const DocumentRefs &manuscriptList) const
 {
     QMap<QString, CombinedDraft> result;
-    for (const Location &location : commonLocations(manuscriptList)) {
-        for (const QString &verseId : verseIdsAtLocation(manuscriptList, location)) {
-            const AlignedVerse aligned = alignedFor(verseId, manuscriptList, priority);
-            result.insert(verseId, generateCombined(aligned, manuscriptList, priority));
+    // Every chapter any witness reaches, so a chapter only one of them covers
+    // still gets a draft rather than being silently skipped.
+    for (const LocationCoverage &covered : coveredLocations(manuscriptList)) {
+        for (const QString &verseId :
+             verseIdsAtLocation(manuscriptList, covered.location)) {
+            result.insert(verseId, regeneratedDraft(verseId, manuscriptList));
         }
     }
     return result;
 }
 
+CombinedDraft AppController::regeneratedDraft(
+    const QString &verseId,
+    const DocumentRefs &manuscriptList) const
+{
+    // Each verse is read against its own reference, so a verse whose usual
+    // witness is silent still yields an edition rather than a blank row.
+    const QString reference = referenceFor(verseId);
+    const AlignedVerse aligned = alignedFor(verseId, manuscriptList, reference);
+    return generateCombined(aligned, manuscriptList, reference);
+}
+
 void AppController::rebuildLocations()
 {
-    m_locations = commonLocations(manuscripts());
+    m_locations = coveredLocations(manuscripts());
+}
+
+int AppController::indexOfLocation(const Location &location) const
+{
+    for (int index = 0; index < m_locations.size(); ++index) {
+        if (m_locations.at(index).location == location) {
+            return index;
+        }
+    }
+    return -1;
 }
 
 AlignedVerse AppController::alignedFor(
@@ -266,14 +378,103 @@ AlignedVerse AppController::alignedFor(
 void AppController::rebuildAlignedVerses()
 {
     m_alignedVerses.clear();
-    if (!m_location.has_value()) {
+    if (m_location.has_value()) {
+        const DocumentRefs sources = manuscripts();
+        for (const QString &verseId : verseIdsAtLocation(sources, *m_location)) {
+            m_alignedVerses.append(alignedFor(verseId, sources, referenceFor(verseId)));
+        }
+    }
+    validateSelection();
+}
+
+void AppController::validateSelection()
+{
+    if (!m_selection.isValid()) {
         return;
     }
-
-    const DocumentRefs sources = manuscripts();
-    for (const QString &verseId : verseIdsAtLocation(sources, *m_location)) {
-        m_alignedVerses.append(alignedFor(verseId, sources, m_priorityId));
+    for (const AlignedVerse &aligned : m_alignedVerses) {
+        if (aligned.reference.id == m_selection.verseId
+            && m_selection.columnIndex < aligned.columns.size()) {
+            return;
+        }
     }
+    m_selection = WordSelection{};
+    emit selectionChanged();
+}
+
+void AppController::selectWord(const QString &verseId, int columnIndex)
+{
+    WordSelection next;
+    if (columnIndex >= 0) {
+        next.verseId = verseId;
+        next.columnIndex = columnIndex;
+    }
+    if (next == m_selection) {
+        return;
+    }
+    m_selection = next;
+    emit selectionChanged();
+}
+
+QList<ColumnNote> AppController::selectedNotes() const
+{
+    if (!m_selection.isValid()) {
+        return {};
+    }
+    for (const AlignedVerse &aligned : m_alignedVerses) {
+        if (aligned.reference.id != m_selection.verseId) {
+            continue;
+        }
+        if (m_selection.columnIndex >= aligned.columns.size()) {
+            return {};
+        }
+        return columnNotes(aligned.columns.at(m_selection.columnIndex), manuscripts());
+    }
+    return {};
+}
+
+QString AppController::selectedWord() const
+{
+    if (!m_selection.isValid()) {
+        return {};
+    }
+    for (const AlignedVerse &aligned : m_alignedVerses) {
+        if (aligned.reference.id != m_selection.verseId) {
+            continue;
+        }
+        const CombinedDraft draft = draftFor(aligned);
+        if (m_selection.columnIndex >= draft.columns.size()) {
+            return {};
+        }
+        return draft.columns.at(m_selection.columnIndex).text.value_or(QString());
+    }
+    return {};
+}
+
+QList<int> AppController::associatedColumns(
+    const QString &translationId,
+    const AlignedVerse &aligned) const
+{
+    const QString manuscriptId = associationMap().value(translationId);
+
+    QList<int> columns;
+    if (!manuscriptId.isEmpty()) {
+        for (int index = 0; index < aligned.columns.size(); ++index) {
+            if (aligned.columns.at(index).cell(manuscriptId)) {
+                columns.append(index);
+            }
+        }
+    }
+
+    // No manuscript named, or one that is silent for this verse: there is
+    // nothing narrower to go by, so the translation spreads across the verse as
+    // it always did.
+    if (columns.isEmpty()) {
+        for (int index = 0; index < aligned.columns.size(); ++index) {
+            columns.append(index);
+        }
+    }
+    return columns;
 }
 
 void AppController::refreshTranslationSpans()
@@ -326,7 +527,7 @@ void AppController::refreshTranslationSpans()
                 translation->id,
                 aligned.reference.id,
                 tokenCount,
-                int(aligned.columns.size())));
+                associatedColumns(translation->id, aligned)));
         }
     }
 
@@ -335,42 +536,342 @@ void AppController::refreshTranslationSpans()
 
 void AppController::commitCombined(const QMap<QString, CombinedDraft> &next)
 {
-    commitCombined(next, m_columnSplits);
+    commitCombined(
+        next,
+        m_columnSplits,
+        m_chapterReferences,
+        m_verseReferences,
+        m_combinedNotes,
+        m_interlinearWords);
 }
 
 void AppController::commitCombined(
     const QMap<QString, CombinedDraft> &next,
-    const QMap<QString, QList<int>> &nextSplits)
+    const QMap<QString, QList<int>> &nextSplits,
+    const QMap<QString, QString> &nextChapterReferences,
+    const QMap<QString, QString> &nextVerseReferences,
+    const QMap<QString, QString> &nextNotes,
+    const QMap<QString, QString> &nextInterlinear)
 {
-    m_undoStack.append(EditStep{m_combined, m_columnSplits});
+    m_undoStack.append(currentStep());
     while (m_undoStack.size() > MaxUndoDepth) {
         m_undoStack.removeFirst();
     }
     m_redoStack.clear();
     m_combined = next;
     m_columnSplits = nextSplits;
+    m_chapterReferences = nextChapterReferences;
+    m_verseReferences = nextVerseReferences;
+    m_combinedNotes = nextNotes;
+    m_interlinearWords = nextInterlinear;
     setDirty(true);
     emit historyChanged();
 }
 
-bool AppController::regenerateWith(const QString &nextPriority)
+AppController::EditStep AppController::currentStep() const
 {
-    if (hasManualEdits()
-        && !confirm(QStringLiteral("Regenerate Combined and replace manual edits?"))) {
+    return EditStep{
+        m_combined,
+        m_columnSplits,
+        m_chapterReferences,
+        m_verseReferences,
+        m_combinedNotes,
+        m_interlinearWords};
+}
+
+void AppController::restoreStep(const EditStep &step)
+{
+    m_combined = step.combined;
+    m_columnSplits = step.columnSplits;
+    m_chapterReferences = step.chapterReferences;
+    m_verseReferences = step.verseReferences;
+    m_combinedNotes = step.combinedNotes;
+    m_interlinearWords = step.interlinearWords;
+}
+
+QString AppController::currentReference() const
+{
+    if (m_location.has_value()) {
+        const QString chosen = m_chapterReferences.value(locationKey(*m_location));
+        if (!chosen.isEmpty()) {
+            return chosen;
+        }
+    }
+    return m_priorityId;
+}
+
+QString AppController::referenceFor(const QString &verseId) const
+{
+    const DocumentRefs sources = manuscripts();
+
+    // Each choice is honoured only while that manuscript still has the verse: a
+    // project may be reopened against a re-cut source.
+    const auto reads = [&sources, &verseId](const QString &sourceId) {
+        if (sourceId.isEmpty()) {
+            return false;
+        }
+        for (const SourceDocument *source : sources) {
+            if (source->id == sourceId && source->hasVerse(verseId)) {
+                return true;
+            }
+        }
+        return false;
+    };
+
+    // The verse's own exception first, then its chapter's choice, then the
+    // project's — narrowest to widest, so a verse the editor spoke for keeps
+    // its reading however the chapter is changed around it.
+    const QString verseChoice = m_verseReferences.value(verseId);
+    if (reads(verseChoice)) {
+        return verseChoice;
+    }
+
+    const QString chapterChoice =
+        m_chapterReferences.value(verseId.section(QLatin1Char('.'), 0, 1));
+    if (reads(chapterChoice)) {
+        return chapterChoice;
+    }
+
+    return referenceForVerse(verseId, sources, m_priorityId);
+}
+
+QString AppController::combinedNote(const QString &verseId, int columnIndex) const
+{
+    return m_combinedNotes.value(columnKey(verseId, columnIndex));
+}
+
+QString AppController::interlinearWord(const QString &verseId, int columnIndex) const
+{
+    const QString chosen = m_interlinearWords.value(columnKey(verseId, columnIndex));
+    if (!chosen.isEmpty()) {
+        return chosen;
+    }
+
+    // Otherwise what the aligned translation reads here. Several words standing
+    // for one Hebrew word are joined by a dash — "to do" reads "to-do" — which
+    // is the convention an interlinear is read with, and what the export writes.
+    QStringList words;
+    for (const TranslationSpan &span : m_translationSpans) {
+        if (span.verseId != verseId || span.removed) {
+            continue;
+        }
+        // A group is hung on the column it starts at: the words belong to the
+        // group rather than to any single column it happens to reach across.
+        if (std::max(0, span.columnStart) != columnIndex) {
+            continue;
+        }
+        const QStringList spanned = spanWords(span);
+        if (!spanned.isEmpty()) {
+            words.append(spanned.join(QLatin1Char('-')));
+        }
+    }
+    return words.join(QLatin1Char(' '));
+}
+
+void AppController::setInterlinearWord(
+    const QString &verseId,
+    int columnIndex,
+    const QString &text)
+{
+    const QString key = columnKey(verseId, columnIndex);
+    const QString trimmed = text.trimmed();
+
+    QMap<QString, QString> next = m_interlinearWords;
+    if (trimmed.isEmpty() || trimmed == interlinearWord(verseId, columnIndex)) {
+        // Either cleared, or typed back to what the translation already says:
+        // both mean there is nothing of the editor's own to keep here.
+        next.remove(key);
+    } else {
+        next.insert(key, trimmed);
+    }
+    if (next == m_interlinearWords) {
+        return;
+    }
+
+    commitCombined(
+        m_combined,
+        m_columnSplits,
+        m_chapterReferences,
+        m_verseReferences,
+        m_combinedNotes,
+        next);
+    emit verseChanged(verseId);
+}
+
+void AppController::closeTranslation(const QString &sourceId)
+{
+    const SourceDocument *closing = nullptr;
+    for (const SourceDocument &source : m_sources) {
+        if (source.id == sourceId && source.role == SourceRole::Translation) {
+            closing = &source;
+            break;
+        }
+    }
+    if (!closing) {
+        return;
+    }
+
+    // The spans are alignment the editor may have corrected by hand, and
+    // closing is the only thing that discards them without a way back.
+    const QString name =
+        closing->metadata.title.isEmpty() ? closing->name : closing->metadata.title;
+    if (!confirm(QStringLiteral("Close %1? Its aligned translation is discarded.")
+                     .arg(name))) {
+        return;
+    }
+
+    m_sources.removeIf([&sourceId](const SourceDocument &source) {
+        return source.id == sourceId;
+    });
+    m_associations.removeIf([&sourceId](const TranslationAssociation &association) {
+        return association.translationId == sourceId;
+    });
+    m_translationSpans.removeIf([&sourceId](const TranslationSpan &span) {
+        return span.translationId == sourceId;
+    });
+
+    // What the editor typed into the Interlinear row is keyed by column rather
+    // than by translation, so it stays: it is part of the edition now.
+    setDirty(true);
+    rebuildAlignedVerses();
+    setMessage(QStringLiteral("Closed %1.").arg(name));
+    emit sourcesChanged();
+}
+
+void AppController::setVerseReference(const QString &verseId, const QString &sourceId)
+{
+    QMap<QString, QString> next = m_verseReferences;
+    if (sourceId.isEmpty()) {
+        next.remove(verseId);
+    } else {
+        next.insert(verseId, sourceId);
+    }
+    if (next == m_verseReferences) {
+        return;
+    }
+
+    // The words are left as they are: reading a verse against another witness
+    // changes what it is compared with, not what the editor has settled. What
+    // rebuilds the readings is Regenerate.
+    commitCombined(
+        m_combined,
+        m_columnSplits,
+        m_chapterReferences,
+        next,
+        m_combinedNotes,
+        m_interlinearWords);
+    rebuildAlignedVerses();
+    emit locationChanged();
+}
+
+void AppController::setCombinedNote(
+    const QString &verseId,
+    int columnIndex,
+    const QString &note)
+{
+    const QString key = columnKey(verseId, columnIndex);
+    const QString trimmed = note.trimmed();
+
+    QMap<QString, QString> next = m_combinedNotes;
+    if (trimmed.isEmpty()) {
+        next.remove(key);
+    } else {
+        next.insert(key, trimmed);
+    }
+    if (next == m_combinedNotes) {
+        return;
+    }
+
+    commitCombined(
+        m_combined,
+        m_columnSplits,
+        m_chapterReferences,
+        m_verseReferences,
+        next,
+        m_interlinearWords);
+    emit verseChanged(verseId);
+    emit selectionChanged();
+}
+
+QStringList AppController::verseIdsInChapter() const
+{
+    if (!m_location.has_value()) {
+        return {};
+    }
+    return verseIdsAtLocation(manuscripts(), *m_location);
+}
+
+bool AppController::regenerateChapter()
+{
+    const QStringList verseIds = verseIdsInChapter();
+    if (verseIds.isEmpty()) {
+        return false;
+    }
+
+    // Regenerating rebuilds every word of the chapter, so anything the editor
+    // put there goes with it — including the notes, which name columns that are
+    // about to be built afresh. Ask only where there is something to lose, and
+    // name it: a warning about notes where none were written, or about work
+    // that does not exist, teaches the reader to dismiss warnings unread.
+    QStringList losses;
+    if (hasManualEdits(verseIds)) {
+        losses.append(QStringLiteral("your manual edits"));
+    }
+    if (hasNotes(verseIds)) {
+        losses.append(QStringLiteral("the notes you have written on its words"));
+    }
+    if (hasInterlinearEdits(verseIds)) {
+        losses.append(QStringLiteral("the interlinear wording you have typed"));
+    }
+
+    if (!losses.isEmpty()
+        && !confirm(
+            QStringLiteral(
+                "Rebuilding this chapter's Combined text will discard %1.\n\nContinue?")
+                .arg(losses.join(QStringLiteral(" and "))))) {
         return false;
     }
 
     // A divided column only ever holds a word the editor put there by hand, so
     // regenerating takes the divisions with the words; leaving them would strew
     // the verse with blank columns no witness reads. Cleared before the drafts
-    // are built so the two agree on how many columns the verse has.
+    // are built so the two agree on how many columns each verse has.
     const QMap<QString, QList<int>> divided = m_columnSplits;
-    m_columnSplits.clear();
-    const QMap<QString, CombinedDraft> regenerated =
-        buildCombined(manuscripts(), nextPriority);
+    QMap<QString, QList<int>> nextSplits = m_columnSplits;
+    QMap<QString, QString> nextNotes = m_combinedNotes;
+    QMap<QString, QString> nextInterlinear = m_interlinearWords;
+
+    // Both a note and an interlinear word name a column, and the columns of
+    // these verses are about to be built afresh; keeping them would leave them
+    // pointing at words that moved.
+    const auto dropVerse = [](QMap<QString, QString> &entries, const QString &verseId) {
+        const QString prefix = verseId + QLatin1Char(':');
+        for (auto item = entries.begin(); item != entries.end();) {
+            item = item.key().startsWith(prefix) ? entries.erase(item) : std::next(item);
+        }
+    };
+
+    for (const QString &verseId : verseIds) {
+        nextSplits.remove(verseId);
+        dropVerse(nextNotes, verseId);
+        dropVerse(nextInterlinear, verseId);
+    }
+
+    m_columnSplits = nextSplits;
+    const DocumentRefs sources = manuscripts();
+    QMap<QString, CombinedDraft> next = m_combined;
+    for (const QString &verseId : verseIds) {
+        next.insert(verseId, regeneratedDraft(verseId, sources));
+    }
     m_columnSplits = divided;
 
-    commitCombined(regenerated, {});
+    commitCombined(
+        next,
+        nextSplits,
+        m_chapterReferences,
+        m_verseReferences,
+        nextNotes,
+        nextInterlinear);
     return true;
 }
 
@@ -462,7 +963,7 @@ void AppController::loadPaths(SourceRole role, const QStringList &paths)
         if (m_priorityId.isEmpty() && !nextManuscripts.isEmpty()) {
             m_priorityId = nextManuscripts.first()->id;
         }
-        m_combined = buildCombined(nextManuscripts, m_priorityId);
+        m_combined = buildCombined(nextManuscripts);
         m_translationSpans.clear();
 
         for (TranslationAssociation &association : m_associations) {
@@ -495,12 +996,12 @@ void AppController::loadPaths(SourceRole role, const QStringList &paths)
     }
 
     rebuildLocations();
-    const bool stillCommon =
-        m_location.has_value() && m_locations.contains(*m_location);
-    if (!stillCommon) {
+    const bool stillCovered =
+        m_location.has_value() && indexOfLocation(*m_location) >= 0;
+    if (!stillCovered) {
         m_location = m_locations.isEmpty()
             ? std::optional<Location>()
-            : std::optional<Location>(m_locations.first());
+            : std::optional<Location>(m_locations.first().location);
     }
 
     rebuildAlignedVerses();
@@ -508,7 +1009,7 @@ void AppController::loadPaths(SourceRole role, const QStringList &paths)
     setDirty(true);
 
     setMessage(m_locations.isEmpty()
-        ? QStringLiteral("The loaded manuscripts do not share a book and chapter.")
+        ? QStringLiteral("The loaded manuscripts hold no chapters.")
         : QStringLiteral("%1 manuscript(s) loaded.").arg(nextManuscripts.size()));
 
     m_undoStack.clear();
@@ -543,6 +1044,10 @@ void AppController::openProject()
         m_combined = state.combined;
         m_translationSpans = state.translationSpans;
         m_columnSplits = state.columnSplits;
+        m_chapterReferences = state.chapterReferences;
+        m_verseReferences = state.verseReferences;
+        m_combinedNotes = state.combinedNotes;
+        m_interlinearWords = state.interlinearWords;
         m_location = state.location;
     } catch (const ProjectError &projectError) {
         setMessage(projectError.message());
@@ -573,6 +1078,10 @@ void AppController::saveProject()
     state.combined = m_combined;
     state.translationSpans = m_translationSpans;
     state.columnSplits = m_columnSplits;
+    state.chapterReferences = m_chapterReferences;
+    state.verseReferences = m_verseReferences;
+    state.combinedNotes = m_combinedNotes;
+    state.interlinearWords = m_interlinearWords;
     state.location = m_location;
 
     const MilahProjectPayload payload = projectPayload(state, osis);
@@ -600,10 +1109,78 @@ void AppController::saveProject()
     setMessage(QStringLiteral("Milah project saved."));
 }
 
+CombinedApparatus AppController::editorApparatus() const
+{
+    CombinedApparatus apparatus;
+    for (auto item = m_combinedNotes.constBegin();
+         item != m_combinedNotes.constEnd();
+         ++item) {
+        const int separator = item.key().lastIndexOf(QLatin1Char(':'));
+        if (separator < 0) {
+            continue;
+        }
+        const QString verseId = item.key().left(separator);
+        bool numeric = false;
+        const int columnIndex =
+            QStringView(item.key()).mid(separator + 1).toInt(&numeric);
+        if (!numeric) {
+            continue;
+        }
+
+        const auto draft = m_combined.constFind(verseId);
+        if (draft == m_combined.constEnd()) {
+            continue;
+        }
+
+        SourceNote note;
+        note.id = item.key();
+        note.text = item.value();
+        note.charOffset = columnCharOffset(*draft, columnIndex);
+        apparatus.notes[verseId].append(note);
+    }
+
+    // Anchored notes are written in the order they are given, so put each
+    // verse's in the order they appear in it rather than in map order.
+    for (QList<SourceNote> &notes : apparatus.notes) {
+        std::stable_sort(
+            notes.begin(),
+            notes.end(),
+            [](const SourceNote &left, const SourceNote &right) {
+                return left.charOffset < right.charOffset;
+            });
+    }
+    return apparatus;
+}
+
+InterlinearGlosses AppController::interlinearGlosses() const
+{
+    // Read off the Interlinear row rather than off the spans, so what is
+    // exported is exactly what the editor sees — including anything they typed
+    // where no translation reaches, and nothing where they emptied a cell.
+    InterlinearGlosses glosses;
+    for (auto draft = m_combined.constBegin(); draft != m_combined.constEnd(); ++draft) {
+        const QString &verseId = draft.key();
+        for (int column = 0; column < draft->columns.size(); ++column) {
+            const QString gloss = interlinearWord(verseId, column);
+            if (!gloss.isEmpty()) {
+                glosses[verseId].insert(column, gloss);
+            }
+        }
+    }
+    return glosses;
+}
+
+bool AppController::writeOsis(const QString &path, const QString &osis)
+{
+    QSaveFile file(path);
+    const QByteArray contents = osis.toUtf8();
+    return file.open(QIODevice::WriteOnly)
+        && file.write(contents) == contents.size()
+        && file.commit();
+}
+
 void AppController::exportCombined()
 {
-    const QString osis = serializeCombinedOsis(m_combined);
-
     QString path = QFileDialog::getSaveFileName(
         m_dialogParent,
         QStringLiteral("Export Combined OSIS"),
@@ -618,16 +1195,49 @@ void AppController::exportCombined()
         path += QStringLiteral(".osis");
     }
 
-    QSaveFile file(path);
-    const QByteArray contents = osis.toUtf8();
-    if (!file.open(QIODevice::WriteOnly)
-        || file.write(contents) != contents.size()
-        || !file.commit()) {
+    // The edition itself, carrying no editor's commentary.
+    if (!writeOsis(path, serializeCombinedOsis(m_combined))) {
         setMessage(QStringLiteral("Could not export Combined OSIS."));
         return;
     }
 
-    setMessage(QStringLiteral("Combined OSIS exported."));
+    // Companions beside the chosen file, each written only when it has
+    // something to carry: the edition itself stays one clean document.
+    const QFileInfo chosen(path);
+    QStringList written{chosen.fileName()};
+
+    const auto sibling = [&chosen](const QString &suffix) {
+        return chosen.dir().filePath(QStringLiteral("%1-%2.%3")
+                                         .arg(chosen.completeBaseName(),
+                                              suffix,
+                                              chosen.suffix()));
+    };
+
+    if (!m_combinedNotes.isEmpty()) {
+        const QString annotated = sibling(QStringLiteral("notes"));
+        if (!writeOsis(
+                annotated, serializeCombinedOsis(m_combined, {}, editorApparatus()))) {
+            setMessage(QStringLiteral("Exported %1, but could not write %2.")
+                           .arg(chosen.fileName(), QFileInfo(annotated).fileName()));
+            return;
+        }
+        written.append(QFileInfo(annotated).fileName());
+    }
+
+    const InterlinearGlosses glosses = interlinearGlosses();
+    if (!glosses.isEmpty()) {
+        const QString interlinear = sibling(QStringLiteral("interlinear"));
+        if (!writeOsis(interlinear, serializeInterlinearOsis(m_combined, glosses))) {
+            setMessage(QStringLiteral("Exported %1, but could not write %2.")
+                           .arg(chosen.fileName(), QFileInfo(interlinear).fileName()));
+            return;
+        }
+        written.append(QFileInfo(interlinear).fileName());
+    }
+
+    setMessage(written.size() == 1
+        ? QStringLiteral("Combined OSIS exported.")
+        : QStringLiteral("Exported %1.").arg(written.join(QStringLiteral(", "))));
 }
 
 void AppController::setLocation(const Location &location)
@@ -646,9 +1256,9 @@ void AppController::goToPreviousLocation()
     if (!m_location.has_value()) {
         return;
     }
-    const int index = int(m_locations.indexOf(*m_location));
+    const int index = indexOfLocation(*m_location);
     if (index > 0) {
-        setLocation(m_locations.at(index - 1));
+        setLocation(m_locations.at(index - 1).location);
     }
 }
 
@@ -657,32 +1267,47 @@ void AppController::goToNextLocation()
     if (!m_location.has_value()) {
         return;
     }
-    const int index = int(m_locations.indexOf(*m_location));
+    const int index = indexOfLocation(*m_location);
     if (index >= 0 && index < m_locations.size() - 1) {
-        setLocation(m_locations.at(index + 1));
+        setLocation(m_locations.at(index + 1).location);
     }
 }
 
 void AppController::setPriorityId(const QString &id)
 {
-    if (id == m_priorityId || id.isEmpty()) {
+    if (id.isEmpty() || !m_location.has_value()) {
         return;
     }
-    if (!regenerateWith(id)) {
-        // The reader declined; tell the window to put the combo box back.
-        emit sourcesChanged();
+
+    // The toolbar speaks for the chapter on screen and for nothing else. One
+    // entry records it, and `m_priorityId` is deliberately left alone so that a
+    // chapter never chosen for keeps falling back to the manuscript the project
+    // was loaded with, however many other chapters have since been changed.
+    //
+    // The words are not touched: changing what a chapter is read against is not
+    // the same as rewriting what the editor has settled. Regenerate does that.
+    QMap<QString, QString> next = m_chapterReferences;
+    next.insert(locationKey(*m_location), id);
+    if (next == m_chapterReferences) {
         return;
     }
-    m_priorityId = id;
-    m_translationSpans.clear();
+
+    commitCombined(
+        m_combined,
+        m_columnSplits,
+        next,
+        m_verseReferences,
+        m_combinedNotes,
+        m_interlinearWords);
     rebuildAlignedVerses();
     refreshTranslationSpans();
-    emit sourcesChanged();
+    emit locationChanged();
 }
 
 void AppController::regenerate()
 {
-    if (regenerateWith(m_priorityId)) {
+    if (regenerateChapter()) {
+        rebuildAlignedVerses();
         emit locationChanged();
     }
 }
@@ -692,10 +1317,8 @@ void AppController::undo()
     if (m_undoStack.isEmpty()) {
         return;
     }
-    m_redoStack.append(EditStep{m_combined, m_columnSplits});
-    const EditStep step = m_undoStack.takeLast();
-    m_combined = step.combined;
-    m_columnSplits = step.columnSplits;
+    m_redoStack.append(currentStep());
+    restoreStep(m_undoStack.takeLast());
     // A step may have divided a word, so the columns are built again before
     // the cards that read them are.
     rebuildAlignedVerses();
@@ -709,10 +1332,8 @@ void AppController::redo()
     if (m_redoStack.isEmpty()) {
         return;
     }
-    m_undoStack.append(EditStep{m_combined, m_columnSplits});
-    const EditStep step = m_redoStack.takeLast();
-    m_combined = step.combined;
-    m_columnSplits = step.columnSplits;
+    m_undoStack.append(currentStep());
+    restoreStep(m_redoStack.takeLast());
     rebuildAlignedVerses();
     setDirty(true);
     emit historyChanged();
@@ -724,8 +1345,10 @@ void AppController::setAssociation(
     const QString &manuscriptId)
 {
     bool found = false;
+    bool changed = false;
     for (TranslationAssociation &association : m_associations) {
         if (association.translationId == translationId) {
+            changed = association.manuscriptId != manuscriptId;
             association.manuscriptId = manuscriptId;
             found = true;
             break;
@@ -733,7 +1356,27 @@ void AppController::setAssociation(
     }
     if (!found) {
         m_associations.append(TranslationAssociation{translationId, manuscriptId});
+        changed = !manuscriptId.isEmpty();
     }
+
+    if (changed) {
+        // The columns a translation is spread across come from its manuscript,
+        // so naming a different one makes every existing span wrong. They are
+        // dropped rather than nudged, and refreshed below for the chapter on
+        // screen; the rest are spread again as each is opened. Corrections made
+        // by hand go with them, which is why it is worth saying so.
+        const auto before = m_translationSpans.size();
+        m_translationSpans.removeIf([&translationId](const TranslationSpan &span) {
+            return span.translationId == translationId;
+        });
+        if (before != m_translationSpans.size()) {
+            setMessage(QStringLiteral(
+                "Re-aligned the translation; any spans you had corrected were "
+                "spread again."));
+        }
+        refreshTranslationSpans();
+    }
+
     setDirty(true);
     emit locationChanged();
 }
@@ -937,7 +1580,13 @@ void AppController::splitColumn(const QString &verseId, int columnIndex)
     nextSplits.insert(verseId, splits);
     QMap<QString, CombinedDraft> next = m_combined;
     next.insert(verseId, draft);
-    commitCombined(next, nextSplits);
+    commitCombined(
+        next,
+        nextSplits,
+        m_chapterReferences,
+        m_verseReferences,
+        shiftColumnKeys(m_combinedNotes, verseId, inserted, 1),
+        shiftColumnKeys(m_interlinearWords, verseId, inserted, 1));
 
     rebuildAlignedVerses();
     // The verse has a column it did not have, and each card holds its own copy
@@ -1048,7 +1697,13 @@ void AppController::mergeColumns(const QString &verseId, int firstColumnIndex)
     }
     QMap<QString, CombinedDraft> next = m_combined;
     next.insert(verseId, draft);
-    commitCombined(next, nextSplits);
+    commitCombined(
+        next,
+        nextSplits,
+        m_chapterReferences,
+        m_verseReferences,
+        shiftColumnKeys(m_combinedNotes, verseId, removed, -1),
+        shiftColumnKeys(m_interlinearWords, verseId, removed, -1));
 
     rebuildAlignedVerses();
     emit locationChanged();
@@ -1092,6 +1747,43 @@ void AppController::setManualText(const QString &verseId, const QString &text)
     next.insert(verseId, draft);
     commitCombined(next);
     emit verseChanged(verseId);
+}
+
+QStringList AppController::spanWords(const TranslationSpan &span) const
+{
+    for (const SourceDocument &source : m_sources) {
+        if (source.id != span.translationId) {
+            continue;
+        }
+        const SourceVerse *verse = source.verse(span.verseId);
+        if (!verse) {
+            return {};
+        }
+        QStringList words;
+        for (int index = span.tokenStart;
+             index < span.tokenEnd && index < verse->tokens.size();
+             ++index) {
+            words.append(verse->tokens.at(index).text);
+        }
+        return words;
+    }
+    return {};
+}
+
+void AppController::removeSpan(const QString &spanId, bool removed)
+{
+    for (TranslationSpan &span : m_translationSpans) {
+        if (span.id != spanId) {
+            continue;
+        }
+        if (span.removed == removed) {
+            return;
+        }
+        span.removed = removed;
+        setDirty(true);
+        emit verseChanged(span.verseId);
+        return;
+    }
 }
 
 void AppController::moveSpan(const QString &spanId, int delta)

@@ -83,12 +83,39 @@ QString titleMarkup(const SourceTitle &title)
         .arg(escapeXml(title.type), canonical, escapeXml(title.text));
 }
 
-} // namespace
+/// The verse as separately marked words, each carrying its gloss where one is
+/// aligned to it. Only for the interlinear edition; the plain one writes the
+/// verse as running text.
+QString interlinearBody(const CombinedDraft &draft, const QMap<int, QString> &glosses)
+{
+    if (draft.manualText.has_value()) {
+        // One string the columns no longer describe, so there is nothing to
+        // hang a gloss on.
+        return escapeXml(*draft.manualText);
+    }
 
-QString serializeCombinedOsis(
+    QStringList words;
+    for (int index = 0; index < draft.columns.size(); ++index) {
+        const QString word = draft.columns.at(index).text.value_or(QString());
+        if (word.isEmpty()) {
+            continue;
+        }
+        const QString gloss = glosses.value(index);
+        words.append(gloss.isEmpty()
+            ? QStringLiteral("<w>%1</w>").arg(escapeXml(word))
+            : QStringLiteral("<w gloss=\"%1\">%2</w>")
+                  .arg(escapeXml(gloss), escapeXml(word)));
+    }
+    return words.join(QLatin1Char(' '));
+}
+
+/// Both editions come through here: they differ only in how a verse's body is
+/// written, so the document around it cannot drift between them.
+QString serializeOsis(
     const QMap<QString, CombinedDraft> &drafts,
     const WorkMetadata &metadata,
-    const CombinedApparatus &apparatus)
+    const CombinedApparatus &apparatus,
+    const InterlinearGlosses *glosses)
 {
     QList<CombinedDraft> ordered = drafts.values();
     std::stable_sort(
@@ -169,7 +196,9 @@ QString serializeCombinedOsis(
                     .arg(
                         escapeXml(reference.id),
                         escapeXml(reference.verse),
-                        verseBody(reference.id, combinedText(draft), apparatus));
+                        glosses
+                            ? interlinearBody(draft, glosses->value(reference.id))
+                            : verseBody(reference.id, combinedText(draft), apparatus));
     }
 
     closeChapter();
@@ -199,6 +228,26 @@ QString serializeCombinedOsis(
                "%4  </osisText>\n"
                "</osis>\n")
         .arg(escapeXml(workId), escapeXml(language), escapeXml(title), body);
+}
+
+} // namespace
+
+QString serializeCombinedOsis(
+    const QMap<QString, CombinedDraft> &drafts,
+    const WorkMetadata &metadata,
+    const CombinedApparatus &apparatus)
+{
+    return serializeOsis(drafts, metadata, apparatus, nullptr);
+}
+
+QString serializeInterlinearOsis(
+    const QMap<QString, CombinedDraft> &drafts,
+    const InterlinearGlosses &glosses,
+    const WorkMetadata &metadata)
+{
+    // No apparatus: the interlinear carries glosses, and the notes belong to
+    // the annotated edition beside it.
+    return serializeOsis(drafts, metadata, CombinedApparatus(), &glosses);
 }
 
 } // namespace milah

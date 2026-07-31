@@ -78,6 +78,11 @@ QHash<QString, QString> sourceAcronyms(const QList<SourceDocument> &sources)
     return result;
 }
 
+QString locationKey(const Location &location)
+{
+    return QStringLiteral("%1.%2").arg(location.book).arg(location.chapter);
+}
+
 bool isRightToLeft(const QString &language)
 {
     // Resolved through the language code rather than QLocale(QString), which

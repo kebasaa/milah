@@ -42,16 +42,23 @@ public:
 
 protected:
     void resizeEvent(QResizeEvent *event) override;
+    /// Watches the Combined fields so that giving one the focus — by clicking
+    /// it or tabbing to it — tells the controller which word is being worked
+    /// on. A filter rather than a QLineEdit subclass, because the field needs
+    /// nothing else of its own.
+    bool eventFilter(QObject *watched, QEvent *event) override;
 
 private:
     /// One aligned column's contribution to one row, already marked up.
-    /// `unsettled` marks a Combined word still holding its automatic value.
+    /// `unsettled` marks a Combined word still holding its automatic value;
+    /// `noted` marks a column some witness attaches a note to.
     struct Cell
     {
         QString html;
         QString plain;
         QString tooltip;
         bool unsettled = false;
+        bool noted = false;
     };
 
     /// A row of readings: one manuscript, or the Combined draft. `acronym`
@@ -61,6 +68,9 @@ private:
         QString objectName;
         QString acronym;
         QString tooltip;
+        /// The manuscript this row reads, when it is one. Empty for the
+        /// Combined and Strong's rows, which no manuscript speaks for.
+        QString sourceId;
         QList<Cell> cells;
         /// Carried with the row because the band packing measures every row,
         /// and the Strong's line is set smaller than the readings.
@@ -87,11 +97,16 @@ private:
     Row combinedRow(const CombinedDraft &draft) const;
     /// The interlinear Strong's line, read off the Combined words above it.
     Row strongsRow(const Row &combined) const;
+    /// The editable interlinear translation, one word per Combined column.
+    Row interlinearRow() const;
 
     QGridLayout *addBand(bool separator);
     int addCells(QGridLayout *grid, int row, const Band &band, const Row &data);
     /// The Combined row: one editable field per aligned column.
     int addCombinedCells(QGridLayout *grid, int row, const Band &band, const Row &data);
+    /// The Interlinear row: the same, without the apparatus a Combined word
+    /// carries — no suggestions, no note marker, no witness readings.
+    int addInterlinearCells(QGridLayout *grid, int row, const Band &band, const Row &data);
     void showWitnessMenu(int columnIndex, const QPoint &globalPosition);
     int addTranslationRows(
         QGridLayout *grid,
@@ -103,7 +118,17 @@ private:
         QGridLayout *grid,
         int row,
         const QString &text,
-        const QString &tooltip);
+        const QString &tooltip,
+        const QString &sourceId = QString(),
+        bool translation = false);
+    /// Offers to read this verse against `sourceId`, from that manuscript's
+    /// own row label.
+    void showReferenceMenu(
+        const QString &sourceId,
+        const QString &acronym,
+        const QPoint &globalPosition);
+    /// Offers to close a loaded translation, from its own row label.
+    void showTranslationMenu(const QString &sourceId, const QPoint &globalPosition);
 
     AppController *m_controller = nullptr;
     AlignedVerse m_aligned;
