@@ -115,6 +115,8 @@ qt_add_executable(Milah WIN32
     src/main_window.h
     src/ui/about_dialog.cpp
     src/ui/about_dialog.h
+    src/ui/dictionary_entry_dialog.cpp
+    src/ui/dictionary_entry_dialog.h
     src/ui/icons.cpp
     src/ui/icons.h
     src/ui/notes_widget.cpp

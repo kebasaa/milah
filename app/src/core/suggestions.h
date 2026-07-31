@@ -116,8 +116,27 @@ private:
     QList<PhraseRule> m_rules;
 };
 
+/// One word the editor has accepted, and what they have written about it.
+struct DictionaryEntry
+{
+    /// The pointed spelling as the editor saw it, for showing back to them.
+    /// The key a word is found by is its comparison key, not this.
+    QString word;
+    /// Their own notes, in English, in their order. Empty when the word was
+    /// accepted without one. The Def. 1 / Def. 2 numbering is applied when
+    /// these are shown rather than held here, so it cannot fall out of step
+    /// with the list after an edit or a merge.
+    QStringList definitions;
+};
+
+/// The definitions as they are read: numbered when there are several, and the
+/// definition alone when there is only one, the way strongsTooltip heads its
+/// list only when a form has more than one reading.
+QString numberedDefinitions(const QStringList &definitions);
+
 /// Words the editor has said are fine, held by comparison key so a word is
-/// silenced however it happens to be pointed.
+/// silenced however it happens to be pointed, with whatever they have written
+/// about each.
 class UserDictionary
 {
 public:
@@ -128,14 +147,46 @@ public:
     static QString defaultPath();
 
     bool contains(const QString &word) const;
-    /// Appends the word and rewrites the file. Returns false if it could not
-    /// be written, so the caller can say so rather than silently forgetting.
-    bool add(const QString &word);
-    const QSet<QString> &keys() const { return m_keys; }
+    /// What the editor has written about the word, empty when nothing.
+    QStringList definitionsFor(const QString &word) const;
+
+    /// Accepts the word, or replaces what is written about one already held.
+    /// Blank definitions are dropped, so a stray line cannot become a numbered
+    /// note that says nothing. Returns false if the file could not be written,
+    /// so the caller can say so rather than silently forgetting.
+    bool save(const QString &word, const QStringList &definitions = QStringList());
+
+    /// Writes the dictionary to `path` for safekeeping, **without** changing
+    /// where it saves. A backup is a copy, not a move: the next word accepted
+    /// must still land in the editor's own dictionary.
+    bool writeTo(const QString &path) const;
+
+    /// Folds the entries in `path` into this dictionary and rewrites its own
+    /// file.
+    ///
+    /// A word not held is taken whole; a word already held keeps everything it
+    /// has and gains only the definitions the file has that it does not,
+    /// appended in the file's order. Nothing is replaced and nothing is
+    /// duplicated, so loading the same backup twice is harmless — without
+    /// that, a second load would double every note.
+    ///
+    /// Returns how many words were added or gained a definition, or -1 when
+    /// the file could not be read at all.
+    int mergeFrom(const QString &path);
+
+    QSet<QString> keys() const;
+    bool isEmpty() const { return m_entries.isEmpty(); }
 
 private:
+    /// Reads a dictionary file. Understands both the JSON written today and the
+    /// one-key-per-line text of older versions, so an old file — or an old
+    /// backup — still opens.
+    static QHash<QString, DictionaryEntry> readEntries(const QString &path);
+    static bool writeEntries(
+        const QString &path, const QHash<QString, DictionaryEntry> &entries);
+
     QString m_path;
-    QSet<QString> m_keys;
+    QHash<QString, DictionaryEntry> m_entries;
 };
 
 /// Forms attested in a corpus Milah ships, held by comparison key.

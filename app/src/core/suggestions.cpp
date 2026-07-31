@@ -323,6 +323,54 @@ const AttestedForms &AttestedForms::shared()
     return forms;
 }
 
+namespace {
+
+/// Drops blanks and trims what is left, so a stray newline in the editor's
+/// field cannot become a numbered note that says nothing, and so two notes
+/// differing only in spacing count as one.
+QStringList tidyDefinitions(const QStringList &definitions)
+{
+    QStringList tidied;
+    tidied.reserve(definitions.size());
+    for (const QString &definition : definitions) {
+        const QString trimmed = definition.trimmed();
+        if (!trimmed.isEmpty() && !tidied.contains(trimmed)) {
+            tidied.append(trimmed);
+        }
+    }
+    return tidied;
+}
+
+/// Where the dictionary is kept now. The older one-key-per-line file sits
+/// beside it and is read when this is absent.
+QString legacyDictionaryPath(const QString &path)
+{
+    if (!path.endsWith(QStringLiteral(".json"))) {
+        return QString();
+    }
+    return path.chopped(5) + QStringLiteral(".txt");
+}
+
+} // namespace
+
+QString numberedDefinitions(const QStringList &definitions)
+{
+    if (definitions.isEmpty()) {
+        return QString();
+    }
+    if (definitions.size() == 1) {
+        return definitions.first();
+    }
+
+    QStringList lines;
+    lines.reserve(definitions.size());
+    for (int index = 0; index < definitions.size(); ++index) {
+        lines.append(
+            QStringLiteral("Def. %1  %2").arg(index + 1).arg(definitions.at(index)));
+    }
+    return lines.join(QLatin1Char('\n'));
+}
+
 QString UserDictionary::defaultPath()
 {
     const QString directory =
@@ -330,59 +378,212 @@ QString UserDictionary::defaultPath()
     if (directory.isEmpty()) {
         return QString();
     }
-    return directory + QStringLiteral("/user-dictionary.txt");
+    return directory + QStringLiteral("/user-dictionary.json");
+}
+
+QHash<QString, DictionaryEntry> UserDictionary::readEntries(const QString &path)
+{
+    QHash<QString, DictionaryEntry> entries;
+    if (path.isEmpty()) {
+        return entries;
+    }
+
+    QFile file(path);
+    if (!file.open(QIODevice::ReadOnly)) {
+        return entries;
+    }
+    const QByteArray contents = file.readAll();
+
+    const QJsonDocument document = QJsonDocument::fromJson(contents);
+    if (document.isObject()) {
+        const QJsonArray listed =
+            document.object().value(QStringLiteral("entries")).toArray();
+        for (const QJsonValue &value : listed) {
+            const QJsonObject record = value.toObject();
+            // Keyed the way every lookup will be, whatever the file says, so a
+            // hand-edited pointed headword still finds its word.
+            const QString word = record.value(QStringLiteral("word")).toString();
+            QString key = record.value(QStringLiteral("key")).toString();
+            if (key.isEmpty()) {
+                key = comparisonKey(word);
+            } else {
+                key = comparisonKey(key);
+            }
+            if (key.isEmpty()) {
+                continue;
+            }
+
+            DictionaryEntry entry;
+            entry.word = word;
+            QStringList definitions;
+            for (const QJsonValue &definition :
+                 record.value(QStringLiteral("definitions")).toArray()) {
+                definitions.append(definition.toString());
+            }
+            entry.definitions = tidyDefinitions(definitions);
+            entries.insert(key, entry);
+        }
+        return entries;
+    }
+
+    // Not JSON: the one-key-per-line text older versions wrote, which a backup
+    // taken back then will also be.
+    QTextStream stream(contents);
+    while (!stream.atEnd()) {
+        const QString line = stream.readLine();
+        const QString key = comparisonKey(line);
+        if (key.isEmpty()) {
+            continue;
+        }
+        DictionaryEntry entry;
+        entry.word = line.trimmed();
+        entries.insert(key, entry);
+    }
+    return entries;
+}
+
+bool UserDictionary::writeEntries(
+    const QString &path, const QHash<QString, DictionaryEntry> &entries)
+{
+    if (path.isEmpty()) {
+        return false;
+    }
+    QDir().mkpath(QFileInfo(path).absolutePath());
+
+    QStringList ordered(entries.keyBegin(), entries.keyEnd());
+    ordered.sort();
+
+    QJsonArray listed;
+    for (const QString &key : ordered) {
+        const DictionaryEntry &entry = entries.value(key);
+        QJsonObject record;
+        record.insert(QStringLiteral("key"), key);
+        if (!entry.word.isEmpty()) {
+            record.insert(QStringLiteral("word"), entry.word);
+        }
+        if (!entry.definitions.isEmpty()) {
+            record.insert(
+                QStringLiteral("definitions"),
+                QJsonArray::fromStringList(entry.definitions));
+        }
+        listed.append(record);
+    }
+
+    QJsonObject document;
+    document.insert(QStringLiteral("version"), 1);
+    document.insert(QStringLiteral("entries"), listed);
+
+    QSaveFile file(path);
+    if (!file.open(QIODevice::WriteOnly)) {
+        return false;
+    }
+    file.write(QJsonDocument(document).toJson(QJsonDocument::Indented));
+    return file.commit();
 }
 
 UserDictionary::UserDictionary(const QString &path)
     : m_path(path)
+    , m_entries(readEntries(path))
 {
-    QFile file(m_path);
-    if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+    if (!m_entries.isEmpty()) {
         return;
     }
-    QTextStream stream(&file);
-    while (!stream.atEnd()) {
-        const QString key = comparisonKey(stream.readLine());
-        if (!key.isEmpty()) {
-            m_keys.insert(key);
-        }
-    }
+    // Nothing here yet: carry over the words an older Milah accepted. That file
+    // is left where it is rather than moved or removed — it is the editor's,
+    // and the JSON simply becomes the store from the first save onward.
+    m_entries = readEntries(legacyDictionaryPath(path));
 }
 
 bool UserDictionary::contains(const QString &word) const
 {
     const QString key = comparisonKey(word);
-    return !key.isEmpty() && m_keys.contains(key);
+    return !key.isEmpty() && m_entries.contains(key);
 }
 
-bool UserDictionary::add(const QString &word)
+QStringList UserDictionary::definitionsFor(const QString &word) const
+{
+    const QString key = comparisonKey(word);
+    if (key.isEmpty()) {
+        return QStringList();
+    }
+    return m_entries.value(key).definitions;
+}
+
+QSet<QString> UserDictionary::keys() const
+{
+    return QSet<QString>(m_entries.keyBegin(), m_entries.keyEnd());
+}
+
+bool UserDictionary::save(const QString &word, const QStringList &definitions)
 {
     const QString key = comparisonKey(word);
     if (key.isEmpty()) {
         return false;
     }
-    if (m_keys.contains(key)) {
-        return true;
-    }
-    m_keys.insert(key);
 
-    if (m_path.isEmpty()) {
-        return false;
+    DictionaryEntry entry = m_entries.value(key);
+    // The spelling the editor last saw wins: it is the one they were looking at
+    // when they wrote the note.
+    if (!word.trimmed().isEmpty()) {
+        entry.word = word.trimmed();
     }
-    QDir().mkpath(QFileInfo(m_path).absolutePath());
+    entry.definitions = tidyDefinitions(definitions);
+    m_entries.insert(key, entry);
 
-    QSaveFile file(m_path);
-    if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) {
-        return false;
+    return writeEntries(m_path, m_entries);
+}
+
+bool UserDictionary::writeTo(const QString &path) const
+{
+    return writeEntries(path, m_entries);
+}
+
+int UserDictionary::mergeFrom(const QString &path)
+{
+    if (path.isEmpty() || !QFileInfo::exists(path)) {
+        return -1;
     }
-    QStringList ordered(m_keys.constBegin(), m_keys.constEnd());
-    ordered.sort();
-    QTextStream stream(&file);
-    for (const QString &entry : ordered) {
-        stream << entry << '\n';
+    const QHash<QString, DictionaryEntry> incoming = readEntries(path);
+    if (incoming.isEmpty()) {
+        // Either unreadable or holding nothing this understands. Both are worth
+        // saying out loud rather than reporting as a successful no-op.
+        return -1;
     }
-    stream.flush();
-    return file.commit();
+
+    int changed = 0;
+    for (auto item = incoming.constBegin(); item != incoming.constEnd(); ++item) {
+        const DictionaryEntry &offered = item.value();
+        const auto held = m_entries.constFind(item.key());
+        if (held == m_entries.constEnd()) {
+            m_entries.insert(item.key(), offered);
+            ++changed;
+            continue;
+        }
+
+        // Everything already here stays, and only what is genuinely new is
+        // added after it. This is what makes loading the same file twice a
+        // no-op rather than a doubling.
+        DictionaryEntry merged = held.value();
+        bool gained = false;
+        for (const QString &definition : offered.definitions) {
+            if (!merged.definitions.contains(definition)) {
+                merged.definitions.append(definition);
+                gained = true;
+            }
+        }
+        if (merged.word.isEmpty() && !offered.word.isEmpty()) {
+            merged.word = offered.word;
+        }
+        if (gained) {
+            m_entries.insert(item.key(), merged);
+            ++changed;
+        }
+    }
+
+    if (changed > 0 && !writeEntries(m_path, m_entries)) {
+        return -1;
+    }
+    return changed;
 }
 
 namespace {

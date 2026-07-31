@@ -2,6 +2,8 @@
 #include "core/suggestions.h"
 #include "core/tokenize.h"
 
+#include <QFile>
+#include <QFileInfo>
 #include <QJsonDocument>
 #include <QTemporaryDir>
 #include <QtTest>
@@ -645,10 +647,10 @@ private slots:
     {
         QTemporaryDir directory;
         QVERIFY(directory.isValid());
-        const QString path = directory.filePath(QStringLiteral("words.txt"));
+        const QString path = directory.filePath(QStringLiteral("words.json"));
 
         UserDictionary dictionary(path);
-        QVERIFY(dictionary.add(QString::fromUtf8("יֵשׁוּעַ")));
+        QVERIFY(dictionary.save(QString::fromUtf8("יֵשׁוּעַ")));
         QVERIFY(dictionary.contains(QString::fromUtf8("יֵשׁוּעַ")));
 
         // Held by comparison key, so the pointing does not have to match.
@@ -657,6 +659,269 @@ private slots:
         const UserDictionary reopened(path);
         QVERIFY(reopened.contains(QString::fromUtf8("יֵשׁוּעַ")));
         QVERIFY(!reopened.contains(QString::fromUtf8("זזזזזז")));
+    }
+
+    void severalDefinitionsSurviveASaveAndReload()
+    {
+        QTemporaryDir directory;
+        QVERIFY(directory.isValid());
+        const QString path = directory.filePath(QStringLiteral("words.json"));
+
+        UserDictionary dictionary(path);
+        QVERIFY(dictionary.save(
+            QString::fromUtf8("הֻצרָךְ"),
+            {QStringLiteral("Was needed."), QStringLiteral("Was compelled.")}));
+
+        // Order is preserved, because the numbering rests on it.
+        const UserDictionary reopened(path);
+        QCOMPARE(
+            reopened.definitionsFor(QString::fromUtf8("הצרך")),
+            QStringList(
+                {QStringLiteral("Was needed."), QStringLiteral("Was compelled.")}));
+    }
+
+    void savingAgainReplacesTheWholeList()
+    {
+        QTemporaryDir directory;
+        QVERIFY(directory.isValid());
+        const QString path = directory.filePath(QStringLiteral("words.json"));
+
+        UserDictionary dictionary(path);
+        const QString word = QString::fromUtf8("הצרך");
+        QVERIFY(dictionary.save(
+            word, {QStringLiteral("Was neded."), QStringLiteral("Unwanted.")}));
+        // The edit path: a typo corrected and a definition deleted both stick.
+        QVERIFY(dictionary.save(word, {QStringLiteral("Was needed.")}));
+
+        QCOMPARE(
+            dictionary.definitionsFor(word),
+            QStringList{QStringLiteral("Was needed.")});
+        QCOMPARE(dictionary.keys().size(), 1);
+    }
+
+    void blankDefinitionsAreDropped()
+    {
+        QTemporaryDir directory;
+        QVERIFY(directory.isValid());
+        UserDictionary dictionary(directory.filePath(QStringLiteral("words.json")));
+
+        // A trailing newline in the dialog must not become a numbered note that
+        // says nothing.
+        QVERIFY(dictionary.save(
+            QString::fromUtf8("הצרך"),
+            {QStringLiteral("Was needed."), QStringLiteral("   "), QString()}));
+        QCOMPARE(
+            dictionary.definitionsFor(QString::fromUtf8("הצרך")).size(), 1);
+    }
+
+    void aWordWithNoDefinitionIsStillAccepted()
+    {
+        QTemporaryDir directory;
+        QVERIFY(directory.isValid());
+        UserDictionary dictionary(directory.filePath(QStringLiteral("words.json")));
+
+        QVERIFY(dictionary.save(QString::fromUtf8("הצרך")));
+        QVERIFY(dictionary.contains(QString::fromUtf8("הצרך")));
+        // What keeps the D marker meaningful: accepted, but nothing to read.
+        QVERIFY(dictionary.definitionsFor(QString::fromUtf8("הצרך")).isEmpty());
+    }
+
+    void oneDefinitionIsNotNumbered()
+    {
+        QCOMPARE(
+            numberedDefinitions({QStringLiteral("Was needed.")}),
+            QStringLiteral("Was needed."));
+        QVERIFY(numberedDefinitions({}).isEmpty());
+    }
+
+    void severalAreNumberedFromOne()
+    {
+        const QString shown = numberedDefinitions(
+            {QStringLiteral("Was needed."), QStringLiteral("Was compelled.")});
+        QVERIFY(shown.contains(QStringLiteral("Def. 1")));
+        QVERIFY(shown.contains(QStringLiteral("Def. 2")));
+        QVERIFY(!shown.contains(QStringLiteral("Def. 3")));
+    }
+
+    void anOldTextDictionaryIsCarriedOver()
+    {
+        QTemporaryDir directory;
+        QVERIFY(directory.isValid());
+        const QString legacy = directory.filePath(QStringLiteral("words.txt"));
+        {
+            QFile file(legacy);
+            QVERIFY(file.open(QIODevice::WriteOnly | QIODevice::Text));
+            file.write(QString::fromUtf8("הצרך\n").toUtf8());
+        }
+
+        const UserDictionary dictionary(
+            directory.filePath(QStringLiteral("words.json")));
+        QVERIFY(dictionary.contains(QString::fromUtf8("הצרך")));
+        QVERIFY(dictionary.definitionsFor(QString::fromUtf8("הצרך")).isEmpty());
+        // The editor's own file is left where it is, not moved or removed.
+        QVERIFY(QFileInfo::exists(legacy));
+    }
+
+    void aMissingOrUnreadableFileIsSilent()
+    {
+        QTemporaryDir directory;
+        QVERIFY(directory.isValid());
+        const UserDictionary missing(
+            directory.filePath(QStringLiteral("nothing-here.json")));
+        QVERIFY(missing.isEmpty());
+        QVERIFY(!missing.contains(QString::fromUtf8("הצרך")));
+    }
+
+    // --- backing the dictionary up, and taking one back in ------------------
+
+    void aBackupCanBeWrittenAndReadBack()
+    {
+        QTemporaryDir directory;
+        QVERIFY(directory.isValid());
+        const QString backup = directory.filePath(QStringLiteral("backup.json"));
+
+        UserDictionary source(directory.filePath(QStringLiteral("a.json")));
+        QVERIFY(source.save(
+            QString::fromUtf8("הצרך"), {QStringLiteral("Was needed.")}));
+        QVERIFY(source.writeTo(backup));
+
+        UserDictionary restored(directory.filePath(QStringLiteral("b.json")));
+        QCOMPARE(restored.mergeFrom(backup), 1);
+        QCOMPARE(
+            restored.definitionsFor(QString::fromUtf8("הצרך")),
+            QStringList{QStringLiteral("Was needed.")});
+    }
+
+    void aBackupDoesNotChangeWhereTheDictionarySaves()
+    {
+        QTemporaryDir directory;
+        QVERIFY(directory.isValid());
+        const QString own = directory.filePath(QStringLiteral("own.json"));
+        const QString backup = directory.filePath(QStringLiteral("backup.json"));
+
+        UserDictionary dictionary(own);
+        QVERIFY(dictionary.save(QString::fromUtf8("הצרך")));
+        QVERIFY(dictionary.writeTo(backup));
+
+        // A backup is a copy, not a move: the next word accepted still has to
+        // land in the editor's own dictionary.
+        QVERIFY(dictionary.save(QString::fromUtf8("מלאך")));
+        const UserDictionary reopened(own);
+        QVERIFY(reopened.contains(QString::fromUtf8("מלאך")));
+
+        const UserDictionary untouched(backup);
+        QVERIFY(!untouched.contains(QString::fromUtf8("מלאך")));
+    }
+
+    void mergingKeepsWordsTheFileDoesNotHave()
+    {
+        QTemporaryDir directory;
+        QVERIFY(directory.isValid());
+        const QString backup = directory.filePath(QStringLiteral("backup.json"));
+        {
+            UserDictionary other(directory.filePath(QStringLiteral("other.json")));
+            QVERIFY(other.save(QString::fromUtf8("מלאך")));
+            QVERIFY(other.writeTo(backup));
+        }
+
+        UserDictionary mine(directory.filePath(QStringLiteral("mine.json")));
+        QVERIFY(mine.save(QString::fromUtf8("הצרך")));
+        QCOMPARE(mine.mergeFrom(backup), 1);
+
+        // The non-destructive guarantee, and the whole reason merge was chosen.
+        QVERIFY(mine.contains(QString::fromUtf8("הצרך")));
+        QVERIFY(mine.contains(QString::fromUtf8("מלאך")));
+    }
+
+    void mergingAppendsDefinitionsItDoesNotAlreadyHave()
+    {
+        QTemporaryDir directory;
+        QVERIFY(directory.isValid());
+        const QString word = QString::fromUtf8("הצרך");
+        const QString backup = directory.filePath(QStringLiteral("backup.json"));
+        {
+            UserDictionary other(directory.filePath(QStringLiteral("other.json")));
+            QVERIFY(other.save(word, {QStringLiteral("Was compelled.")}));
+            QVERIFY(other.writeTo(backup));
+        }
+
+        UserDictionary mine(directory.filePath(QStringLiteral("mine.json")));
+        QVERIFY(mine.save(word, {QStringLiteral("Was needed.")}));
+        QCOMPARE(mine.mergeFrom(backup), 1);
+
+        // Mine first, theirs appended after it. Neither is replaced.
+        QCOMPARE(
+            mine.definitionsFor(word),
+            QStringList(
+                {QStringLiteral("Was needed."), QStringLiteral("Was compelled.")}));
+    }
+
+    void mergingTheSameFileTwiceAddsNothing()
+    {
+        QTemporaryDir directory;
+        QVERIFY(directory.isValid());
+        const QString word = QString::fromUtf8("הצרך");
+        const QString backup = directory.filePath(QStringLiteral("backup.json"));
+        {
+            UserDictionary other(directory.filePath(QStringLiteral("other.json")));
+            QVERIFY(other.save(word, {QStringLiteral("Was compelled.")}));
+            QVERIFY(other.writeTo(backup));
+        }
+
+        UserDictionary mine(directory.filePath(QStringLiteral("mine.json")));
+        QVERIFY(mine.save(word, {QStringLiteral("Was needed.")}));
+        QCOMPARE(mine.mergeFrom(backup), 1);
+
+        // The property that makes repeated loading safe: without deduplication
+        // a second load would double every definition.
+        QCOMPARE(mine.mergeFrom(backup), 0);
+        QCOMPARE(mine.definitionsFor(word).size(), 2);
+    }
+
+    void mergingIgnoresWhitespaceWhenComparing()
+    {
+        QTemporaryDir directory;
+        QVERIFY(directory.isValid());
+        const QString word = QString::fromUtf8("הצרך");
+        const QString backup = directory.filePath(QStringLiteral("backup.json"));
+        {
+            UserDictionary other(directory.filePath(QStringLiteral("other.json")));
+            QVERIFY(other.save(word, {QStringLiteral("  Was needed.  ")}));
+            QVERIFY(other.writeTo(backup));
+        }
+
+        UserDictionary mine(directory.filePath(QStringLiteral("mine.json")));
+        QVERIFY(mine.save(word, {QStringLiteral("Was needed.")}));
+        QCOMPARE(mine.mergeFrom(backup), 0);
+        QCOMPARE(mine.definitionsFor(word).size(), 1);
+    }
+
+    void mergingFromAMissingFileReportsFailure()
+    {
+        QTemporaryDir directory;
+        QVERIFY(directory.isValid());
+        UserDictionary mine(directory.filePath(QStringLiteral("mine.json")));
+        QVERIFY(mine.save(QString::fromUtf8("הצרך")));
+
+        QCOMPARE(mine.mergeFrom(directory.filePath(QStringLiteral("gone.json"))), -1);
+        // And the dictionary is untouched.
+        QVERIFY(mine.contains(QString::fromUtf8("הצרך")));
+    }
+
+    void aLegacyTextBackupCanBeMerged()
+    {
+        QTemporaryDir directory;
+        QVERIFY(directory.isValid());
+        const QString backup = directory.filePath(QStringLiteral("old-backup.txt"));
+        {
+            QFile file(backup);
+            QVERIFY(file.open(QIODevice::WriteOnly | QIODevice::Text));
+            file.write(QString::fromUtf8("מלאך\n").toUtf8());
+        }
+
+        UserDictionary mine(directory.filePath(QStringLiteral("mine.json")));
+        QCOMPARE(mine.mergeFrom(backup), 1);
+        QVERIFY(mine.contains(QString::fromUtf8("מלאך")));
     }
 };
 

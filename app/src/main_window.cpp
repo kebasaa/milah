@@ -204,6 +204,7 @@ MainWindow::MainWindow(QWidget *parent)
         for (VerseGridWidget *card : m_verseCards) {
             card->refresh();
         }
+        updateDictionaryActions();
     });
     connect(m_controller, &AppController::messageChanged, this, [this](const QString &text) {
         statusBar()->showMessage(text);
@@ -334,7 +335,32 @@ void MainWindow::createActions()
         }
     });
 
-    m_dictionaryAction = new QAction(QStringLiteral("Add word to my dictionary"), this);
+    m_saveDictionaryAction =
+        new QAction(QStringLiteral("Save my dictionary as…"), this);
+    m_saveDictionaryAction->setToolTip(
+        QStringLiteral("Write a copy of your dictionary somewhere of your own. "
+                       "Milah goes on using its own."));
+    connect(
+        m_saveDictionaryAction,
+        &QAction::triggered,
+        m_controller,
+        &AppController::saveDictionaryAs);
+
+    m_loadDictionaryAction = new QAction(QStringLiteral("Load a dictionary…"), this);
+    m_loadDictionaryAction->setToolTip(
+        QStringLiteral("Read a saved dictionary in. Nothing you already have is "
+                       "lost, and nothing is taken twice."));
+    connect(
+        m_loadDictionaryAction,
+        &QAction::triggered,
+        m_controller,
+        &AppController::loadDictionary);
+
+    m_dictionaryAction =
+        new QAction(QStringLiteral("Define word in my dictionary"), this);
+    m_dictionaryAction->setToolTip(QStringLiteral(
+        "Records what the selected word means, and stops Milah asking about "
+        "it, in every project."));
     connect(m_dictionaryAction, &QAction::triggered, this, [this] {
         const QString word = m_controller->selectedWord();
         if (!word.isEmpty()) {
@@ -391,7 +417,11 @@ void MainWindow::buildMenuBar()
     file->addSeparator();
     file->addAction(m_exportAction);
     file->addSeparator();
+    file->addAction(m_saveDictionaryAction);
+    file->addAction(m_loadDictionaryAction);
+    file->addSeparator();
     file->addAction(m_quitAction);
+    updateDictionaryActions();
 
     QMenu *edit = menuBar()->addMenu(QStringLiteral("&Edit"));
     edit->addAction(m_undoAction);
@@ -494,6 +524,13 @@ void MainWindow::buildToolBar()
 void MainWindow::showAbout()
 {
     AboutDialog(this).exec();
+}
+
+void MainWindow::updateDictionaryActions()
+{
+    if (m_saveDictionaryAction) {
+        m_saveDictionaryAction->setEnabled(!m_controller->dictionary().isEmpty());
+    }
 }
 
 void MainWindow::undo()

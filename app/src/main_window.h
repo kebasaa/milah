@@ -46,6 +46,8 @@ private:
     /// with. Milah is handed round as a portable folder rather than installed,
     /// so a copy has nothing else to say which one it is.
     void showAbout();
+    /// There is nothing to back up until a word has been accepted.
+    void updateDictionaryActions();
     void rebuildAll();
     void rebuildBookList();
     void rebuildChapterList();
@@ -87,6 +89,10 @@ private:
     QAction *m_mergePreviousAction = nullptr;
     QAction *m_mergeNextAction = nullptr;
     QAction *m_dictionaryAction = nullptr;
+    /// Backing the dictionary up, and taking one back in. Held because saving
+    /// is offered only once there is something to save.
+    QAction *m_saveDictionaryAction = nullptr;
+    QAction *m_loadDictionaryAction = nullptr;
 
     QScrollArea *m_verseArea = nullptr;
     QWidget *m_verseHost = nullptr;
