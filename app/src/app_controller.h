@@ -153,6 +153,8 @@ public slots:
     /// Loads OSIS files that have already been chosen. Also how files named on
     /// the command line get in.
     void loadPaths(milah::SourceRole role, const QStringList &paths);
+    /// Offers the published manuscripts for download into the local library.
+    void downloadManuscripts();
     void openProject();
     /// Writes the project out. Returns true only when a file was actually
     /// written: the save dialog can be cancelled, and a caller about to throw
@@ -306,6 +308,9 @@ private:
         const SourceDocument &translation,
         const DocumentRefs &manuscripts) const;
     bool confirm(const QString &question);
+    /// Loads what was chosen from the library, splitting manuscripts from
+    /// translations so each goes in under the right role.
+    void loadLibraryFiles(const QStringList &paths);
     /// Whether anything anywhere holds work a rebuild would discard.
     bool hasManualEdits() const;
     /// Whether any of these verses does — what Regenerate asks, being scoped
