@@ -84,6 +84,7 @@ private:
     QAction *m_openAction = nullptr;
     QAction *m_saveAction = nullptr;
     QAction *m_closeAction = nullptr;
+    QAction *m_downloadAction = nullptr;
     QAction *m_exportAction = nullptr;
     QAction *m_quitAction = nullptr;
     QAction *m_regenerateAction = nullptr;

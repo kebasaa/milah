@@ -257,6 +257,16 @@ void MainWindow::createActions()
         m_controller->loadSources(SourceRole::Manuscript);
     });
 
+    m_downloadAction = new QAction(QStringLiteral("Download manuscripts…"), this);
+    m_downloadAction->setToolTip(QStringLiteral(
+        "Fetches published manuscripts and translations into your library. The "
+        "only part of Milah that uses the internet."));
+    connect(
+        m_downloadAction,
+        &QAction::triggered,
+        m_controller,
+        &AppController::downloadManuscripts);
+
     m_loadTranslationsAction = new QAction(QStringLiteral("Load translations"), this);
     m_loadTranslationsAction->setIcon(
         appIcon(QStringLiteral("load-translation"), windowPalette));
@@ -426,6 +436,7 @@ void MainWindow::buildMenuBar()
     file->addAction(m_saveAction);
     file->addAction(m_closeAction);
     file->addSeparator();
+    file->addAction(m_downloadAction);
     file->addAction(m_loadManuscriptsAction);
     file->addAction(m_loadTranslationsAction);
     file->addSeparator();

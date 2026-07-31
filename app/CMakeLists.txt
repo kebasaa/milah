@@ -21,7 +21,9 @@ option(MILAH_DEPLOY_QT "Run windeployqt after a Windows build" OFF)
 set(MILAH_REPO_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/.." CACHE PATH
     "Repository root containing the data/ corpus")
 
-find_package(Qt6 6.6 REQUIRED COMPONENTS Core Gui Widgets)
+# Network is used by exactly one thing: fetching published manuscripts into the
+# local library. MilahCore never touches it.
+find_package(Qt6 6.6 REQUIRED COMPONENTS Core Gui Network Widgets)
 find_package(QuaZip-Qt6 CONFIG REQUIRED)
 
 qt_standard_project_setup()
@@ -56,6 +58,8 @@ add_library(MilahCore STATIC
     src/core/alignment.h
     src/core/coverage.cpp
     src/core/coverage.h
+    src/core/manuscript_catalogue.cpp
+    src/core/manuscript_catalogue.h
     src/core/serialize.cpp
     src/core/serialize.h
     src/core/project.cpp
@@ -117,6 +121,10 @@ qt_add_executable(Milah WIN32
     src/ui/about_dialog.h
     src/ui/dictionary_entry_dialog.cpp
     src/ui/dictionary_entry_dialog.h
+    src/ui/download_manuscripts_dialog.cpp
+    src/ui/download_manuscripts_dialog.h
+    src/ui/manuscript_library_dialog.cpp
+    src/ui/manuscript_library_dialog.h
     src/ui/icons.cpp
     src/ui/icons.h
     src/ui/notes_widget.cpp
@@ -131,6 +139,7 @@ target_link_libraries(Milah PRIVATE
     MilahCore
     Qt6::Core
     Qt6::Gui
+    Qt6::Network
     Qt6::Widgets
 )
 
@@ -200,7 +209,7 @@ if(MILAH_BUILD_TESTS)
 
     foreach(test_name
             project_storage osis consensus apparatus diff acronym lexicon suggestions
-            coverage alignment)
+            coverage alignment catalogue)
         # Plain add_executable, not qt_add_executable: the latter finalises the
         # target as a Windows GUI application, and a GUI-subsystem binary
         # discards the stdout QTest reports through, leaving a failing test
