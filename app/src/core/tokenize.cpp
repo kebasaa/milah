@@ -36,6 +36,14 @@ const QRegularExpression &tokenPattern()
     return expression;
 }
 
+/// Everything up to the next space. A translation's brackets and stops belong
+/// to the word they touch rather than standing on their own.
+const QRegularExpression &wholeWordPattern()
+{
+    static const QRegularExpression expression(QStringLiteral("[^\\s]+"));
+    return expression;
+}
+
 const QRegularExpression &hebrewMarks()
 {
     static const QRegularExpression expression(
@@ -102,11 +110,14 @@ QString comparisonKey(const QString &text)
 QList<SourceToken> tokenize(
     const QString &verseId,
     const QString &text,
-    const QList<SourceNote> &notes)
+    const QList<SourceNote> &notes,
+    TokenStyle style)
 {
     QList<SourceToken> tokens;
 
-    QRegularExpressionMatchIterator matches = tokenPattern().globalMatch(text);
+    const QRegularExpression &pattern =
+        style == TokenStyle::Attached ? wholeWordPattern() : tokenPattern();
+    QRegularExpressionMatchIterator matches = pattern.globalMatch(text);
     while (matches.hasNext()) {
         const QRegularExpressionMatch match = matches.next();
         SourceToken token;

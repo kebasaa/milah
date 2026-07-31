@@ -166,6 +166,10 @@ struct TranslationSpan
     int tokenStart = 0;
     int tokenEnd = 0;
     SpanConfidence confidence = SpanConfidence::High;
+    /// The editor took this group out of the interlinear. Marked rather than
+    /// erased, because a verse whose spans have all gone is regenerated from
+    /// the translation, and an erased group would simply come back.
+    bool removed = false;
 };
 
 struct Location
@@ -178,6 +182,13 @@ struct Location
         return book == other.book && chapter == other.chapter;
     }
 };
+
+/// Names a chapter: "Rev.1".
+///
+/// Deliberately the first two parts of an OSIS verse id, so a verse can find
+/// the chapter it belongs to by taking them rather than by looking itself up in
+/// every manuscript.
+QString locationKey(const Location &location);
 
 struct TranslationAssociation
 {
@@ -196,6 +207,22 @@ struct ProjectState
     /// witness writes one, keyed by verse id. Indices are into the columns the
     /// alignment produces, once per extra column; see applyColumnSplits().
     QMap<QString, QList<int>> columnSplits;
+    /// The manuscript a chapter is read against where the editor has chosen
+    /// one, keyed by locationKey(). A chapter absent from this falls back to
+    /// priorityManuscriptId, which is why that never drifts.
+    QMap<QString, QString> chapterReferences;
+    /// The manuscript a single verse is read against where the editor has said
+    /// so, keyed by verse id — an exception to its chapter, which survives the
+    /// chapter's reference being changed. A verse absent from both simply
+    /// follows the rule in referenceForVerse().
+    QMap<QString, QString> verseReferences;
+    /// The editor's own remarks on Combined words, keyed "<verseId>:<column>".
+    /// Distinct from the manuscripts' notes, which belong to the sources and
+    /// are never written here.
+    QMap<QString, QString> combinedNotes;
+    /// The editor's wording for the interlinear, keyed the same way. A column
+    /// absent from this follows the aligned translation instead.
+    QMap<QString, QString> interlinearWords;
     std::optional<Location> location;
 };
 

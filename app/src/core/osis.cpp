@@ -180,7 +180,15 @@ SourceDocument parseOsis(const QString &rawOsis, const ParseOptions &options)
         verse.reference = currentVerse->reference;
         verse.label = currentVerse->label;
         verse.text = text;
-        verse.tokens = tokenize(currentVerse->reference.id, text, adjustedNotes);
+        // A translation's brackets and stops belong to the word they touch; the
+        // manuscripts keep theirs apart, which is how their readings are
+        // compared and how their columns are counted.
+        verse.tokens = tokenize(
+            currentVerse->reference.id,
+            text,
+            adjustedNotes,
+            options.role == SourceRole::Translation ? TokenStyle::Attached
+                                                    : TokenStyle::Separate);
         verse.altNumber = currentVerse->altNumber;
         document.appendVerse(verse);
 

@@ -337,6 +337,24 @@ ColumnGroup columnGroupFor(const QList<int> &splits, int columnCount, int column
     return group;
 }
 
+QList<ColumnNote> columnNotes(const AlignmentColumn &column, const DocumentRefs &sources)
+{
+    QList<ColumnNote> found;
+    for (const SourceDocument *source : sources) {
+        if (!source) {
+            continue;
+        }
+        const SourceToken *token = column.cell(source->id);
+        if (!token) {
+            continue;
+        }
+        for (const SourceNote &note : token->notes) {
+            found.append(ColumnNote{source->id, note});
+        }
+    }
+    return found;
+}
+
 CombinedDraft generateCombined(
     const AlignedVerse &aligned,
     const DocumentRefs &manuscripts,
@@ -365,31 +383,92 @@ QString combinedText(const CombinedDraft &draft)
     return joinTokens(texts);
 }
 
+int columnCharOffset(const CombinedDraft &draft, int columnIndex)
+{
+    // A manual text is one string the columns no longer describe, so there is
+    // no word to point at within it.
+    if (draft.manualText.has_value()) {
+        return 0;
+    }
+
+    const int limit = std::min(columnIndex, int(draft.columns.size()));
+    if (limit <= 0) {
+        return 0;
+    }
+
+    QList<std::optional<QString>> before;
+    before.reserve(limit);
+    for (int index = 0; index < limit; ++index) {
+        before.append(draft.columns.at(index).text);
+    }
+
+    const QString prefix = joinTokens(before);
+    if (prefix.isEmpty()) {
+        return 0;
+    }
+
+    const QString whole = combinedText(draft);
+    int offset = int(prefix.size());
+    // joinTokens separates words with a space, except where it closes one up
+    // after a maqaf or before punctuation. Stepping over a separator only when
+    // one is really there keeps the anchor on the word rather than beside it.
+    if (offset < whole.size() && whole.at(offset).isSpace()) {
+        offset += 1;
+    }
+    return std::min(offset, int(whole.size()));
+}
+
+QString referenceForVerse(
+    const QString &verseId,
+    const DocumentRefs &sources,
+    const QString &preferred)
+{
+    const SourceDocument *first = nullptr;
+    for (const SourceDocument *source : sources) {
+        if (!source || !source->hasVerse(verseId)) {
+            continue;
+        }
+        if (source->id == preferred) {
+            return preferred;
+        }
+        if (!first) {
+            first = source;
+        }
+    }
+    return first ? first->id : QString();
+}
+
 QList<TranslationSpan> alignTranslation(
     const QString &translationId,
     const QString &verseId,
     int tokenCount,
-    int columnCount)
+    const QList<int> &columns)
 {
     QList<TranslationSpan> spans;
+    const int columnCount = int(columns.size());
     if (tokenCount == 0 || columnCount == 0) {
         return spans;
     }
 
     spans.reserve(tokenCount);
     for (int tokenIndex = 0; tokenIndex < tokenCount; ++tokenIndex) {
-        const int start =
+        // The even spread is over the manuscript's own columns; each place in
+        // it is then read back as the column the verse actually has there.
+        const int firstSlot =
             std::min(columnCount - 1, (tokenIndex * columnCount) / tokenCount);
-        const int end = std::min(
+        const int lastSlot = std::min(
             columnCount,
-            std::max(start + 1, ((tokenIndex + 1) * columnCount) / tokenCount));
+            std::max(firstSlot + 1, ((tokenIndex + 1) * columnCount) / tokenCount));
 
         TranslationSpan span;
         span.id = QStringLiteral("%1:%2:%3").arg(translationId, verseId).arg(tokenIndex);
         span.translationId = translationId;
         span.verseId = verseId;
-        span.columnStart = start;
-        span.columnEnd = end;
+        span.columnStart = columns.at(firstSlot);
+        // A run of the manuscript's columns may have another witness's between
+        // them, so the end is taken from the last column covered rather than
+        // counted forward from the first.
+        span.columnEnd = columns.at(lastSlot - 1) + 1;
         span.tokenStart = tokenIndex;
         span.tokenEnd = tokenIndex + 1;
         span.confidence = tokenCount == columnCount

@@ -139,7 +139,9 @@ void SourceSettingsWidget::refresh()
     }
     m_layout->addWidget(filterBox);
 
-    m_layout->addStretch(1);
+    // No trailing stretch: the Notes panel sits directly under the filters, and
+    // a stretch here would push it to the far bottom of the dock. Whatever
+    // contains the two takes the stretch instead.
 }
 
 } // namespace milah

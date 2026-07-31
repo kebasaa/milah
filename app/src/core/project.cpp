@@ -85,7 +85,7 @@ CombinedDraft draftFromJson(const QJsonObject &json)
 
 QJsonObject spanToJson(const TranslationSpan &span)
 {
-    return QJsonObject{
+    QJsonObject json{
         {QStringLiteral("id"), span.id},
         {QStringLiteral("translationId"), span.translationId},
         {QStringLiteral("verseId"), span.verseId},
@@ -97,6 +97,12 @@ QJsonObject spanToJson(const TranslationSpan &span)
          span.confidence == SpanConfidence::Low ? QStringLiteral("low")
                                                 : QStringLiteral("high")},
     };
+    // Written only when it says something, so a span the editor has not touched
+    // serialises exactly as it always did.
+    if (span.removed) {
+        json.insert(QStringLiteral("removed"), true);
+    }
+    return json;
 }
 
 TranslationSpan spanFromJson(const QJsonObject &json)
@@ -113,6 +119,7 @@ TranslationSpan spanFromJson(const QJsonObject &json)
         json.value(QStringLiteral("confidence")).toString() == QLatin1String("low")
         ? SpanConfidence::Low
         : SpanConfidence::High;
+    span.removed = json.value(QStringLiteral("removed")).toBool();
     return span;
 }
 
@@ -170,6 +177,42 @@ MilahProjectPayload projectPayload(
         }
     }
 
+    QJsonObject chapterReferences;
+    for (auto item = state.chapterReferences.constBegin();
+         item != state.chapterReferences.constEnd();
+         ++item) {
+        if (!item.value().isEmpty()) {
+            chapterReferences.insert(item.key(), item.value());
+        }
+    }
+
+    QJsonObject verseReferences;
+    for (auto item = state.verseReferences.constBegin();
+         item != state.verseReferences.constEnd();
+         ++item) {
+        if (!item.value().isEmpty()) {
+            verseReferences.insert(item.key(), item.value());
+        }
+    }
+
+    QJsonObject combinedNotes;
+    for (auto item = state.combinedNotes.constBegin();
+         item != state.combinedNotes.constEnd();
+         ++item) {
+        if (!item.value().isEmpty()) {
+            combinedNotes.insert(item.key(), item.value());
+        }
+    }
+
+    QJsonObject interlinearWords;
+    for (auto item = state.interlinearWords.constBegin();
+         item != state.interlinearWords.constEnd();
+         ++item) {
+        if (!item.value().isEmpty()) {
+            interlinearWords.insert(item.key(), item.value());
+        }
+    }
+
     QJsonValue location(QJsonValue::Null);
     if (state.location.has_value()) {
         location = QJsonObject{
@@ -191,6 +234,10 @@ MilahProjectPayload projectPayload(
         {QStringLiteral("combined"), combined},
         {QStringLiteral("translationSpans"), spans},
         {QStringLiteral("columnSplits"), columnSplits},
+        {QStringLiteral("chapterReferences"), chapterReferences},
+        {QStringLiteral("verseReferences"), verseReferences},
+        {QStringLiteral("combinedNotes"), combinedNotes},
+        {QStringLiteral("interlinearWords"), interlinearWords},
         {QStringLiteral("location"), location},
     };
 
@@ -283,6 +330,50 @@ ProjectState restoreProject(const MilahProjectPayload &payload)
         }
         if (!columns.isEmpty()) {
             state.columnSplits.insert(item.key(), columns);
+        }
+    }
+
+    // All absent from projects written before a chapter or verse could have its
+    // own reference or a word its own note, which reads correctly as none.
+    const QJsonObject chapterReferences =
+        manifest.value(QStringLiteral("chapterReferences")).toObject();
+    for (auto item = chapterReferences.constBegin();
+         item != chapterReferences.constEnd();
+         ++item) {
+        const QString sourceId = item.value().toString();
+        if (!sourceId.isEmpty()) {
+            state.chapterReferences.insert(item.key(), sourceId);
+        }
+    }
+
+    const QJsonObject verseReferences =
+        manifest.value(QStringLiteral("verseReferences")).toObject();
+    for (auto item = verseReferences.constBegin();
+         item != verseReferences.constEnd();
+         ++item) {
+        const QString sourceId = item.value().toString();
+        if (!sourceId.isEmpty()) {
+            state.verseReferences.insert(item.key(), sourceId);
+        }
+    }
+
+    const QJsonObject combinedNotes =
+        manifest.value(QStringLiteral("combinedNotes")).toObject();
+    for (auto item = combinedNotes.constBegin(); item != combinedNotes.constEnd(); ++item) {
+        const QString note = item.value().toString();
+        if (!note.isEmpty()) {
+            state.combinedNotes.insert(item.key(), note);
+        }
+    }
+
+    const QJsonObject interlinearWords =
+        manifest.value(QStringLiteral("interlinearWords")).toObject();
+    for (auto item = interlinearWords.constBegin();
+         item != interlinearWords.constEnd();
+         ++item) {
+        const QString word = item.value().toString();
+        if (!word.isEmpty()) {
+            state.interlinearWords.insert(item.key(), word);
         }
     }
 

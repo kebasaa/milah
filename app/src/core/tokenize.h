@@ -27,11 +27,24 @@ QString comparisonKey(const QString &text);
 /// on offer.
 QStringList dividedWords(const QString &text);
 
+/// How a verse is split into words.
+enum class TokenStyle
+{
+    /// A bracket or a stop stands apart from the words, as the Hebrew is read
+    /// and as the manuscripts are compared.
+    Separate,
+    /// Punctuation belongs to the word it touches: "(horah)," is one word, and
+    /// one interlinear cell, rather than four. What a translation wants, where
+    /// brackets surround a gloss rather than standing for anything themselves.
+    Attached,
+};
+
 /// Splits verse text into tokens and anchors each note to the token it follows.
 QList<SourceToken> tokenize(
     const QString &verseId,
     const QString &text,
-    const QList<SourceNote> &notes);
+    const QList<SourceNote> &notes,
+    TokenStyle style = TokenStyle::Separate);
 
 /// Rejoins chosen readings into running text, closing up the spacing around
 /// punctuation and maqaf.

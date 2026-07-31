@@ -71,6 +71,33 @@ struct ColumnGroup
 /// has is ignored by both.
 ColumnGroup columnGroupFor(const QList<int> &splits, int columnCount, int columnIndex);
 
+/// One manuscript's note on one aligned column.
+struct ColumnNote
+{
+    QString sourceId;
+    SourceNote note;
+};
+
+/// Every note any witness attaches to this column, in the order `sources` are
+/// given, so a panel showing them does not reshuffle between selections.
+///
+/// The notes belong to the column rather than to the reading chosen from it: a
+/// scribe's comment is worth reading whichever witness the edition follows
+/// there, and a column the edition leaves empty may still be annotated.
+QList<ColumnNote> columnNotes(const AlignmentColumn &column, const DocumentRefs &sources);
+
+/// The manuscript a verse is read against: `preferred` when it has the verse,
+/// otherwise the first of `sources` that does, and empty when none do.
+///
+/// A witness cannot be the reference for a verse it is silent for. The
+/// alignment would begin from no words at all, and the consensus, finding no
+/// majority, would fall back to that same silence — leaving the edition blank
+/// exactly where another manuscript does read something.
+QString referenceForVerse(
+    const QString &verseId,
+    const DocumentRefs &sources,
+    const QString &preferred);
+
 /// Picks a reading for each column: the majority where there is one, otherwise
 /// the priority witness, flagging the column for review.
 CombinedDraft generateCombined(
@@ -82,12 +109,26 @@ CombinedDraft generateCombined(
 /// otherwise the chosen tokens joined up.
 QString combinedText(const CombinedDraft &draft);
 
-/// Spreads a translation's tokens evenly across the aligned columns. Marked
-/// high confidence only when the counts match exactly.
+/// Where a column's word begins in the text `combinedText()` produces, for
+/// anchoring a note to it in an exported edition. Measured by joining the
+/// columns before it exactly as the text itself is joined, so the two cannot
+/// drift apart. An index past the end gives the length of the whole text.
+int columnCharOffset(const CombinedDraft &draft, int columnIndex);
+
+/// Spreads a translation's tokens evenly across the columns its own manuscript
+/// occupies, given as indices into the verse in reading order.
+///
+/// Scoped to that manuscript because the verse's columns include words only
+/// other witnesses read: spread across all of them, a translation's first word
+/// lands on a column its manuscript is silent for and everything after it is
+/// out by one. An empty `columns` means the caller has no manuscript to go by,
+/// and nothing is aligned.
+///
+/// Marked high confidence only when the counts match exactly.
 QList<TranslationSpan> alignTranslation(
     const QString &translationId,
     const QString &verseId,
     int tokenCount,
-    int columnCount);
+    const QList<int> &columns);
 
 } // namespace milah
