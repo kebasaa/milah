@@ -1,6 +1,9 @@
 #include "core/alignment.h"
 
+#include "core/align_score.h"
 #include "core/tokenize.h"
+
+#include <QHash>
 
 #include <algorithm>
 
@@ -19,29 +22,37 @@ const QString &punctuationKey()
     return key;
 }
 
-QString alignmentKey(const SourceToken *token)
+/// Reads tokens into scoring profiles, reusing the answer for a reading it has
+/// already seen. Roughly a third of the words in a verse repeat -- אשר, את, the
+/// bare prefixes -- and the profile is much the dearer half of a comparison.
+class ProfileCache
 {
-    if (!token) {
-        return QString();
+public:
+    explicit ProfileCache(const ScoringContext &context)
+        : m_context(context)
+    {
     }
-    const QString key = comparisonKey(token->text);
-    if (!key.isEmpty()) {
-        return key;
-    }
-    return token->text.normalized(QString::NormalizationForm_C);
-}
 
-int similarity(const QString &left, const QString &right)
-{
-    if (left == right) {
-        return 4;
+    const TokenProfile &of(const SourceToken *token)
+    {
+        if (!token) {
+            static const TokenProfile absent;
+            return absent;
+        }
+        // Keyed on the raw text, not on token->id: ids are built from the verse
+        // and the token's position with no source in them, so two witnesses'
+        // tokens collide at the same index.
+        const auto existing = m_profiles.constFind(token->text);
+        if (existing != m_profiles.constEnd()) {
+            return existing.value();
+        }
+        return *m_profiles.insert(token->text, profileFor(token, m_context));
     }
-    if (!left.isEmpty() && !right.isEmpty()
-        && (left.contains(right) || right.contains(left))) {
-        return 1;
-    }
-    return -2;
-}
+
+private:
+    const ScoringContext &m_context;
+    QHash<QString, TokenProfile> m_profiles;
+};
 
 const SourceToken *representative(
     const AlignmentColumn &column,
@@ -133,7 +144,8 @@ ConsensusColumn chooseConsensus(
 AlignedVerse alignVerse(
     const QString &verseId,
     const DocumentRefs &manuscripts,
-    const QString &priorityId)
+    const QString &priorityId,
+    const AlignmentOptions &options)
 {
     QStringList sourceOrder;
     sourceOrder.append(priorityId);
@@ -177,6 +189,12 @@ AlignedVerse alignVerse(
         columns.append(column);
     }
 
+    ScoringContext context;
+    context.abbreviations = options.abbreviations;
+    context.lexicon = options.lexicon;
+    context.attested = options.attested;
+    ProfileCache profiles(context);
+
     for (const SourceDocument *source : manuscripts) {
         if (source->id == priorityId) {
             continue;
@@ -190,27 +208,40 @@ AlignedVerse alignVerse(
         const int rows = int(columns.size());
         const int cols = int(tokens.size());
 
+        // Profiled once each, outside the matrix. Reading a token inside the
+        // loop instead costs rows*cols normalisations for rows+cols distinct
+        // words, which dominated the whole alignment.
+        QList<TokenProfile> columnProfiles;
+        columnProfiles.reserve(rows);
+        for (const AlignmentColumn &column : columns) {
+            columnProfiles.append(
+                profiles.of(representative(column, sourceOrder)));
+        }
+        QList<TokenProfile> tokenProfiles;
+        tokenProfiles.reserve(cols);
+        for (const SourceToken &token : tokens) {
+            tokenProfiles.append(profiles.of(&token));
+        }
+
         QList<QList<int>> scores(rows + 1, QList<int>(cols + 1, 0));
         QList<QList<char>> moves(rows + 1, QList<char>(cols + 1, 'd'));
 
         for (int row = 1; row <= rows; ++row) {
-            scores[row][0] = -2 * row;
+            scores[row][0] = kScoreGap * row;
             moves[row][0] = 'u';
         }
         for (int col = 1; col <= cols; ++col) {
-            scores[0][col] = -2 * col;
+            scores[0][col] = kScoreGap * col;
             moves[0][col] = 'l';
         }
 
         for (int row = 1; row <= rows; ++row) {
-            const QString current =
-                alignmentKey(representative(columns.at(row - 1), sourceOrder));
+            const TokenProfile &current = columnProfiles.at(row - 1);
             for (int col = 1; col <= cols; ++col) {
-                const QString incoming = alignmentKey(&tokens[col - 1]);
-                const int diagonal =
-                    scores.at(row - 1).at(col - 1) + similarity(current, incoming);
-                const int up = scores.at(row - 1).at(col) - 2;
-                const int left = scores.at(row).at(col - 1) - 2;
+                const int diagonal = scores.at(row - 1).at(col - 1)
+                    + scoreProfiles(current, tokenProfiles.at(col - 1));
+                const int up = scores.at(row - 1).at(col) + kScoreGap;
+                const int left = scores.at(row).at(col - 1) + kScoreGap;
 
                 // Ties resolve diagonal, then up, then left: the JavaScript this
                 // replaces relied on a stable sort of the three candidates, and

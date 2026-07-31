@@ -35,6 +35,11 @@ PhraseRules rulesFrom(const QByteArray &json)
     return PhraseRules::fromJson(QJsonDocument::fromJson(json).object());
 }
 
+AbbreviationTable abbreviationsFrom(const QByteArray &json)
+{
+    return AbbreviationTable::fromJson(QJsonDocument::fromJson(json).object());
+}
+
 } // namespace
 
 class SuggestionsTest final : public QObject
@@ -45,6 +50,236 @@ private:
     const HebrewLexicon &m_lexicon = HebrewLexicon::shared();
 
 private slots:
+    // --- scribal abbreviations ---------------------------------------------
+
+    void offersWhatAnAbbreviationStandsFor()
+    {
+        const AbbreviationTable table = abbreviationsFrom(
+            R"({"entries":[{"stem":"ה","expansions":["אלהים","יהוה","אדני"]}]})");
+
+        const QList<Suggestion> found = of(
+            reviewVerse(
+                verse({QString::fromUtf8("ה֞")}),
+                m_lexicon,
+                PhraseRules(),
+                QSet<QString>(),
+                table),
+            SuggestionKind::Abbreviation);
+
+        QCOMPARE(found.size(), 1);
+        QCOMPARE(found.first().column, 0);
+        // Accepting writes the likeliest reading; the rest are named so the
+        // choice among the divine names stays the editor's.
+        QCOMPARE(found.first().replacement, QString::fromUtf8("אלהים"));
+        QVERIFY(found.first().reason.contains(QString::fromUtf8("יהוה")));
+        QVERIFY(found.first().reason.contains(QString::fromUtf8("אדני")));
+    }
+
+    void anAbbreviationDoesNotAlsoGetThePhraseRulesReason()
+    {
+        // A phrase rule is matched on the skeleton, which cannot see the
+        // abbreviation mark, so the ישו rule reads יש֞ו as the bare form and
+        // offers "a derogatory shortening" -- true of ישו, false of an
+        // abbreviation. One flag, and the right one.
+        const AbbreviationTable table = abbreviationsFrom(
+            R"({"entries":[{"stem":"ישו","expansions":["ישוע"]}]})");
+        const PhraseRules rules = rulesFrom(
+            R"({"rules":[{"match":["ישו"],"replace":["יֵשׁוּעַ"],
+                "reason":"The truncated ישו is a derogatory shortening."}]})");
+
+        const QList<Suggestion> found = reviewVerse(
+            verse({QString::fromUtf8("יש֞ו")}),
+            m_lexicon,
+            rules,
+            QSet<QString>(),
+            table);
+
+        QCOMPARE(of(found, SuggestionKind::Abbreviation).size(), 1);
+        QVERIFY(of(found, SuggestionKind::PhraseRule).isEmpty());
+    }
+
+    void thePhraseRuleStillFiresOnTheBareForm()
+    {
+        // Without the mark it really is the bare ישו, and the rule is right.
+        const AbbreviationTable table = abbreviationsFrom(
+            R"({"entries":[{"stem":"ישו","expansions":["ישוע"]}]})");
+        const PhraseRules rules = rulesFrom(
+            R"({"rules":[{"match":["ישו"],"replace":["יֵשׁוּעַ"],
+                "reason":"The truncated ישו is a derogatory shortening."}]})");
+
+        const QList<Suggestion> found = reviewVerse(
+            verse({QString::fromUtf8("ישו")}),
+            m_lexicon,
+            rules,
+            QSet<QString>(),
+            table);
+
+        QCOMPARE(of(found, SuggestionKind::PhraseRule).size(), 1);
+        QVERIFY(of(found, SuggestionKind::Abbreviation).isEmpty());
+    }
+
+    void anUnmarkedLoneHeIsFlaggedForTheEditor()
+    {
+        // Cochin's James writes the divine name as a bare ה ten times, with no
+        // mark at all -- עבד ה, לפני ה האב. Sloane writes a bare ה too, but
+        // there it is a detached definite article. Nothing mechanical tells
+        // them apart, so both are raised and the wording says so.
+        const AbbreviationTable table = abbreviationsFrom(
+            R"({"entries":[{"stem":"ה","expansions":["אלהים","יהוה"]}]})");
+
+        const QList<Suggestion> found = of(
+            reviewVerse(
+                verse({QString::fromUtf8("לפני"), QString::fromUtf8("ה")}),
+                m_lexicon,
+                PhraseRules(),
+                QSet<QString>(),
+                table),
+            SuggestionKind::Abbreviation);
+
+        QCOMPARE(found.size(), 1);
+        QCOMPARE(found.first().column, 1);
+        QCOMPARE(found.first().replacement, QString::fromUtf8("אלהים"));
+        QVERIFY(found.first().reason.contains(QStringLiteral("detached")));
+    }
+
+    void aMarkedAbbreviationIsNotHedged()
+    {
+        // With the mark there is nothing to weigh up, so the reason must not
+        // borrow the unmarked case's hedging.
+        const AbbreviationTable table = abbreviationsFrom(
+            R"({"entries":[{"stem":"ה","expansions":["אלהים"]}]})");
+
+        const QList<Suggestion> found = of(
+            reviewVerse(
+                verse({QString::fromUtf8("לפני"), QString::fromUtf8("ה֞")}),
+                m_lexicon,
+                PhraseRules(),
+                QSet<QString>(),
+                table),
+            SuggestionKind::Abbreviation);
+
+        QCOMPARE(found.size(), 1);
+        QVERIFY(!found.first().reason.contains(QStringLiteral("detached")));
+    }
+
+    void anUnmarkedLongerWordIsNotFlagged()
+    {
+        // Only a lone letter. A longer unmarked word is simply that word --
+        // a bare ישו is the form the phrase rules speak to, not an
+        // abbreviation -- and עי unmarked is not a word at all.
+        const AbbreviationTable table = abbreviationsFrom(
+            R"({"entries":[{"stem":"ה","expansions":["אלהים"]},
+                           {"stem":"ישו","expansions":["ישוע"]},
+                           {"stem":"עי","expansions":["על ידי"]}]})");
+
+        for (const char *word : {"ישו", "עי"}) {
+            QVERIFY(of(reviewVerse(
+                           verse({QString::fromUtf8(word)}),
+                           m_lexicon,
+                           PhraseRules(),
+                           QSet<QString>(),
+                           table),
+                       SuggestionKind::Abbreviation)
+                        .isEmpty());
+        }
+    }
+
+    // --- writing a replacement the way the edition is written ---------------
+
+    void anUnpointedEditionGetsAnUnpointedExpansion()
+    {
+        const AbbreviationTable table = abbreviationsFrom(
+            R"({"entries":[{"stem":"ה","expansions":["אֱלֹהִים","יְהוָה"]}]})");
+
+        const QList<Suggestion> found = of(
+            reviewVerse(
+                verse({QString::fromUtf8("ולכהנים"),
+                       QString::fromUtf8("לפני"),
+                       QString::fromUtf8("ה֞")}),
+                m_lexicon,
+                PhraseRules(),
+                QSet<QString>(),
+                table),
+            SuggestionKind::Abbreviation);
+
+        QCOMPARE(found.size(), 1);
+        QCOMPARE(found.first().replacement, QString::fromUtf8("אלהים"));
+        // The alternatives named in the reason are spelled the same way, or
+        // the editor is offered a choice the edition cannot take.
+        QVERIFY(found.first().reason.contains(QString::fromUtf8("יהוה")));
+        QVERIFY(!found.first().reason.contains(QString::fromUtf8("יְהוָה")));
+    }
+
+    void aPointedEditionGetsThePointedExpansion()
+    {
+        const AbbreviationTable table = abbreviationsFrom(
+            R"({"entries":[{"stem":"ה","expansions":["אֱלֹהִים"]}]})");
+
+        const QList<Suggestion> found = of(
+            reviewVerse(
+                verse({QString::fromUtf8("וְכֹהֲנִים"),
+                       QString::fromUtf8("לִפְנֵי"),
+                       QString::fromUtf8("ה֞")}),
+                m_lexicon,
+                PhraseRules(),
+                QSet<QString>(),
+                table),
+            SuggestionKind::Abbreviation);
+
+        QCOMPARE(found.size(), 1);
+        QCOMPARE(found.first().replacement, QString::fromUtf8("אֱלֹהִים"));
+    }
+
+    void oneStrayPointedWordDoesNotFlipTheConvention()
+    {
+        // A single pointed word is a witness reading that won its column, not
+        // a change of convention. Majority, not "any".
+        QVERIFY(!readingsArePointed(
+            {QString::fromUtf8("ולכהנים"),
+             QString::fromUtf8("לפני"),
+             QString::fromUtf8("הָאָרֶץ")}));
+
+        QVERIFY(readingsArePointed(
+            {QString::fromUtf8("וְכֹהֲנִים"),
+             QString::fromUtf8("לִפְנֵי"),
+             QString::fromUtf8("הארץ")}));
+    }
+
+    void aVerseWithNothingToGoOnKeepsTheTableForm()
+    {
+        // No word long enough to show a convention. Points can be stripped
+        // afterwards but not invented, so the table's own spelling stands.
+        QVERIFY(readingsArePointed({}));
+        QVERIFY(readingsArePointed({QString::fromUtf8("ה֞")}));
+        QVERIFY(readingsArePointed({QString::fromUtf8("׃")}));
+    }
+
+    void anAbbreviationMarkIsNotMistakenForPointing()
+    {
+        // The accents Cochin abbreviates with sit next to the vowel points in
+        // Unicode. Counting them would call this unpointed verse pointed and
+        // write אֱלֹהִים into a text that has no points anywhere.
+        QVERIFY(!readingsArePointed(
+            {QString::fromUtf8("מלאך"), QString::fromUtf8("יש֞ו")}));
+    }
+
+    void anAbbreviationWithNoEntryIsLeftAlone()
+    {
+        // Numerals carry the same mark but expand to numbers, which is a
+        // different problem; they must pass through rather than guess.
+        const AbbreviationTable table = abbreviationsFrom(
+            R"({"entries":[{"stem":"ה","expansions":["אלהים"]}]})");
+
+        QVERIFY(of(reviewVerse(
+                       verse({QString::fromUtf8("א׳")}),
+                       m_lexicon,
+                       PhraseRules(),
+                       QSet<QString>(),
+                       table),
+                   SuggestionKind::Abbreviation)
+                    .isEmpty());
+    }
+
     // --- orthography ------------------------------------------------------
 
     void flagsANonFinalLetterAtTheEndOfAWord()
@@ -247,15 +482,60 @@ private slots:
             "reason":  "written out as Yeshua"
         }]})");
 
-        // The input carries a cantillation mark (U+059E on the shin), proving
+        // The input carries an abbreviation mark (U+059E on the shin), proving
         // the single-word match ignores pointing.
+        //
+        // The verse is unpointed, so the rule's pointed יֵשׁוּעַ is offered
+        // unpointed: accepting it must not point one word of a text that has
+        // no points anywhere.
         const QList<Suggestion> found = of(
             reviewVerse(verse({QString::fromUtf8("יש֞ו")}), m_lexicon, rules),
             SuggestionKind::PhraseRule);
 
         QCOMPARE(found.size(), 1);
         QCOMPARE(found.first().column, 0);
+        QCOMPARE(found.first().replacement, QString::fromUtf8("ישוע"));
+    }
+
+    void aPointedEditionKeepsThePhraseRulesPointing()
+    {
+        const PhraseRules rules = rulesFrom(R"({"rules":[{
+            "match":   ["ישו"],
+            "replace": ["יֵשׁוּעַ"],
+            "reason":  "written out as Yeshua"
+        }]})");
+
+        const QList<Suggestion> found = of(
+            reviewVerse(
+                verse({QString::fromUtf8("וְהָעֵדַת"),
+                       QString::fromUtf8("מָשִׁיחַ"),
+                       QString::fromUtf8("יש֞ו")}),
+                m_lexicon,
+                rules),
+            SuggestionKind::PhraseRule);
+
+        QCOMPARE(found.size(), 1);
         QCOMPARE(found.first().replacement, QString::fromUtf8("יֵשׁוּעַ"));
+    }
+
+    void aRuleIsNotOfferedWhenTheEditionAlreadyReadsIt()
+    {
+        // The spelling has to be settled before the "is this a change?" test,
+        // or an unpointed edition already reading ישוע keeps being offered
+        // ישוע as though it were one.
+        const PhraseRules rules = rulesFrom(R"({"rules":[{
+            "match":   ["ישוע"],
+            "replace": ["יֵשׁוּעַ"],
+            "reason":  "written out as Yeshua"
+        }]})");
+
+        QVERIFY(of(reviewVerse(
+                       verse({QString::fromUtf8("ישוע"),
+                              QString::fromUtf8("המשיח")}),
+                       m_lexicon,
+                       rules),
+                   SuggestionKind::PhraseRule)
+                    .isEmpty());
     }
 
     void expandsAPrefixedYeshu()
@@ -275,7 +555,8 @@ private slots:
 
         QCOMPARE(found.size(), 1);
         QCOMPARE(found.first().column, 0);
-        QCOMPARE(found.first().replacement, QString::fromUtf8("לְיֵשׁוּעַ"));
+        // Unpointed verse, so the lamed keeps its place but not its pointing.
+        QCOMPARE(found.first().replacement, QString::fromUtf8("לישוע"));
     }
 
     void matchesAcrossAColumnNoWitnessFilled()

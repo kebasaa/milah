@@ -1,5 +1,7 @@
 #include "test_data.h"
 
+#include "core/osis.h"
+
 #include <QMap>
 
 namespace milah_test {
@@ -80,6 +82,27 @@ QString witnessOsisCovering(const QString &id, const QStringList &chapters)
     </osis>)OSIS";
 
     return QString::fromUtf8(kTemplate).arg(id, divs);
+}
+
+milah::SourceDocument witness(const QString &id, const QString &text)
+{
+    const QString osis = witnessOsis(id, text);
+
+    milah::ParseOptions options;
+    options.id = id;
+    options.name = id + QStringLiteral(".osis");
+    options.role = milah::SourceRole::Manuscript;
+    return milah::parseOsis(osis, options);
+}
+
+milah::DocumentRefs refs(const QList<milah::SourceDocument> &documents)
+{
+    milah::DocumentRefs result;
+    result.reserve(documents.size());
+    for (const milah::SourceDocument &document : documents) {
+        result.append(&document);
+    }
+    return result;
 }
 
 } // namespace milah_test

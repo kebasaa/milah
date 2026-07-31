@@ -41,6 +41,11 @@ constexpr int ColumnSpacing = 12;
 /// screen — where each row is named. Readings start one column further in.
 constexpr int AcronymColumn = 0;
 constexpr int FirstReadingColumn = 1;
+/// Gap between a row's name and the reading beside it. Set in code rather than
+/// in the stylesheet because the preview below the bands insets itself by
+/// exactly this much to line up with the first word, and two copies of the
+/// number would not stay equal.
+constexpr int AcronymPadding = 8;
 /// Rounding slack per column, so a reading never lands a pixel over its cell.
 constexpr int MeasurementSlack = 4;
 /// Room for the caret at either end of an editable Combined word.
@@ -266,7 +271,7 @@ VerseGridWidget::VerseGridWidget(
     m_bandLayout->setSpacing(6);
     outer->addWidget(m_bandHost);
 
-    auto *previewRow = new QHBoxLayout;
+    m_previewRow = new QHBoxLayout;
     // A preview, not an editor: the verse is built word by word in the
     // Combined row, and this shows what those words come to.
     m_preview = new QPlainTextEdit;
@@ -275,13 +280,13 @@ VerseGridWidget::VerseGridWidget(
     m_preview->setMaximumHeight(72);
     m_preview->setAccessibleName(
         QStringLiteral("Combined text for %1").arg(m_aligned.reference.id));
-    previewRow->addWidget(m_preview, 1);
+    m_previewRow->addWidget(m_preview, 1);
 
     m_flags = new QLabel;
     m_flags->setObjectName(QStringLiteral("verseFlags"));
     m_flags->setAlignment(Qt::AlignTop | Qt::AlignLeft);
-    previewRow->addWidget(m_flags, 0);
-    outer->addLayout(previewRow);
+    m_previewRow->addWidget(m_flags, 0);
+    outer->addLayout(m_previewRow);
 
     build();
 }
@@ -581,7 +586,9 @@ void VerseGridWidget::addRowAcronym(
     // own cell, which sits at the right-hand edge of the row.
     label->setLayoutDirection(Qt::LeftToRight);
     label->setFont(m_acronymFont);
-    label->setStyleSheet(QStringLiteral("color: %1;").arg(acronymColor(palette())));
+    label->setStyleSheet(QStringLiteral("color: %1; padding-left: %2px;")
+                             .arg(acronymColor(palette()))
+                             .arg(AcronymPadding));
     label->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
     if (!tooltip.isEmpty()) {
         label->setToolTip(tooltip);
@@ -1173,7 +1180,8 @@ void VerseGridWidget::build()
              combinedWords,
              HebrewLexicon::shared(),
              PhraseRules::shared(),
-             m_controller->acceptedForms())) {
+             m_controller->acceptedForms(),
+             AbbreviationTable::shared())) {
         m_suggestions.insert(suggestion.column, suggestion);
     }
 
@@ -1280,6 +1288,13 @@ void VerseGridWidget::build()
         // as tight as the text rather than being spread across the card.
         grid->setColumnStretch(FirstReadingColumn + std::max(1, band.end - band.start), 1);
     }
+
+    // The bands run right to left whatever the text does, so a row's name is
+    // always at the right-hand edge and the verse's first word sits one column
+    // further in. Inset the preview by exactly that much and the running text
+    // begins under the verse rather than under the labels naming it.
+    m_previewRow->setContentsMargins(
+        0, 0, acronymWidth + AcronymPadding + ColumnSpacing, 0);
 
     const QString text = combinedText(draft);
     if (m_preview->toPlainText() != text) {

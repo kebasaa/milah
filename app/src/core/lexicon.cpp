@@ -160,7 +160,13 @@ const HebrewLexicon &HebrewLexicon::shared()
 {
     static const HebrewLexicon lexicon = [] {
         const QString path = locateDataFile(QStringLiteral("hebrew_lexicon.json"));
-        return path.isEmpty() ? HebrewLexicon() : fromFile(path);
+        HebrewLexicon loaded = path.isEmpty() ? HebrewLexicon() : fromFile(path);
+        // A separate file, and an optional one: a data directory without it
+        // simply has no opinion about roots. Kept out of the dictionary itself
+        // because that is six megabytes on one line, and the roots are derived
+        // from it rather than shipped with it.
+        loaded.loadRoots(locateDataFile(QStringLiteral("hebrew_roots.json")));
+        return loaded;
     }();
     return lexicon;
 }
@@ -172,6 +178,54 @@ HebrewLexicon HebrewLexicon::fromFile(const QString &path)
         return HebrewLexicon();
     }
     return parse(file.readAll());
+}
+
+QStringList HebrewLexicon::strongsFor(const QString &word) const
+{
+    return numbersFor(word).split(QLatin1Char(' '), Qt::SkipEmptyParts);
+}
+
+void HebrewLexicon::loadRoots(const QString &path)
+{
+    if (path.isEmpty()) {
+        return;
+    }
+    QFile file(path);
+    if (!file.open(QIODevice::ReadOnly)) {
+        return;
+    }
+    const QJsonDocument document = QJsonDocument::fromJson(file.readAll());
+    if (!document.isObject()) {
+        return;
+    }
+
+    const QJsonObject roots =
+        document.object().value(QStringLiteral("roots")).toObject();
+    m_roots.reserve(roots.size());
+    for (auto item = roots.constBegin(); item != roots.constEnd(); ++item) {
+        const QString root = item.value().toString();
+        // A word that is its own root tells the scorer nothing it does not
+        // already get from the Strong's number itself.
+        if (!root.isEmpty() && root != item.key()) {
+            m_roots.insert(item.key(), root);
+        }
+    }
+}
+
+QStringList HebrewLexicon::rootsFor(const QString &word) const
+{
+    if (m_roots.isEmpty()) {
+        return QStringList();
+    }
+
+    QStringList roots;
+    for (const QString &number : strongsFor(word)) {
+        const auto root = m_roots.constFind(number);
+        if (root != m_roots.constEnd() && !roots.contains(root.value())) {
+            roots.append(root.value());
+        }
+    }
+    return roots;
 }
 
 QString HebrewLexicon::numbersFor(const QString &word) const

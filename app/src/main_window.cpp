@@ -38,12 +38,12 @@ QWidget#verseCard {
 QLabel#verseHeading {
     font-weight: 600;
 }
-/* Names the row it sits beside, at the right-hand edge of the readings. Its
-   size and colour are set in code, not here: the band packing measures the
-   font, and the colour has to hold up in a light and a dark palette alike. */
-QLabel#rowAcronym {
-    padding-left: 8px;
-}
+/* Names the row it sits beside, at the right-hand edge of the readings. Nothing
+   about it is set here: its size, colour and the gap to the reading beside it
+   are all applied in code. The band packing measures the font, the colour has
+   to hold up in a light and a dark palette alike, and the gap is a named
+   constant because the combined-text preview insets itself by the same amount
+   to line up with the first word. See AcronymPadding in verse_grid_widget.cpp. */
 /* Readings carry no box and no padding: a cell is exactly as wide as the
    word in it, which is what keeps the columns measurable and the rows
    readable as running text. Their size is set in code, not here, so that

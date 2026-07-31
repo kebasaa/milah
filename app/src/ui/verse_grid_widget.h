@@ -10,6 +10,7 @@
 #include <QWidget>
 
 class QGridLayout;
+class QHBoxLayout;
 class QLabel;
 class QVBoxLayout;
 
@@ -135,6 +136,9 @@ private:
 
     QWidget *m_bandHost = nullptr;
     QVBoxLayout *m_bandLayout = nullptr;
+    /// Holds the preview and its flags. Kept so build() can inset it by the
+    /// width of the row-name column, which only build() knows.
+    QHBoxLayout *m_previewRow = nullptr;
     QPlainTextEdit *m_preview = nullptr;
     QLabel *m_flags = nullptr;
 

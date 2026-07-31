@@ -28,12 +28,35 @@ private:
     QString m_message;
 };
 
+class AbbreviationTable;
+class AttestedForms;
+class HebrewLexicon;
+
+/// What the scorer may consult while aligning.
+///
+/// Passed in rather than reached for through a singleton, so that alignVerse
+/// stays a pure function of its arguments. The columns it produces are
+/// addressed by index in saved projects — column splits, note anchors and
+/// translation spans all name one — so the same manuscripts have to yield the
+/// same columns whether or not a data file happened to be found beside the
+/// binary. Leaving a member null stands its part of the scoring down; it never
+/// silently changes the answer.
+struct AlignmentOptions
+{
+    const AbbreviationTable *abbreviations = nullptr;
+    const HebrewLexicon *lexicon = nullptr;
+    /// Vouches for a stem left behind by peeling a prefix. Without it the
+    /// peeling is disabled rather than done unchecked.
+    const AttestedForms *attested = nullptr;
+};
+
 /// Aligns one verse across every manuscript, starting from the priority
 /// witness and merging each remaining witness in with a Needleman-Wunsch pass.
 AlignedVerse alignVerse(
     const QString &verseId,
     const DocumentRefs &manuscripts,
-    const QString &priorityId);
+    const QString &priorityId,
+    const AlignmentOptions &options = {});
 
 /// Widens the columns the editor has divided, so the Combined edition can read
 /// two words where a witness writes one — `אֲשֶׁר־בָּהּ` as `אֲשֶׁר בָּהּ`.
