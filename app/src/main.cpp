@@ -30,7 +30,11 @@ int main(int argc, char *argv[])
     parser.process(application);
 
     milah::MainWindow window;
-    window.show();
+    // Maximised from the start: a verse card is a wide table of witnesses side
+    // by side, and the band packing splits it into stacked bands as soon as the
+    // window is narrow. Opening small would mean the first thing seen is the
+    // most broken-up view of the text.
+    window.showMaximized();
     window.openFiles(parser.positionalArguments(), parser.values(translationOption));
 
     return application.exec();

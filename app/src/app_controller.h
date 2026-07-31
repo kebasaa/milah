@@ -111,6 +111,17 @@ public:
     const QList<AlignedVerse> &alignedVerses() const { return m_alignedVerses; }
 
     bool isDirty() const { return m_dirty; }
+
+    /// Asks what to do about unsaved work before it is thrown away.
+    ///
+    /// Returns true when the caller may go ahead: the editor either saved or
+    /// chose to lose it. False means they changed their mind and nothing at
+    /// all should happen. Answers true at once when there is nothing to lose,
+    /// so a caller may ask unconditionally.
+    ///
+    /// Public because the window has to ask it too: closing the window is the
+    /// commonest way an edition gets thrown away.
+    bool confirmDiscard();
     bool canUndo() const { return !m_undoStack.isEmpty(); }
     bool canRedo() const { return !m_redoStack.isEmpty(); }
     QString message() const { return m_message; }
@@ -143,7 +154,13 @@ public slots:
     /// the command line get in.
     void loadPaths(milah::SourceRole role, const QStringList &paths);
     void openProject();
-    void saveProject();
+    /// Writes the project out. Returns true only when a file was actually
+    /// written: the save dialog can be cancelled, and a caller about to throw
+    /// the edition away has to be able to tell that apart from a save.
+    bool saveProject();
+    /// Puts the edition down and returns Milah to the state it starts in,
+    /// asking about unsaved work first. Does nothing if that is declined.
+    void closeProject();
     void exportCombined();
 
     void setLocation(const milah::Location &location);

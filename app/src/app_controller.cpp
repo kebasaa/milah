@@ -1027,8 +1027,85 @@ void AppController::loadPaths(SourceRole role, const QStringList &paths)
     emit sourcesChanged();
 }
 
+bool AppController::confirmDiscard()
+{
+    if (!m_dirty) {
+        return true;
+    }
+
+    // Save is the default, unlike confirm(), which defaults to No: that one
+    // guards a single verse and this one guards the whole edition.
+    const QMessageBox::StandardButton answer = QMessageBox::warning(
+        m_dialogParent,
+        QStringLiteral("Milah"),
+        QStringLiteral("This edition has changes you have not saved.\n"
+                       "Save them before closing it?"),
+        QMessageBox::Save | QMessageBox::Discard | QMessageBox::Cancel,
+        QMessageBox::Save);
+
+    switch (answer) {
+    case QMessageBox::Save:
+        // Only a written file counts. The save dialog can be cancelled, and
+        // treating that as a save is how the work would be lost by the very
+        // step meant to keep it.
+        return saveProject();
+    case QMessageBox::Discard:
+        return true;
+    default:
+        return false;
+    }
+}
+
+void AppController::closeProject()
+{
+    if (!confirmDiscard()) {
+        return;
+    }
+
+    // Everything a project is — the same ten the save writes out — and nothing
+    // that outlives one. The dictionary, the Strong's row preference and the
+    // last-used folder all stay: they belong to the editor, not the edition.
+    m_sources.clear();
+    m_associations.clear();
+    m_priorityId.clear();
+    m_combined.clear();
+    m_translationSpans.clear();
+    m_columnSplits.clear();
+    m_chapterReferences.clear();
+    m_verseReferences.clear();
+    m_combinedNotes.clear();
+    m_interlinearWords.clear();
+    m_location.reset();
+
+    // Not saved with a project, but the checkboxes are rebuilt from it, so a
+    // stale tick would survive into an empty window.
+    m_filters = ReviewFilters{};
+
+    // Empties the derived caches, and validateSelection() inside the second
+    // drops the selection and says so — which is what clears the Notes panel
+    // and greys the word actions, neither of which rebuildAll() touches.
+    rebuildLocations();
+    rebuildAlignedVerses();
+
+    m_undoStack.clear();
+    m_redoStack.clear();
+    setDirty(false);
+    // The line the constructor opens with, so the status bar reads as it does
+    // on a first launch.
+    setMessage(QStringLiteral("Load two or more manuscript OSIS files to begin."));
+    emit historyChanged();
+    // rebuildAll() is the last statement of the window's constructor, and this
+    // is what calls it. So an empty controller plus this signal *is* the
+    // first-launch window; nothing has to be rebuilt by hand.
+    emit sourcesChanged();
+}
+
 void AppController::openProject()
 {
+    if (!confirmDiscard()) {
+        return;
+    }
+
     const QString path = QFileDialog::getOpenFileName(
         m_dialogParent,
         QStringLiteral("Open Milah project"),
@@ -1076,7 +1153,7 @@ void AppController::openProject()
     emit sourcesChanged();
 }
 
-void AppController::saveProject()
+bool AppController::saveProject()
 {
     const QString osis = serializeCombinedOsis(m_combined);
 
@@ -1102,7 +1179,7 @@ void AppController::saveProject()
         QStringLiteral("Milah projects (*.milah)"));
     if (path.isEmpty()) {
         setMessage(QStringLiteral("Project save was cancelled."));
-        return;
+        return false;
     }
     if (!path.endsWith(QStringLiteral(".milah"), Qt::CaseInsensitive)) {
         path += QStringLiteral(".milah");
@@ -1111,11 +1188,12 @@ void AppController::saveProject()
     QString error;
     if (!ProjectStorage::saveToPath(path, payloadToJson(payload), &error)) {
         setMessage(error.isEmpty() ? QStringLiteral("Could not save the project.") : error);
-        return;
+        return false;
     }
 
     setDirty(false);
     setMessage(QStringLiteral("Milah project saved."));
+    return true;
 }
 
 CombinedApparatus AppController::editorApparatus() const
