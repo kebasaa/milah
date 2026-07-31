@@ -9,6 +9,8 @@
 #include "core/tokenize.h"
 #include "project_storage.h"
 #include "ui/dictionary_entry_dialog.h"
+#include "ui/download_manuscripts_dialog.h"
+#include "ui/manuscript_library_dialog.h"
 
 #include <QDateTime>
 #include <QFile>
@@ -901,8 +903,65 @@ void AppController::rememberDirectory(const QString &filePath)
         QFileInfo(filePath).absolutePath());
 }
 
+void AppController::loadLibraryFiles(const QStringList &paths)
+{
+    if (paths.isEmpty()) {
+        return;
+    }
+
+    // The manifest recorded which of these is a translation, so the editor does
+    // not have to say. loadPaths takes one role per batch, so a mixed choice is
+    // two calls — manuscripts first, because that is the one that may ask about
+    // replacing manual edits, and it reads oddly after the translations have
+    // already gone in.
+    QStringList manuscripts;
+    QStringList translations;
+    for (const QString &path : paths) {
+        if (QFileInfo(path).completeBaseName().endsWith(
+                QStringLiteral("_translation"), Qt::CaseInsensitive)) {
+            translations.append(path);
+        } else {
+            manuscripts.append(path);
+        }
+    }
+
+    if (!manuscripts.isEmpty()) {
+        loadPaths(SourceRole::Manuscript, manuscripts);
+    }
+    if (!translations.isEmpty()) {
+        loadPaths(SourceRole::Translation, translations);
+    }
+}
+
+void AppController::downloadManuscripts()
+{
+    DownloadManuscriptsDialog dialog(m_dialogParent);
+    dialog.exec();
+    if (dialog.downloadedAnything()) {
+        setMessage(QStringLiteral(
+            "Downloaded. Use Load manuscripts to open what you have taken."));
+    }
+}
+
 void AppController::loadSources(SourceRole role)
 {
+    // The library first, for manuscripts: what was downloaded is what an editor
+    // most often wants, and it knows which files are translations, so they load
+    // the right way round without being asked. Browsing is still one click away
+    // — the corpus in data/01_osis never passes through the library.
+    if (role == SourceRole::Manuscript) {
+        ManuscriptLibraryDialog library(m_dialogParent);
+        if (!library.isEmpty()) {
+            if (library.exec() != QDialog::Accepted) {
+                return;
+            }
+            if (!library.wantsToBrowse()) {
+                loadLibraryFiles(library.chosenFiles());
+                return;
+            }
+        }
+    }
+
     const QString title = role == SourceRole::Translation
         ? QStringLiteral("Load translation OSIS files")
         : QStringLiteral("Load manuscript OSIS files");
