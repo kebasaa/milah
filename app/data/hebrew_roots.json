@@ -1,5 +1,5 @@
 {
- "about": "Strong's numbers to the root they derive from, read out of the derivation field of hebrew_lexicon.json by python/tools/build_roots.py. Chains are walked at most 2 steps and roots with more than 40 members are dropped, because relatedness shades off faster than the etymology admits.",
+ "about": "Strong's numbers to the root they derive from, read out of the derivation field of hebrew_lexicon.json by tools/python/tools/build_roots.py. Chains are walked at most 2 steps and roots with more than 40 members are dropped, because relatedness shades off faster than the etymology admits.",
  "roots": {
   "H100": "H98",
   "H1000": "H948",

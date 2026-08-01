@@ -5,14 +5,23 @@
 
 class QAction;
 class QComboBox;
+class QDockWidget;
 class QLabel;
+class QLineEdit;
+class QMenu;
 class QScrollArea;
+class QStackedWidget;
+class QTabBar;
+class QToolBar;
 class QVBoxLayout;
 
 namespace milah {
 
 class AppController;
 class SourceSettingsWidget;
+class TranscriptionController;
+class TranscriptionMetaWidget;
+class TranscriptionWidget;
 class VerseGridWidget;
 struct Location;
 
@@ -31,16 +40,57 @@ protected:
     /// Every ordinary way out of Milah ends here — the title-bar X, Alt+F4,
     /// Ctrl+Q and File ▸ Quit, the last two because the quit action is wired to
     /// QWidget::close rather than to qApp->quit(). So this is the one place
-    /// that can stand between the editor and an unsaved edition.
+    /// that can stand between the editor and unsaved work of either kind.
     void closeEvent(QCloseEvent *event) override;
 
 private:
+    /// What the window is doing. Two unrelated jobs share one window rather
+    /// than two, so that a reader keeps their place in both, and so that the
+    /// title bar, Quit and the unsaved-work question stay one thing each.
+    enum class Mode { TextualCriticism, Transcription };
+
     /// Every command the window offers, made once. The menus and the toolbar
     /// then show the same objects, so a shortcut or an enabled state is stated
     /// in one place and the two cannot disagree.
     void createActions();
+    void createTranscriptionActions();
     void buildMenuBar();
     void buildToolBar();
+    void buildTranscriptionToolBar();
+    /// The two tabs, in the menu bar's right-hand corner.
+    void buildModeTabs();
+
+    void setMode(Mode mode);
+    /// Puts the window into whatever m_mode says: which two menus the bar
+    /// carries, which toolbar and which dock are on screen, which page the
+    /// centre shows, and which commands are live. Idempotent, so it states the
+    /// opening position as well as every change.
+    void applyMode();
+
+    /// True while the textual-criticism side is on screen.
+    ///
+    /// Every enabled state below is two statements at once: what the edition
+    /// allows, and what the mode allows. Both have to hold. An action the
+    /// edition would happily run must still be dead while its menu is not even
+    /// in the bar, because a shortcut is armed by its action and not by its
+    /// menu, and would otherwise fire into a window showing a folio.
+    bool editingEdition() const { return m_mode == Mode::TextualCriticism; }
+    /// The commands that ask nothing of the edition — an empty window can
+    /// always be loaded into. Gated for one reason only: so Ctrl+O, Ctrl+M and
+    /// Ctrl+T cannot reach in from the transcription side.
+    void updateSourceActions();
+    /// The four commands that need an edition to act on. Lifted out of the
+    /// priority rebuild so the mode switch can ask for them without rebuilding
+    /// a combo it has not changed.
+    void updateProjectActions();
+    /// Chapter navigation, lifted out of the chapter rebuild for the same
+    /// reason.
+    void updateNavigationActions();
+    /// What the transcription side may do, which turns on whether a folio is
+    /// open and whether anything has been typed on it.
+    void updateTranscriptionActions();
+    /// Fills the Book and Chapter fields from the folio on screen.
+    void refreshTranscriptionToolBar();
     /// Enables the word-level Edit entries for whichever Combined word has the
     /// focus, and greys them out when none has.
     void updateSelectionActions();
@@ -75,6 +125,35 @@ private:
     void updateWindowTitle();
 
     AppController *m_controller = nullptr;
+    TranscriptionController *m_transcriptionController = nullptr;
+
+    Mode m_mode = Mode::TextualCriticism;
+    QTabBar *m_modeTabs = nullptr;
+    QStackedWidget *m_pages = nullptr;
+    TranscriptionWidget *m_transcription = nullptr;
+    TranscriptionMetaWidget *m_metadata = nullptr;
+
+    /// Held because each mode takes the other's chrome off the screen and gives
+    /// it back.
+    QToolBar *m_toolBar = nullptr;
+    QToolBar *m_transcriptionToolBar = nullptr;
+    QDockWidget *m_sourcesDock = nullptr;
+    QDockWidget *m_metadataDock = nullptr;
+    /// Whether each dock was on screen when the other mode took over. A reader
+    /// who had closed one themselves should not find it reopened on the way
+    /// back.
+    bool m_sourcesDockWasVisible = true;
+    bool m_metadataDockWasVisible = true;
+    /// Whether applyMode() has run before. The first run is stating the opening
+    /// position, not leaving a mode, so it has no dock state worth recording.
+    bool m_modeApplied = false;
+
+    /// Made once each; which two the bar carries is the mode's business.
+    QMenu *m_editionFileMenu = nullptr;
+    QMenu *m_editionEditMenu = nullptr;
+    QMenu *m_transcriptionFileMenu = nullptr;
+    QMenu *m_transcriptionEditMenu = nullptr;
+    QMenu *m_aboutMenu = nullptr;
 
     QComboBox *m_bookCombo = nullptr;
     QComboBox *m_chapterCombo = nullptr;
@@ -102,6 +181,23 @@ private:
     /// is offered only once there is something to save.
     QAction *m_saveDictionaryAction = nullptr;
     QAction *m_loadDictionaryAction = nullptr;
+
+    /// Transcription's own commands. Quit and About are not among them: they
+    /// mean the same thing whichever job is being done, so both modes offer the
+    /// very same objects.
+    QAction *m_openImageAction = nullptr;
+    QAction *m_openTranscriptionAction = nullptr;
+    QAction *m_saveTranscriptionAction = nullptr;
+    QAction *m_exportOsisAction = nullptr;
+    QAction *m_closeTranscriptionAction = nullptr;
+    QAction *m_transcriptionUndoAction = nullptr;
+    QAction *m_transcriptionRedoAction = nullptr;
+    QAction *m_previousImageAction = nullptr;
+    QAction *m_nextImageAction = nullptr;
+    QAction *m_magnifyAction = nullptr;
+    QAction *m_newChapterAction = nullptr;
+    QLineEdit *m_bookField = nullptr;
+    QLineEdit *m_chapterField = nullptr;
 
     QScrollArea *m_verseArea = nullptr;
     QWidget *m_verseHost = nullptr;

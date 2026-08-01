@@ -28,7 +28,7 @@ The Strong's numbers shown under the Combined row, and the word list the
 spelling checks consult. Generated — do not edit by hand:
 
 ```bash
-python python/tools/build_lexicon.py \
+python tools/python/tools/build_lexicon.py \
     --strongs <downloads>/strongs-hebrew-dictionary.js \
     --wlc     <downloads>/wlc \
     --tbesh   <downloads>/tbesh.txt \
@@ -75,7 +75,7 @@ hand, and note it reads the **already-built lexicon** rather than any download,
 so it runs in under a second:
 
 ```bash
-python python/tools/build_roots.py
+python tools/python/tools/build_roots.py
 ```
 
 Kept out of `hebrew_lexicon.json` for two reasons: that file is six megabytes on
@@ -180,7 +180,7 @@ Generated — but plain text, so words may be **appended by hand**; blank lines
 and `#` comments are ignored:
 
 ```bash
-python python/tools/build_wordlist.py --out app/data/rabbinic.words.txt
+python tools/python/tools/build_wordlist.py --out app/data/rabbinic.words.txt
 ```
 
 Any file named `*.words.txt` in a data directory is read and merged, so your

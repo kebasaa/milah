@@ -52,6 +52,8 @@ add_library(MilahCore STATIC
     src/core/lexicon.h
     src/core/suggestions.cpp
     src/core/suggestions.h
+    src/core/word_marker.cpp
+    src/core/word_marker.h
     src/core/osis.cpp
     src/core/osis.h
     src/core/alignment.cpp
@@ -64,6 +66,8 @@ add_library(MilahCore STATIC
     src/core/serialize.h
     src/core/project.cpp
     src/core/project.h
+    src/core/transcription.cpp
+    src/core/transcription.h
     src/project_storage.cpp
     src/project_storage.h
 )
@@ -117,14 +121,26 @@ qt_add_executable(Milah WIN32
     src/app_controller.h
     src/main_window.cpp
     src/main_window.h
+    src/transcription_controller.cpp
+    src/transcription_controller.h
     src/ui/about_dialog.cpp
     src/ui/about_dialog.h
+    src/ui/band_grid.cpp
+    src/ui/band_grid.h
     src/ui/dictionary_entry_dialog.cpp
     src/ui/dictionary_entry_dialog.h
     src/ui/download_manuscripts_dialog.cpp
     src/ui/download_manuscripts_dialog.h
+    src/ui/manuscript_image_view.cpp
+    src/ui/manuscript_image_view.h
     src/ui/manuscript_library_dialog.cpp
     src/ui/manuscript_library_dialog.h
+    src/ui/transcription_grid_widget.cpp
+    src/ui/transcription_grid_widget.h
+    src/ui/transcription_meta_widget.cpp
+    src/ui/transcription_meta_widget.h
+    src/ui/transcription_widget.cpp
+    src/ui/transcription_widget.h
     src/ui/icons.cpp
     src/ui/icons.h
     src/ui/notes_widget.cpp
@@ -165,6 +181,7 @@ qt_add_resources(Milah "milah_icons"
         img/icons/note-marker.svg
         img/icons/load-translation.svg
         img/icons/view-refresh.svg
+        img/icons/zoom-in.svg
 )
 
 # Windows executable file icon and version metadata (what Explorer shows under
@@ -209,7 +226,7 @@ if(MILAH_BUILD_TESTS)
 
     foreach(test_name
             project_storage osis consensus apparatus diff acronym lexicon suggestions
-            coverage alignment catalogue)
+            coverage alignment catalogue word_marker transcription)
         # Plain add_executable, not qt_add_executable: the latter finalises the
         # target as a Windows GUI application, and a GUI-subsystem binary
         # discards the stdout QTest reports through, leaving a failing test

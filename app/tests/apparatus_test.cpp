@@ -21,7 +21,7 @@ SourceDocument parseSample()
 
 QString corpusPath(const QString &variant)
 {
-    return QStringLiteral("%1/data/01_osis/REV_Sloane237_%2.osis")
+    return QStringLiteral("%1/tools/data/01_osis/REV_Sloane237_%2.osis")
         .arg(QStringLiteral(MILAH_REPO_ROOT), variant);
 }
 
@@ -221,7 +221,7 @@ private slots:
     void loadsEveryGeneratedVariantWithoutWarnings()
     {
         if (!corpusAvailable()) {
-            QSKIP("The data/01_osis corpus is not available next to this build.");
+            QSKIP("The tools/data/01_osis corpus is not available next to this build.");
         }
 
         for (const QString &variant : corpusVariants()) {
@@ -239,7 +239,7 @@ private slots:
     void keepsTheManuscriptsNonVerseText()
     {
         if (!corpusAvailable()) {
-            QSKIP("The data/01_osis corpus is not available next to this build.");
+            QSKIP("The tools/data/01_osis corpus is not available next to this build.");
         }
 
         ParseOptions options;

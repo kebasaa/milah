@@ -67,7 +67,7 @@ public:
     /// related, not that they are the same word. מלך "king" derives from מלך
     /// "to reign", but אדם "man" derives from אדם "to be red", and only one of
     /// those pairs belongs in the same column. The chain is walked a bounded
-    /// number of steps for exactly that reason — see python/tools/build_roots.py.
+    /// number of steps for exactly that reason — see tools/python/tools/build_roots.py.
     ///
     /// Empty when no roots file was found, which stands the rung down rather
     /// than changing any other answer.

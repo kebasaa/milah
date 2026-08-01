@@ -62,7 +62,7 @@ bool offersReading(const QStringList &expansions, const QString &consonants)
 
 QString corpusPath(const QString &file)
 {
-    return QStringLiteral("%1/data/01_osis/%2.osis")
+    return QStringLiteral("%1/tools/data/01_osis/%2.osis")
         .arg(QStringLiteral(MILAH_REPO_ROOT), file);
 }
 
@@ -267,7 +267,7 @@ private slots:
     {
         // comparisonKey is the join key for the shipped lexicon indexes, the
         // rabbinic word list and the phrase rules, and it is mirrored in
-        // python/tools/build_lexicon.py. Anyone tempted to fold there instead
+        // tools/python/tools/build_lexicon.py. Anyone tempted to fold there instead
         // trips here rather than in production.
         QCOMPARE(
             comparisonKey(QString::fromUtf8("מלאך")), QString::fromUtf8("מלאך"));
