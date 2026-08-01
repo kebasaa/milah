@@ -17,7 +17,7 @@ when the upstream data changes.
 
 Usage::
 
-    python python/tools/build_lexicon.py \\
+    python tools/python/tools/build_lexicon.py \\
         --strongs  <dir>/strongs-hebrew-dictionary.js \\
         --wlc      <dir>/wlc \\
         --tbesh    <dir>/tbesh.txt \\

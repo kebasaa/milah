@@ -101,7 +101,77 @@ const QHash<QString, int> &canonicalOrder()
     return order;
 }
 
+/// What two ways of writing the same book have in common: the letters and
+/// digits, folded to one case. "1 Chronicles", "1chronicles" and "1Chr" all come
+/// down to something a lookup can match on, and a transcriber typing quickly is
+/// not asked to get the spacing right.
+QString lookupKey(const QString &text)
+{
+    QString key;
+    key.reserve(text.size());
+    for (const QChar character : text) {
+        if (character.isLetterOrNumber()) {
+            key.append(character.toLower());
+        }
+    }
+    return key;
+}
+
 } // namespace
+
+QStringList bookIds()
+{
+    static const QStringList ids = [] {
+        QStringList result;
+        result.reserve(kBookCount);
+        for (int index = 0; index < kBookCount; ++index) {
+            result.append(QString::fromLatin1(kBooks[index].osisId));
+        }
+        return result;
+    }();
+
+    return ids;
+}
+
+QStringList bookNames()
+{
+    static const QStringList names = [] {
+        QStringList result;
+        result.reserve(kBookCount);
+        for (int index = 0; index < kBookCount; ++index) {
+            result.append(QString::fromLatin1(kBooks[index].name));
+        }
+        return result;
+    }();
+
+    return names;
+}
+
+QString bookIdFor(const QString &nameOrId)
+{
+    static const QHash<QString, QString> byKey = [] {
+        QHash<QString, QString> result;
+        result.reserve(kBookCount * 2);
+        // Ids first, and a name never overwrites one. The two columns key alike
+        // for several books — "1 John" and "1John" reduce to the same thing —
+        // and where they would ever disagree about which book a key means, the
+        // id is the one the rest of Milah addresses verses by.
+        for (int index = 0; index < kBookCount; ++index) {
+            const QString id = QString::fromLatin1(kBooks[index].osisId);
+            result.insert(lookupKey(id), id);
+        }
+        for (int index = 0; index < kBookCount; ++index) {
+            const QString id = QString::fromLatin1(kBooks[index].osisId);
+            const QString key = lookupKey(QString::fromLatin1(kBooks[index].name));
+            if (!result.contains(key)) {
+                result.insert(key, id);
+            }
+        }
+        return result;
+    }();
+
+    return byKey.value(lookupKey(nameOrId));
+}
 
 QString bookName(const QString &osisId)
 {

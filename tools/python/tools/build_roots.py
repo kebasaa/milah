@@ -33,8 +33,8 @@ all. So:
 
 Usage::
 
-    python python/tools/build_roots.py
-    python python/tools/build_roots.py --max-hops 1 --max-root-bucket 20
+    python tools/python/tools/build_roots.py
+    python tools/python/tools/build_roots.py --max-hops 1 --max-root-bucket 20
 """
 
 from __future__ import annotations
@@ -149,7 +149,7 @@ def main() -> int:
         "about": (
             "Strong's numbers to the root they derive from, read out of the "
             "derivation field of hebrew_lexicon.json by "
-            "python/tools/build_roots.py. Chains are walked at most "
+            "tools/python/tools/build_roots.py. Chains are walked at most "
             f"{args.max_hops} steps and roots with more than "
             f"{args.max_root_bucket} members are dropped, because relatedness "
             "shades off faster than the etymology admits."

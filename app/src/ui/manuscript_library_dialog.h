@@ -12,7 +12,7 @@ namespace milah {
 /// Offers the manuscripts already in the local library, so loading one does not
 /// mean remembering where on disk it lives.
 ///
-/// Browsing for a file is still offered: the corpus in data/01_osis and
+/// Browsing for a file is still offered: the corpus in tools/data/01_osis and
 /// anything the pdf2osis pipeline produces never passes through the library,
 /// and losing the ability to open those would be a poor trade for a list.
 class ManuscriptLibraryDialog final : public QDialog

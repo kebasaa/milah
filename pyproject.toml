@@ -25,10 +25,10 @@ dev = ["pytest>=8,<9"]
 pdf2osis = "pdf2osis.cli:main"
 
 [tool.setuptools]
-package-dir = {"" = "python"}
+package-dir = {"" = "tools/python"}
 
 [tool.setuptools.packages.find]
-where = ["python"]
+where = ["tools/python"]
 
 [tool.setuptools.package-data]
 pdf2osis = ["schema/*.xsd"]
