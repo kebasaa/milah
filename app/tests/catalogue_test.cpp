@@ -28,12 +28,25 @@ QByteArray sampleManifest()
        "book":"REV","role":"manuscript","language":"he",
        "date":"between 1500 and 1699",
        "covers":"This edition covers Revelation 1:1-2:13.",
+       "rights":"CC BY-NC-SA 4.0",
        "bytes":17203},
       {"file":"REV_Sloane237_translation.osis",
        "title":"English Translation of Revelation (British Library, Sloane MS 237)",
        "book":"REV","role":"translation","language":"en",
        "date":"2017","bytes":12812}
     ]})JSON";
+}
+
+/// A one-entry manifest whose rights statement is exactly `statement`.
+///
+/// At namespace scope like every other raw string here, and not inside a test:
+/// moc parses this class, and a raw string in a member body is enough to lose
+/// it the vtable it needs.
+QByteArray manifestWithRights(const QByteArray &statement)
+{
+    return QByteArray(R"JSON({"manuscripts":[{"file":"a.osis","title":"A",)JSON"
+                      R"JSON("role":"manuscript","rights":")JSON")
+        + statement + R"JSON("}]})JSON";
 }
 
 /// Writes `text` verbatim and returns its path.
@@ -316,6 +329,53 @@ private slots:
 
         QVERIFY(!paths.isEmpty());
         QCOMPARE(paths.first(), QStringLiteral("C:/somewhere/of/my/own"));
+    }
+
+    void theRightsAreReadFromTheManifest()
+    {
+        const ManuscriptCatalogue catalogue = ManuscriptCatalogue::fromJson(
+            QJsonDocument::fromJson(sampleManifest()).object());
+        QCOMPARE(catalogue.entries().size(), 2);
+        QCOMPARE(catalogue.entries().at(0).rights, QStringLiteral("CC BY-NC-SA 4.0"));
+    }
+
+    void anEntryWithoutRightsSaysNothingRatherThanGuessing()
+    {
+        // A manifest written before the field existed must not have terms
+        // invented for it — "no statement" and "no restrictions" are very
+        // different claims to put in front of a reader.
+        const ManuscriptCatalogue catalogue = ManuscriptCatalogue::fromJson(
+            QJsonDocument::fromJson(sampleManifest()).object());
+        QVERIFY(catalogue.entries().at(1).rights.isEmpty());
+    }
+
+    void theRightsAreTrimmed()
+    {
+        // The OSIS headers wrap this across lines, and a tooltip that opens on
+        // a newline reads as broken.
+        const ManuscriptCatalogue catalogue = ManuscriptCatalogue::fromJson(
+            QJsonDocument::fromJson(
+                manifestWithRights("\\n   © 2018 Nehemia Gordon. "
+                                   "All rights reserved.\\n  "))
+                .object());
+        QCOMPARE(catalogue.entries().size(), 1);
+        QCOMPARE(catalogue.entries().at(0).rights,
+                 QStringLiteral("© 2018 Nehemia Gordon. All rights reserved."));
+    }
+
+    void theRightsAreKeptWordForWord()
+    {
+        // Not summarised, not shortened to a licence code. "All rights
+        // reserved" and "CC BY-NC-SA 4.0 (this repository's default; no licence
+        // was stated for the transcription itself)" are both statements a
+        // reader is entitled to read as written.
+        const QByteArray statement =
+            "CC BY-NC-SA 4.0 (this repository's default; no licence was stated "
+            "for the transcription itself).";
+        const ManuscriptCatalogue catalogue = ManuscriptCatalogue::fromJson(
+            QJsonDocument::fromJson(manifestWithRights(statement)).object());
+        QCOMPARE(catalogue.entries().size(), 1);
+        QCOMPARE(catalogue.entries().at(0).rights, QString::fromUtf8(statement));
     }
 
     void aWitnessKeepsItsTitleExactly()

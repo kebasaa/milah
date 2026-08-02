@@ -95,6 +95,9 @@ ManuscriptCatalogue ManuscriptCatalogue::fromJson(const QJsonObject &document)
         entry.date = record.value(QStringLiteral("date")).toString();
         // Absent from a third of the published texts, and only ever displayed.
         entry.covers = record.value(QStringLiteral("covers")).toString();
+        // Trimmed because the OSIS headers wrap it across lines, and a tooltip
+        // that opens on a newline reads as broken.
+        entry.rights = record.value(QStringLiteral("rights")).toString().trimmed();
         // Only used to say how large a download will be, so a size that makes
         // no sense costs a line of display, not the manuscript.
         entry.bytes = record.value(QStringLiteral("bytes")).toInteger(0);

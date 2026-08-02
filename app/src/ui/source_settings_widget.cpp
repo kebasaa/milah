@@ -18,6 +18,23 @@ QString displayTitle(const SourceDocument *source)
     return source->metadata.title.isEmpty() ? source->name : source->metadata.title;
 }
 
+/// What hovering a loaded text says about it: its terms first, then whatever
+/// went wrong reading it.
+///
+/// The terms are here because a collation routinely holds texts under different
+/// ones — a CC-licensed transcription beside an "all rights reserved"
+/// translation — and an editor deciding what to quote or publish should not
+/// have to open the XML to find out which is which.
+QString sourceTooltip(const SourceDocument *source)
+{
+    QStringList lines;
+    if (!source->metadata.rights.isEmpty()) {
+        lines.append(QStringLiteral("Rights: %1").arg(source->metadata.rights));
+    }
+    lines.append(source->warnings);
+    return lines.join(QLatin1Char('\n'));
+}
+
 } // namespace
 
 SourceSettingsWidget::SourceSettingsWidget(AppController *controller, QWidget *parent)
@@ -66,9 +83,7 @@ void SourceSettingsWidget::refresh()
                                                   ? QString()
                                                   : QStringLiteral("  ⚠")));
             label->setWordWrap(true);
-            if (!manuscript->warnings.isEmpty()) {
-                label->setToolTip(manuscript->warnings.join(QStringLiteral("\n")));
-            }
+            label->setToolTip(sourceTooltip(manuscript));
             coverageLayout->addWidget(label);
         }
         m_layout->addWidget(coverage);
@@ -102,9 +117,7 @@ void SourceSettingsWidget::refresh()
 
             auto *label = new QLabel(displayTitle(translation));
             label->setWordWrap(true);
-            if (!translation->warnings.isEmpty()) {
-                label->setToolTip(translation->warnings.join(QStringLiteral("\n")));
-            }
+            label->setToolTip(sourceTooltip(translation));
             form->addRow(label, combo);
         }
         m_layout->addWidget(associationBox);

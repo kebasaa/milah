@@ -1,6 +1,9 @@
 #include "transcription_controller.h"
 
+#include "core/alignment.h"
+#include "core/books.h"
 #include "core/lexicon.h"
+#include "core/manuscript_catalogue.h"
 #include "core/project.h"
 #include "core/serialize.h"
 #include "core/suggestions.h"
@@ -807,85 +810,13 @@ void TranscriptionController::closeTranscription()
     emit historyChanged();
 }
 
-void TranscriptionController::exportOsis()
+WorkMetadata TranscriptionController::workMetadata() const
 {
-    if (!hasDocument()) {
-        setMessage(QStringLiteral("There is nothing to export yet."));
-        return;
-    }
-
-    // The transcription is shaped into the same drafts the edition exports, so
-    // the OSIS a folio produces and the OSIS an edition produces are written by
-    // one function and cannot drift apart.
-    QMap<QString, CombinedDraft> drafts;
-    InterlinearGlosses glosses;
-    CombinedApparatus apparatus;
-    int unnamed = 0;
-    int strandedNotes = 0;
-
-    for (const TranscribedPage &page : m_document.pages) {
-        for (int index = 0; index < page.verses.size(); ++index) {
-            const TranscribedVerse &verse = page.verses.at(index);
-            const QString id = transcribedVerseId(page, index);
-            if (id.isEmpty()) {
-                ++unnamed;
-                for (const TranscribedWord &word : verse.words) {
-                    if (!word.note.isEmpty()) {
-                        // A note is anchored to a verse by its osisID, and this
-                        // verse has none — so it goes nowhere, and that is
-                        // worth saying rather than discovering later.
-                        ++strandedNotes;
-                    }
-                }
-                continue;
-            }
-
-            CombinedDraft draft;
-            draft.reference.id = id;
-            draft.reference.book = page.book;
-            draft.reference.chapter = chapterOfVerse(page, index);
-            draft.reference.verse = verse.number;
-
-            QMap<int, QString> verseGlosses;
-            for (int column = 0; column < verse.words.size(); ++column) {
-                const TranscribedWord &word = verse.words.at(column);
-                ConsensusColumn cell;
-                cell.text = word.hebrew;
-                draft.columns.append(cell);
-                if (!word.english.isEmpty()) {
-                    verseGlosses.insert(column, word.english);
-                }
-                if (!word.note.isEmpty()) {
-                    SourceNote note;
-                    note.text = word.note;
-                    // Which word it belongs to. The interlinear body writes
-                    // each word separately, so it anchors by this rather than
-                    // by a character offset into running text there is none of.
-                    note.tokenIndex = column;
-                    note.number =
-                        QString::number(apparatus.notes[id].size() + 1);
-                    apparatus.notes[id].append(note);
-                }
-            }
-            if (!verseGlosses.isEmpty()) {
-                glosses.insert(id, verseGlosses);
-            }
-            drafts.insert(id, draft);
-        }
-    }
-
-    if (drafts.isEmpty()) {
-        QMessageBox::warning(
-            m_dialogParent,
-            QStringLiteral("Milah"),
-            QStringLiteral("Nothing can be exported yet: OSIS addresses a verse by "
-                           "book, chapter and number, and none of the verses "
-                           "transcribed so far has all three."));
-        return;
-    }
-
     WorkMetadata work;
     work.workId = QStringLiteral("Milah.Transcription");
+    // A transcription is a witness, not an edition, and the library's own files
+    // say so in this line.
+    work.workType = QStringLiteral("x-manuscript");
     work.language = m_document.metadata.language.isEmpty()
         ? QStringLiteral("he")
         : m_document.metadata.language;
@@ -900,8 +831,135 @@ void TranscriptionController::exportOsis()
         work.identifiers.insert(
             QStringLiteral("x-transcriber"), m_document.metadata.transcriber);
     }
+    return work;
+}
 
-    const QString suggested = QStringLiteral("%1.osis").arg(work.title);
+TranscriptionController::Exportable TranscriptionController::exportable() const
+{
+    // The transcription is shaped into the same drafts the edition exports, so
+    // the OSIS a folio produces and the OSIS an edition produces are written by
+    // one function and cannot drift apart.
+    Exportable out;
+
+    for (const TranscribedPage &page : m_document.pages) {
+        for (int index = 0; index < page.verses.size(); ++index) {
+            const TranscribedVerse &verse = page.verses.at(index);
+            const QString id = transcribedVerseId(page, index);
+            if (id.isEmpty()) {
+                ++out.unnamed;
+                for (const TranscribedWord &word : verse.words) {
+                    if (!word.note.isEmpty()) {
+                        // A note is anchored to a verse by its osisID, and this
+                        // verse has none — so it goes nowhere, and that is
+                        // worth saying rather than discovering later.
+                        ++out.strandedNotes;
+                    }
+                }
+                continue;
+            }
+
+            CombinedDraft draft;
+            draft.reference.id = id;
+            draft.reference.book = page.book;
+            draft.reference.chapter = chapterOfVerse(page, index);
+            draft.reference.verse = verse.number;
+
+            QMap<int, QString> verseGlosses;
+            QList<int> notedColumns;
+            for (int column = 0; column < verse.words.size(); ++column) {
+                const TranscribedWord &word = verse.words.at(column);
+                ConsensusColumn cell;
+                cell.text = word.hebrew;
+                draft.columns.append(cell);
+                if (!word.english.isEmpty()) {
+                    verseGlosses.insert(column, word.english);
+                }
+                if (!word.note.isEmpty()) {
+                    notedColumns.append(column);
+                }
+            }
+
+            // Anchored twice, because the two writers ask different questions.
+            // The interlinear one writes each word separately and wants to know
+            // which word; the plain one writes running text and wants to know
+            // how many characters in. Answering only one of them is how every
+            // note in a verse ends up piled onto its first word.
+            for (const int column : notedColumns) {
+                SourceNote note;
+                note.text = verse.words.at(column).note;
+                note.tokenIndex = column;
+                note.charOffset = columnCharOffset(draft, column);
+                note.number = QString::number(out.apparatus.notes[id].size() + 1);
+                out.apparatus.notes[id].append(note);
+            }
+
+            if (!verseGlosses.isEmpty()) {
+                out.glosses.insert(id, verseGlosses);
+            }
+            out.drafts.insert(id, draft);
+        }
+    }
+
+    return out;
+}
+
+/// What to say when some of the folio could not be addressed. Empty when all of
+/// it could.
+QString TranscriptionController::unaddressedNotice(const Exportable &work)
+{
+    if (work.unnamed == 0) {
+        return QString();
+    }
+    // Named rather than dropped quietly: a transcriber who has not filled the
+    // Book field in would otherwise see a successful export missing a folio.
+    return work.strandedNotes > 0
+        ? QStringLiteral(" %1 verses could not be addressed and were left out — they "
+                         "need a book and a verse number — and %2 of your notes went "
+                         "with them.")
+              .arg(work.unnamed)
+              .arg(work.strandedNotes)
+        : QStringLiteral(" %1 verses could not be addressed and were left out — they "
+                         "need a book and a verse number.")
+              .arg(work.unnamed);
+}
+
+bool TranscriptionController::writeOsisTo(const QString &path, const QString &osis)
+{
+    // Through a QSaveFile, so an interrupted write leaves nothing behind: half
+    // a manuscript in the library would be worse than none, because it would
+    // look like one.
+    QSaveFile file(path);
+    if (!file.open(QIODevice::WriteOnly) || file.write(osis.toUtf8()) < 0
+        || !file.commit()) {
+        QMessageBox::warning(
+            m_dialogParent,
+            QStringLiteral("Milah"),
+            QStringLiteral("Could not write %1.").arg(path));
+        return false;
+    }
+    return true;
+}
+
+void TranscriptionController::exportOsis()
+{
+    if (!hasDocument()) {
+        setMessage(QStringLiteral("There is nothing to export yet."));
+        return;
+    }
+
+    const Exportable work = exportable();
+    if (work.drafts.isEmpty()) {
+        QMessageBox::warning(
+            m_dialogParent,
+            QStringLiteral("Milah"),
+            QStringLiteral("Nothing can be exported yet: OSIS addresses a verse by "
+                           "book, chapter and number, and none of the verses "
+                           "transcribed so far has all three."));
+        return;
+    }
+
+    const WorkMetadata metadata = workMetadata();
+    const QString suggested = QStringLiteral("%1.osis").arg(metadata.title);
     const QString directory =
         QSettings().value(QStringLiteral("paths/lastDirectory")).toString();
     QString path = QFileDialog::getSaveFileName(
@@ -916,40 +974,137 @@ void TranscriptionController::exportOsis()
         path += QStringLiteral(".osis");
     }
 
-    const QString osis = serializeInterlinearOsis(drafts, glosses, work, apparatus);
-    QSaveFile file(path);
-    if (!file.open(QIODevice::WriteOnly)
-        || file.write(osis.toUtf8()) < 0
-        || !file.commit()) {
-        QMessageBox::warning(
-            m_dialogParent,
-            QStringLiteral("Milah"),
-            QStringLiteral("Could not write %1.").arg(path));
+    // Three editions of the one transcription, as the comparison exports its
+    // own: the text by itself, which is what another program wants; the text
+    // with the remarks, which is what the library holds; and the text with the
+    // English, which is what nothing else carries.
+    const QFileInfo chosen(path);
+    const QString base =
+        chosen.absolutePath() + QLatin1Char('/') + chosen.completeBaseName();
+    const QString suffix =
+        chosen.suffix().isEmpty() ? QStringLiteral("osis") : chosen.suffix();
+
+    QStringList written;
+    if (!writeOsisTo(path, serializeCombinedOsis(work.drafts, metadata))) {
         return;
+    }
+    written.append(chosen.fileName());
+
+    // The other two only where they would carry something a reader has not
+    // already got: an empty apparatus makes a commented edition that is the
+    // plain one under another name.
+    if (!work.apparatus.notes.isEmpty()) {
+        const QString commented = QStringLiteral("%1-commented.%2").arg(base, suffix);
+        if (!writeOsisTo(
+                commented,
+                serializeCombinedOsis(work.drafts, metadata, work.apparatus))) {
+            return;
+        }
+        written.append(QFileInfo(commented).fileName());
+    }
+    if (!work.glosses.isEmpty()) {
+        const QString interlinear = QStringLiteral("%1-interlinear.%2").arg(base, suffix);
+        if (!writeOsisTo(
+                interlinear,
+                serializeInterlinearOsis(
+                    work.drafts, work.glosses, metadata, work.apparatus))) {
+            return;
+        }
+        written.append(QFileInfo(interlinear).fileName());
     }
 
     QSettings().setValue(
-        QStringLiteral("paths/lastDirectory"), QFileInfo(path).absolutePath());
-    // Verses that could not be addressed are named rather than dropped quietly:
-    // a transcriber who has not filled the Book field in would otherwise see a
-    // successful export that is missing a folio.
-    if (unnamed > 0) {
-        setMessage(strandedNotes > 0
-            ? QStringLiteral("Exported %1 verses. %2 could not be addressed and were "
-                             "left out — they need a book and a verse number — and "
-                             "%3 of your notes went with them.")
-                  .arg(drafts.size())
-                  .arg(unnamed)
-                  .arg(strandedNotes)
-            : QStringLiteral("Exported %1 verses. %2 could not be addressed and were "
-                             "left out — they need a book and a verse number.")
-                  .arg(drafts.size())
-                  .arg(unnamed));
+        QStringLiteral("paths/lastDirectory"), chosen.absolutePath());
+    setMessage(QStringLiteral("Exported %1 verses to %2.%3")
+                   .arg(work.drafts.size())
+                   .arg(written.join(QStringLiteral(", ")))
+                   .arg(unaddressedNotice(work)));
+}
+
+void TranscriptionController::addToLibrary()
+{
+    if (!hasDocument()) {
+        setMessage(QStringLiteral("There is nothing to add yet."));
         return;
     }
-    setMessage(QStringLiteral("Exported %1 verses to %2.")
-                   .arg(drafts.size())
-                   .arg(QFileInfo(path).fileName()));
+
+    const Exportable work = exportable();
+    if (work.drafts.isEmpty()) {
+        QMessageBox::warning(
+            m_dialogParent,
+            QStringLiteral("Milah"),
+            QStringLiteral("Nothing can be added to your library yet: a manuscript is "
+                           "filed by its book, and none of the verses transcribed so "
+                           "far has a book, a chapter and a number."));
+        return;
+    }
+
+    const QString directory = manuscriptWriteDirectory();
+    if (directory.isEmpty()) {
+        QMessageBox::warning(
+            m_dialogParent,
+            QStringLiteral("Milah"),
+            QStringLiteral("There is nowhere to keep a library on this machine."));
+        return;
+    }
+
+    // One file per book, because that is how the published library is
+    // organised: a witness is a book of a manuscript, and a codex of
+    // twenty-six of them is twenty-six texts to collate separately.
+    QMap<QString, QMap<QString, CombinedDraft>> byBook;
+    for (auto draft = work.drafts.constBegin(); draft != work.drafts.constEnd(); ++draft) {
+        byBook[draft->reference.book].insert(draft.key(), draft.value());
+    }
+
+    const WorkMetadata metadata = workMetadata();
+    QMap<QString, QString> files; // path -> contents
+    QStringList existing;
+    for (auto book = byBook.constBegin(); book != byBook.constEnd(); ++book) {
+        WorkMetadata one = metadata;
+        // Which book this file is, which is what the manifest generator and the
+        // download list group by.
+        one.scope = book.key();
+
+        const QString name =
+            libraryFileName(book.key(), m_document.metadata.manuscriptName);
+        const QString path = QDir(directory).filePath(name);
+        files.insert(path, serializeCombinedOsis(book.value(), one, work.apparatus));
+        if (QFileInfo::exists(path)) {
+            existing.append(name);
+        }
+    }
+
+    if (!existing.isEmpty()) {
+        // Downloads replace silently, because re-downloading is how a
+        // correction is taken. Here the name could just as easily belong to a
+        // published manuscript somebody spent a year on.
+        const QMessageBox::StandardButton answer = QMessageBox::question(
+            m_dialogParent,
+            QStringLiteral("Milah"),
+            QStringLiteral("Your library already holds %1.\nReplace %2?")
+                .arg(
+                    existing.join(QStringLiteral(", ")),
+                    existing.size() == 1 ? QStringLiteral("it") : QStringLiteral("them")),
+            QMessageBox::Yes | QMessageBox::No,
+            QMessageBox::No);
+        if (answer != QMessageBox::Yes) {
+            return;
+        }
+    }
+
+    QDir().mkpath(directory);
+    QStringList written;
+    for (auto file = files.constBegin(); file != files.constEnd(); ++file) {
+        if (!writeOsisTo(file.key(), file.value())) {
+            return;
+        }
+        written.append(QFileInfo(file.key()).fileName());
+    }
+
+    setMessage(QStringLiteral("Added %1 to your library. Load it from the Textual "
+                              "criticism tab with File ▸ Load manuscripts.%2")
+                   .arg(written.join(QStringLiteral(", ")))
+                   .arg(unaddressedNotice(work)));
 }
 
 // --------------------------------------------------------------------------

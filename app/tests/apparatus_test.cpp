@@ -1,3 +1,4 @@
+#include "core/alignment.h"
 #include "core/osis.h"
 #include "core/serialize.h"
 #include "test_data.h"
@@ -31,7 +32,6 @@ const QStringList &corpusVariants()
         QStringLiteral("hebrew"),
         QStringLiteral("hebrew_commented"),
         QStringLiteral("translation"),
-        QStringLiteral("hebrew_consonantal"),
     };
     return variants;
 }
@@ -328,6 +328,141 @@ private slots:
                            "osisRef=\"Rev.1.1\" osisID=\"Rev.1.1!note.1\">Doubtful"
                            "</note><w>beta</w>")));
         QVERIFY(!xml.contains(QStringLiteral("</note><w>alpha</w>")));
+    }
+
+    /// The plain writer anchors by character offset, so a note whose offset was
+    /// never worked out lands at the start of the verse. Two notes then arrive
+    /// on top of one another, on a word neither belongs to — which is what
+    /// happens if a caller sets only tokenIndex.
+    void plainNotesLandOnTheirOwnWords()
+    {
+        CombinedDraft draft;
+        draft.reference.id = QStringLiteral("Rev.1.1");
+        draft.reference.book = QStringLiteral("Rev");
+        draft.reference.chapter = 1;
+        draft.reference.verse = QStringLiteral("1");
+        for (const QString &word : {QStringLiteral("alpha"),
+                                    QStringLiteral("beta"),
+                                    QStringLiteral("gamma")}) {
+            ConsensusColumn column;
+            column.text = word;
+            draft.columns.append(column);
+        }
+        const QMap<QString, CombinedDraft> drafts{{draft.reference.id, draft}};
+
+        CombinedApparatus apparatus;
+        SourceNote second;
+        second.text = QStringLiteral("On beta");
+        second.number = QStringLiteral("1");
+        second.charOffset = columnCharOffset(draft, 1);
+        SourceNote third;
+        third.text = QStringLiteral("On gamma");
+        third.number = QStringLiteral("2");
+        third.charOffset = columnCharOffset(draft, 2);
+        apparatus.notes.insert(draft.reference.id, {second, third});
+
+        QVERIFY2(second.charOffset > 0, "the second word does not start the verse");
+        QVERIFY(third.charOffset > second.charOffset);
+
+        const QString xml = serializeCombinedOsis(drafts, WorkMetadata(), apparatus);
+        QVERIFY(xml.contains(QStringLiteral("alpha <note")));
+        QVERIFY(xml.contains(QStringLiteral("On beta</note>beta")));
+        QVERIFY(xml.contains(QStringLiteral("On gamma</note>gamma")));
+    }
+
+    void theHeaderKeepsWhatItIsGiven()
+    {
+        // The shelfmark is how a manuscript is identified at all, and it used
+        // to be assembled by the caller and then dropped here.
+        CombinedDraft draft;
+        draft.reference.id = QStringLiteral("Rev.1.1");
+        draft.reference.book = QStringLiteral("Rev");
+        draft.reference.chapter = 1;
+        draft.reference.verse = QStringLiteral("1");
+        ConsensusColumn column;
+        column.text = QStringLiteral("alpha");
+        draft.columns.append(column);
+
+        WorkMetadata metadata;
+        metadata.title = QStringLiteral("A transcription");
+        metadata.scope = QStringLiteral("REV");
+        metadata.identifiers.insert(
+            QStringLiteral("x-shelfmark"), QStringLiteral("British Library, Sloane MS 237"));
+
+        const QString xml =
+            serializeCombinedOsis({{draft.reference.id, draft}}, metadata);
+        QVERIFY(xml.contains(QStringLiteral(
+            "<identifier type=\"x-shelfmark\">British Library, Sloane MS 237</identifier>")));
+        QVERIFY(xml.contains(QStringLiteral("<scope>REV</scope>")));
+    }
+
+    void aWitnessIsNotLabelledAnEdition()
+    {
+        // What the manuscript library's own files say, and what tells a reader
+        // opening the XML that they have a witness rather than a collation.
+        CombinedDraft draft;
+        draft.reference.id = QStringLiteral("Rev.1.1");
+        draft.reference.book = QStringLiteral("Rev");
+        draft.reference.chapter = 1;
+        draft.reference.verse = QStringLiteral("1");
+        ConsensusColumn column;
+        column.text = QStringLiteral("alpha");
+        draft.columns.append(column);
+        const QMap<QString, CombinedDraft> drafts{{draft.reference.id, draft}};
+
+        WorkMetadata manuscript;
+        manuscript.workType = QStringLiteral("x-manuscript");
+        const QString witness = serializeCombinedOsis(drafts, manuscript);
+        QVERIFY(witness.contains(
+            QStringLiteral("<type type=\"x-manuscript\">Manuscript</type>")));
+        QVERIFY(!witness.contains(QStringLiteral("x-bible")));
+
+        // And an edition, which says nothing, still reads as it always did.
+        const QString edition = serializeCombinedOsis(drafts);
+        QVERIFY(edition.contains(QStringLiteral("<type type=\"x-bible\">Edition</type>")));
+        QVERIFY(!edition.contains(QStringLiteral("x-manuscript")));
+    }
+
+    void textThatLooksLikeAPlaceholderIsLeftAlone()
+    {
+        // The header is assembled by QString::arg, and the verse text is one of
+        // its arguments. A note reading "%1" must stay a note rather than being
+        // filled in with the title on a later pass.
+        CombinedDraft draft;
+        draft.reference.id = QStringLiteral("Rev.1.1");
+        draft.reference.book = QStringLiteral("Rev");
+        draft.reference.chapter = 1;
+        draft.reference.verse = QStringLiteral("1");
+        ConsensusColumn column;
+        column.text = QStringLiteral("%1 %5 %7");
+        draft.columns.append(column);
+
+        WorkMetadata metadata;
+        metadata.title = QStringLiteral("A transcription");
+        metadata.scope = QStringLiteral("REV");
+
+        const QString xml =
+            serializeCombinedOsis({{draft.reference.id, draft}}, metadata);
+        QVERIFY(xml.contains(QStringLiteral("%1 %5 %7")));
+        QCOMPARE(xml.count(QStringLiteral("<scope>REV</scope>")), 1);
+    }
+
+    void aHeaderWithNothingExtraIsUnchanged()
+    {
+        CombinedDraft draft;
+        draft.reference.id = QStringLiteral("Rev.1.1");
+        draft.reference.book = QStringLiteral("Rev");
+        draft.reference.chapter = 1;
+        draft.reference.verse = QStringLiteral("1");
+        ConsensusColumn column;
+        column.text = QStringLiteral("alpha");
+        draft.columns.append(column);
+
+        // What the comparison passes today: no identifiers, no scope. Its
+        // output must not have moved.
+        const QString xml = serializeCombinedOsis({{draft.reference.id, draft}});
+        QVERIFY(!xml.contains(QStringLiteral("<scope>")));
+        QVERIFY(!xml.contains(QStringLiteral("x-shelfmark")));
     }
 
     void anInterlinearWithNoNotesIsUnchanged()

@@ -26,6 +26,21 @@ struct WorkMetadata
     QString title;
     QString language;
     QString scope;
+    /// The `<rights>` line: who holds the copyright and on what terms.
+    ///
+    /// Read from the file rather than assumed, because the terms differ from
+    /// text to text — a collation can hold a CC-licensed transcription and an
+    /// "all rights reserved" translation side by side, and the editor working
+    /// on them is entitled to see which is which without opening the XML.
+    QString rights;
+    /// The `<type>` line's attribute: what kind of work this is. A witness and
+    /// an edition are different things and the published library says which by
+    /// this line — its manuscript files carry `x-manuscript` where its editions
+    /// carry `x-bible`.
+    ///
+    /// Empty means an edition, which is what Milah's own collations are, so a
+    /// caller that says nothing gets the file it always got.
+    QString workType;
     QMap<QString, QString> identifiers;
 };
 

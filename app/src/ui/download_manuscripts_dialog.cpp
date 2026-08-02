@@ -324,10 +324,22 @@ void DownloadManuscriptsDialog::showCatalogue()
                      updatable      ? QStringLiteral("update available")
                          : alreadyHeld ? QStringLiteral("held")
                                        : humanSize(entry.bytes));
-        row->setToolTip(0,
-                        entry.date.isEmpty()
-                            ? entry.file
-                            : QStringLiteral("%1\n%2").arg(entry.date, entry.file));
+        // Everything known about the text, labelled, with the terms among it.
+        // A row cannot carry this on its face without a column of licence
+        // boilerplate repeated a dozen times, but it must be reachable before
+        // the file is taken rather than only after.
+        QStringList detail;
+        if (!entry.date.isEmpty()) {
+            detail.append(QStringLiteral("Written: %1").arg(entry.date));
+        }
+        if (!entry.covers.isEmpty()) {
+            detail.append(QStringLiteral("Covers: %1").arg(entry.covers));
+        }
+        if (!entry.rights.isEmpty()) {
+            detail.append(QStringLiteral("Rights: %1").arg(entry.rights));
+        }
+        detail.append(entry.file);
+        row->setToolTip(0, detail.join(QLatin1Char('\n')));
         row->setFlags(row->flags() | Qt::ItemIsUserCheckable);
         // Nothing is ticked for the editor, updates included: this window's
         // rule is that opening it puts nothing on the wire. Select updates is
