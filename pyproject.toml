@@ -16,6 +16,14 @@ dependencies = [
     # Reads the embedded font cmaps that pointed manuscripts need, because
     # their PDFs ship a ToUnicode map that decodes many niqqud incorrectly.
     "fonttools>=4.50,<5",
+    # Reads CrossWire SWORD Bible modules directly (pdf2osis.sword) — a source
+    # kind with no PDF at all, so nothing above this line applies to it.
+    "pysword>=0.2.8,<0.3",
+    # Fetches and parses the modern-Hebrew NT (pdf2osis.bsi_hnt) from its
+    # nocr.net mirror — the only source in this package with no local file at
+    # all until fetch_bsi_nt() writes one.
+    "requests>=2.31,<3",
+    "beautifulsoup4>=4.12,<5",
 ]
 
 [project.optional-dependencies]
@@ -25,10 +33,10 @@ dev = ["pytest>=8,<9"]
 pdf2osis = "pdf2osis.cli:main"
 
 [tool.setuptools]
-package-dir = {"" = "python"}
+package-dir = {"" = "tools/python"}
 
 [tool.setuptools.packages.find]
-where = ["python"]
+where = ["tools/python"]
 
 [tool.setuptools.package-data]
 pdf2osis = ["schema/*.xsd"]

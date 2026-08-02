@@ -33,13 +33,54 @@ struct CatalogueEntry
     /// What the edition covers. Absent from a third of the texts, so never
     /// assume it is there.
     QString covers;
+    /// The `<rights>` line from the OSIS header: who holds the copyright and on
+    /// what terms the text may be used.
+    ///
+    /// Shown before anything is downloaded, because the terms are not uniform
+    /// and not all of them are permissive — some of these translations are
+    /// "All rights reserved" while the transcriptions beside them are CC
+    /// BY-NC-SA. A reader is entitled to know which of the two they are taking
+    /// a copy of, and telling them afterwards is telling them too late.
+    ///
+    /// Empty when the manifest predates the field, in which case the window
+    /// says nothing rather than implying no terms apply.
+    QString rights;
     /// Which way Milah has to load it. The manifest states this rather than the
     /// app guessing, and it is why the library can load a file without asking.
     SourceRole role = SourceRole::Manuscript;
     qint64 bytes = 0;
+    /// Checksum of the published file, lowercase hex. Empty when the manifest
+    /// predates checksums, in which case the text can still be downloaded but
+    /// nothing can be said about whether the copy held is current.
+    QString sha256;
 
     bool isTranslation() const { return role == SourceRole::Translation; }
+
+    /// The title as the download window should show it.
+    ///
+    /// A translation's own title already says what it is — "English Translation
+    /// of Luke (Vatican, Vat. ebr. 530)" — so marking the row as a translation
+    /// as well says it twice, and the two halves disagree about wording. This
+    /// takes the lead off and puts one consistent mark at the end, so a
+    /// translation sits under the same name as the witness it renders and the
+    /// pair reads as a pair.
+    ///
+    /// The transcribers write the lead two ways ("Translation of" and "English
+    /// Translation of"), and a third is only a matter of time, so a title
+    /// carrying no lead at all is left alone rather than mangled.
+    QString displayTitle() const;
 };
+
+/// The checksum of a file as the manifest measures it: over the LF form of its
+/// contents, which is what GitHub serves and therefore what was downloaded.
+///
+/// Normalising matters because `.gitattributes` in the manuscripts repository
+/// sets `* text=auto`, so a clone made on Windows with core.autocrlf may hold
+/// CRLF where the server has LF. Hashing the raw bytes would then disagree with
+/// the manifest for every file at once, and no download would ever settle it.
+///
+/// Empty when the file cannot be read.
+QString manuscriptChecksum(const QString &path);
 
 /// What the published repository offers, read from its manifest.
 class ManuscriptCatalogue
@@ -58,6 +99,16 @@ public:
     /// The file names of `directory` that this catalogue knows about, so the
     /// download window can say what is already held.
     QStringList installedFiles(const QString &directory) const;
+
+    /// Of those, the ones whose contents no longer match the manifest — a text
+    /// that has been corrected since it was downloaded.
+    ///
+    /// A file that is not held is not updatable: "you do not have this" and
+    /// "yours is out of date" are different answers and the window shows them
+    /// differently. An entry with no checksum is never updatable either, since
+    /// there is nothing to compare and claiming otherwise would offer an
+    /// endless update.
+    QStringList updatableFiles(const QString &directory) const;
 
 private:
     QList<CatalogueEntry> m_entries;

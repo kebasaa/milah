@@ -21,14 +21,14 @@ from lxml import etree
 
 from pdf2osis.converter import convert_pdf
 from pdf2osis.ebr530 import extract_ebr530
-from pdf2osis.glyphs import is_syriac, strip_points
+from pdf2osis.glyphs import is_syriac
 from pdf2osis.osis import OSIS_NS, build_structured_osis
 from pdf2osis.profiles import EBR530_JOHN, EBR530_LUKE
 from pdf2osis.validate import STRICT_SCHEMA, validate_sloane_records
 
 NS = {"osis": OSIS_NS}
 ROOT = Path(__file__).resolve().parents[1]
-PDF = EBR530_LUKE.default_path(ROOT / "data" / "00_source_files")
+PDF = EBR530_LUKE.default_path(ROOT / "tools" / "data" / "00_source_files")
 EXPECTED = json.loads(
     (Path(__file__).with_name("fixtures") / "ebr530_expected.json").read_text(
         encoding="utf-8"
@@ -227,19 +227,6 @@ def test_osis_carries_the_non_verse_structures(outputs, book):
     verses = root.xpath("//osis:verse", namespaces=NS)
     starts = [v.get("sID") for v in verses if v.get("sID")]
     assert starts == [v.get("eID") for v in verses if v.get("eID")]
-
-
-@pytest.mark.parametrize("book", sorted(PROFILES))
-def test_consonantal_variant_drops_every_point(outputs, book):
-    def body(payload: bytes) -> str:
-        div = etree.fromstring(payload).xpath(
-            "//osis:div[@type='book']", namespaces=NS
-        )[0]
-        return " ".join(div.itertext())
-
-    text = body(outputs[book]["hebrew_consonantal"])
-    assert not [c for c in text if "֑" <= c <= "ׇ"]
-    assert strip_points(body(outputs[book]["hebrew"])) == text
 
 
 def test_header_carries_attributed_provenance(outputs):

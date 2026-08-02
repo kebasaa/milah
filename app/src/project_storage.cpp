@@ -14,8 +14,6 @@
 
 namespace {
 
-constexpr qint64 MaxEntrySize = 64 * 1024 * 1024;
-
 bool writeEntry(
     QuaZip &archive,
     const QString &entryName,
@@ -63,7 +61,8 @@ bool ProjectStorage::isSafeEntryPath(const QString &path)
 bool ProjectStorage::saveToPath(
     const QString &path,
     const QJsonObject &payload,
-    QString *errorMessage)
+    QString *errorMessage,
+    qint64 entryLimit)
 {
     if (errorMessage == nullptr) {
         return false;
@@ -115,7 +114,7 @@ bool ProjectStorage::saveToPath(
             archive.close();
             return false;
         }
-        if (contents.size() > MaxEntrySize) {
+        if (contents.size() > entryLimit) {
             *errorMessage = QStringLiteral("Project entry is too large: %1")
                                 .arg(entryPath);
             archive.close();
@@ -152,7 +151,8 @@ bool ProjectStorage::saveToPath(
 
 QJsonObject ProjectStorage::loadFromPath(
     const QString &path,
-    QString *errorMessage)
+    QString *errorMessage,
+    qint64 entryLimit)
 {
     if (errorMessage == nullptr) {
         return {};
@@ -186,9 +186,9 @@ QJsonObject ProjectStorage::loadFromPath(
             archive.close();
             return {};
         }
-        const QByteArray contents = entry.read(MaxEntrySize + 1);
+        const QByteArray contents = entry.read(entryLimit + 1);
         entry.close();
-        if (contents.size() > MaxEntrySize) {
+        if (contents.size() > entryLimit) {
             *errorMessage = QStringLiteral("Project entry is too large: %1")
                                 .arg(entryPath);
             archive.close();

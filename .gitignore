@@ -7,3 +7,10 @@ __pycache__/
 # Milah desktop app build output
 /build/
 /milah-portabl*
+
+# The Bible Society in Israel's HaBrit HaChadasha carries no reuse or
+# redistribution permission (see tools/README.md, "Modern Hebrew New
+# Testament (scraped)") — neither the scraped cache nor anything generated
+# from it is committed.
+/tools/data/00_source_files/bsi_hnt/
+/tools/data/01_osis/NT_BSI_*

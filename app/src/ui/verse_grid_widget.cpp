@@ -6,12 +6,13 @@
 #include "core/lexicon.h"
 #include "core/suggestions.h"
 #include "core/tokenize.h"
+#include "core/word_marker.h"
+#include "ui/band_grid.h"
 #include "ui/icons.h"
 
 #include <QAction>
 #include <QFocusEvent>
 #include <QFontMetrics>
-#include <QFrame>
 #include <QGridLayout>
 #include <QHBoxLayout>
 #include <QInputDialog>
@@ -20,11 +21,7 @@
 #include <QMenu>
 #include <QPalette>
 #include <QPlainTextEdit>
-#include <QResizeEvent>
-#include <QScrollArea>
-#include <QTextDocument>
 #include <QTextOption>
-#include <QTimer>
 #include <QToolButton>
 #include <QVBoxLayout>
 
@@ -33,58 +30,10 @@
 namespace milah {
 namespace {
 
-/// Gap between adjacent readings. This is the only thing separating one column
-/// from the next: the cells themselves carry no border and no padding, so a
-/// measured width is the width the reading actually takes.
-constexpr int ColumnSpacing = 12;
-/// The band grid runs right to left, so its column 0 is the rightmost on
-/// screen — where each row is named. Readings start one column further in.
-constexpr int AcronymColumn = 0;
-constexpr int FirstReadingColumn = 1;
-/// Gap between a row's name and the reading beside it. Set in code rather than
-/// in the stylesheet because the preview below the bands insets itself by
-/// exactly this much to line up with the first word, and two copies of the
-/// number would not stay equal.
-constexpr int AcronymPadding = 8;
-/// Rounding slack per column, so a reading never lands a pixel over its cell.
-constexpr int MeasurementSlack = 4;
-/// Room for the caret at either end of an editable Combined word.
-constexpr int CaretCushion = 10;
-/// Room for the note marker inside a Combined field. Qt takes a side action's
-/// space out of the text area, so a marked word needs this much more cell or
-/// the word itself is squeezed.
-constexpr int NoteMarkerWidth = 18;
-/// Width assumed before the card has been laid out for the first time.
-constexpr int UnlaidOutWidth = 900;
-/// Ignore width changes smaller than this, so scrollbar jitter cannot start a
-/// rebuild loop.
-constexpr int ReflowThreshold = 4;
-
-/// Readings are set a little larger than the interface: pointed Hebrew is hard
-/// to read at the default size. Applied in code rather than in the stylesheet
-/// so that measuring a cell and drawing it use the same font.
-QFont scaledFont(const QWidget *widget, double factor)
-{
-    QFont font = widget->font();
-    if (font.pointSizeF() > 0) {
-        font.setPointSizeF(font.pointSizeF() * factor);
-    } else {
-        font.setPixelSize(int(std::lround(font.pixelSize() * factor)));
-    }
-    return font;
-}
-
-int htmlWidth(const QString &html, const QFont &font)
-{
-    if (html.isEmpty()) {
-        return 0;
-    }
-    QTextDocument document;
-    document.setDefaultFont(font);
-    document.setDocumentMargin(0);
-    document.setHtml(html);
-    return int(std::ceil(document.idealWidth())) + MeasurementSlack;
-}
+/// The band packing, the measurements and the palette-derived colours the
+/// comparison shares with the transcription workspace live in ui/band_grid.h.
+/// What stays here is what only a comparison has: the letter-level diff marks
+/// and the apparatus around them.
 
 /// Inline colours for the letter-level marks. Qt's rich text does not see the
 /// window's stylesheet, so these are chosen against the current base colour
@@ -95,35 +44,8 @@ struct DiffColors
     QString added;
 };
 
-/// Quieter than the readings but still legible, in a light or a dark palette —
-/// which `palette(mid)` is not, so this is applied to the label rather than
-/// left to the window's stylesheet.
-/// A Combined word still holding the value consensus gave it reads muted, so
-/// the eye can find what has not been settled yet.
-QString unsettledColor(const QPalette &palette)
-{
-    return palette.color(QPalette::Base).lightness() < 128
-        ? QStringLiteral("#8fa3bf")
-        : QStringLiteral("#5a6c8c");
-}
-
-/// The asterisk marking a word a manuscript comments on. Red, and lightened on
-/// a dark background where a saturated red goes muddy against the base.
-QColor noteMarkerColor(const QPalette &palette)
-{
-    return palette.color(QPalette::Base).lightness() < 128
-        ? QColor(QStringLiteral("#ff6b6b"))
-        : QColor(QStringLiteral("#c02626"));
-}
-
-QString acronymColor(const QPalette &palette)
-{
-    const QColor text = palette.color(QPalette::Text);
-    return QStringLiteral("rgba(%1, %2, %3, 0.72)")
-        .arg(text.red())
-        .arg(text.green())
-        .arg(text.blue());
-}
+// The note marker's colour moved to ui/band_grid.h: the transcription marks a
+// remarked word the same way, and one red is easier to keep than two.
 
 DiffColors diffColors(const QPalette &palette)
 {
@@ -241,13 +163,11 @@ VerseGridWidget::VerseGridWidget(
     AppController *controller,
     const AlignedVerse &aligned,
     QWidget *parent)
-    : QWidget(parent)
+    : BandedGridWidget(parent)
     , m_controller(controller)
     , m_aligned(aligned)
 {
     setObjectName(QStringLiteral("verseCard"));
-    m_readingFont = scaledFont(this, 1.25);
-    m_acronymFont = scaledFont(this, 0.85);
 
     auto *outer = new QVBoxLayout(this);
     outer->setContentsMargins(12, 10, 12, 12);
@@ -260,16 +180,7 @@ VerseGridWidget::VerseGridWidget(
     heading->setObjectName(QStringLiteral("verseHeading"));
     outer->addWidget(heading);
 
-    m_bandHost = new QWidget;
-    // The bands are packed to fit the viewport, so they must never be the
-    // thing that decides how wide the viewport is: an ignored width keeps the
-    // readings from pushing the card — and with it the scroll area, and with
-    // it the next packing pass — steadily wider.
-    m_bandHost->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
-    m_bandLayout = new QVBoxLayout(m_bandHost);
-    m_bandLayout->setContentsMargins(0, 0, 0, 0);
-    m_bandLayout->setSpacing(6);
-    outer->addWidget(m_bandHost);
+    outer->addWidget(bandHost());
 
     m_previewRow = new QHBoxLayout;
     // A preview, not an editor: the verse is built word by word in the
@@ -296,24 +207,6 @@ void VerseGridWidget::refresh()
     build();
 }
 
-void VerseGridWidget::resizeEvent(QResizeEvent *event)
-{
-    QWidget::resizeEvent(event);
-
-    if (m_rebuildQueued || std::abs(availableWidth() - m_builtForAvailable) <= ReflowThreshold) {
-        return;
-    }
-    // Collapse a run of resize events into one reflow, and never reflow from
-    // inside the resize itself.
-    m_rebuildQueued = true;
-    QTimer::singleShot(0, this, [this] {
-        m_rebuildQueued = false;
-        if (std::abs(availableWidth() - m_builtForAvailable) > ReflowThreshold) {
-            build();
-        }
-    });
-}
-
 bool VerseGridWidget::eventFilter(QObject *watched, QEvent *event)
 {
     if (event->type() == QEvent::FocusIn) {
@@ -323,39 +216,6 @@ bool VerseGridWidget::eventFilter(QObject *watched, QEvent *event)
         }
     }
     return QWidget::eventFilter(watched, event);
-}
-
-void VerseGridWidget::clearBands()
-{
-    while (QLayoutItem *item = m_bandLayout->takeAt(0)) {
-        if (QWidget *widget = item->widget()) {
-            // A span control can trigger the rebuild that deletes it, so the
-            // widget is only hidden here and freed once the stack unwinds.
-            widget->hide();
-            widget->deleteLater();
-        }
-        delete item;
-    }
-}
-
-int VerseGridWidget::availableWidth() const
-{
-    // Not the card's own width: the card is inside a resizable scroll area and
-    // grows to whatever its content demands, so measuring itself would always
-    // report enough room and no verse would ever wrap. The viewport is the
-    // real limit; the card sits inset from it by the verse list's margins.
-    int limit = width();
-    for (QWidget *ancestor = parentWidget(); ancestor; ancestor = ancestor->parentWidget()) {
-        if (auto *area = qobject_cast<QScrollArea *>(ancestor)) {
-            const int inset = mapTo(area->viewport(), QPoint(0, 0)).x();
-            limit = area->viewport()->width() - 2 * std::max(0, inset);
-            break;
-        }
-    }
-
-    const QMargins margins = layout() ? layout()->contentsMargins() : QMargins();
-    const int available = limit - margins.left() - margins.right();
-    return available > 2 * ColumnSpacing ? available : UnlaidOutWidth;
 }
 
 VerseGridWidget::Row VerseGridWidget::manuscriptRow(
@@ -475,112 +335,27 @@ VerseGridWidget::Row VerseGridWidget::interlinearRow() const
 
 VerseGridWidget::Row VerseGridWidget::strongsRow(const Row &combined) const
 {
-    const HebrewLexicon &lexicon = HebrewLexicon::shared();
-
     Row row;
     row.objectName = QStringLiteral("strongsToken");
     row.font = m_acronymFont;
     row.color = acronymColor(palette());
     row.acronym = QStringLiteral("Strong's");
-    row.tooltip = QStringLiteral(
-        "Strong's numbers for the Combined words, from the Hebrew Bible.\n"
-        "M is attested in the Mishnah or Tosefta; a dash is attested in "
-        "neither — not that the word is wrong.\n"
-        "·D marks a word you have defined yourself, and rides beside whatever "
-        "else is known about it. D alone is a word only you have defined. "
-        "Either way the meaning is in the tooltip.");
+    row.tooltip = markerRowTooltip();
     row.cells.reserve(combined.cells.size());
 
+    // The verdict itself is in core/word_marker.cpp, because the transcription
+    // workspace draws the same row under words nobody has aligned yet, and the
+    // two must not be able to disagree about what a word is known by.
     for (const Cell &word : combined.cells) {
+        const WordMarker marker = markerFor(word.plain, m_controller->dictionary());
         Cell cell;
-        if (word.plain.isEmpty()) {
-            row.cells.append(cell);
-            continue;
-        }
-
-        // What the editor has written about this word themselves, which is
-        // worth reading whether or not the Hebrew Bible has heard of it.
-        const QStringList defined = m_controller->dictionary().definitionsFor(word.plain);
-
-        const QList<LexiconEntry> entries = lexicon.lookup(word.plain);
-        if (entries.isEmpty()) {
-            // Strong's covers the Hebrew Bible only, so a post-biblical word
-            // has no number and never will. Saying which kind of absence this
-            // is keeps the row from reading as though the word were doubtful.
-            const bool rabbinic = AttestedForms::shared().contains(word.plain);
-            if (rabbinic) {
-                cell.plain = QStringLiteral("M");
-                cell.tooltip =
-                    QStringLiteral("%1 is attested in the Mishnah or Tosefta. "
-                                   "Strong's covers only the Hebrew Bible, so "
-                                   "there is no number for it.")
-                        .arg(word.plain);
-            } else if (!defined.isEmpty()) {
-                // A dash says nothing knows this word, which stops being true
-                // the moment the editor defines it. So D stands alone here
-                // rather than riding on a dash it contradicts.
-                cell.plain = QStringLiteral("D");
-            } else {
-                cell.plain = QStringLiteral("—");
-                cell.tooltip =
-                    QStringLiteral("%1 is not attested in the Hebrew Bible, the "
-                                   "Mishnah or the Tosefta.")
-                        .arg(word.plain);
-            }
-        } else {
-            // Several words can share a consonantal skeleton, so the likeliest
-            // reading is shown with a mark and the alternatives kept in reach
-            // rather than one of them being passed off as the answer.
-            cell.plain = entries.size() > 1
-                ? QStringLiteral("%1?").arg(entries.first().strongs)
-                : entries.first().strongs;
-            cell.tooltip = strongsTooltip(entries);
-        }
-
-        // A word can be both attested and worth a note of one's own. What the
-        // corpora say keeps the cell — it is the harder fact — and the note
-        // rides beside it so an annotated word can be seen without hovering.
-        // The one exception is handled above: D never follows a dash.
-        if (!defined.isEmpty() && cell.plain != QStringLiteral("D")) {
-            cell.plain += QStringLiteral("·D");
-        }
-        if (!defined.isEmpty()) {
-            cell.tooltip = cell.tooltip.isEmpty()
-                ? QStringLiteral("%1\n\nYour own definition.")
-                      .arg(numberedDefinitions(defined))
-                : QStringLiteral("Your own definition:\n%1\n\n%2")
-                      .arg(numberedDefinitions(defined), cell.tooltip);
-        }
-        cell.html = cell.plain.toHtmlEscaped();
-
+        cell.plain = marker.text;
+        cell.tooltip = marker.tooltip;
+        cell.html = marker.text.toHtmlEscaped();
         row.cells.append(cell);
     }
 
     return row;
-}
-
-QGridLayout *VerseGridWidget::addBand(bool separator)
-{
-    if (separator) {
-        auto *rule = new QFrame;
-        rule->setObjectName(QStringLiteral("bandRule"));
-        rule->setFrameShape(QFrame::HLine);
-        rule->setFrameShadow(QFrame::Plain);
-        m_bandLayout->addWidget(rule);
-    }
-
-    auto *host = new QWidget;
-    // Right-to-left on the band alone: the toolbar and the row labels stay in
-    // reading order for the editor, while manuscript readings run the way they
-    // are written.
-    host->setLayoutDirection(Qt::RightToLeft);
-
-    auto *grid = new QGridLayout(host);
-    grid->setContentsMargins(0, 0, 0, 0);
-    grid->setHorizontalSpacing(ColumnSpacing);
-    grid->setVerticalSpacing(2);
-    m_bandLayout->addWidget(host);
-    return grid;
 }
 
 void VerseGridWidget::addRowAcronym(
@@ -591,39 +366,20 @@ void VerseGridWidget::addRowAcronym(
     const QString &sourceId,
     bool translation)
 {
-    auto *label = new QLabel(text);
-    label->setObjectName(QStringLiteral("rowAcronym"));
-
     // A source's own row: right-clicking its name reaches what can be done with
     // that source here — reading the verse against a manuscript, or closing a
-    // translation.
+    // translation. A row no source speaks for gets no menu.
+    std::function<void(const QPoint &)> menu;
     if (!sourceId.isEmpty()) {
-        label->setContextMenuPolicy(Qt::CustomContextMenu);
-        connect(
-            label,
-            &QLabel::customContextMenuRequested,
-            this,
-            [this, label, sourceId, text, translation](const QPoint &position) {
-                const QPoint global = label->mapToGlobal(position);
-                if (translation) {
-                    showTranslationMenu(sourceId, global);
-                } else {
-                    showReferenceMenu(sourceId, text, global);
-                }
-            });
+        menu = [this, sourceId, text, translation](const QPoint &global) {
+            if (translation) {
+                showTranslationMenu(sourceId, global);
+            } else {
+                showReferenceMenu(sourceId, text, global);
+            }
+        };
     }
-    // Latin in a right-to-left band: the label reads left to right within its
-    // own cell, which sits at the right-hand edge of the row.
-    label->setLayoutDirection(Qt::LeftToRight);
-    label->setFont(m_acronymFont);
-    label->setStyleSheet(QStringLiteral("color: %1; padding-left: %2px;")
-                             .arg(acronymColor(palette()))
-                             .arg(AcronymPadding));
-    label->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
-    if (!tooltip.isEmpty()) {
-        label->setToolTip(tooltip);
-    }
-    grid->addWidget(label, row, AcronymColumn);
+    BandedGridWidget::addRowAcronym(grid, row, text, tooltip, menu);
 }
 
 int VerseGridWidget::addCells(QGridLayout *grid, int row, const Band &band, const Row &data)
@@ -1273,24 +1029,11 @@ void VerseGridWidget::build()
     acronymWidth =
         std::max(acronymWidth, acronymMetrics.horizontalAdvance(interlinear.acronym));
 
-    QList<Band> bands;
     const int available = availableWidth();
     m_builtForAvailable = available;
     const int readingRoom =
         std::max(ColumnSpacing, available - acronymWidth - MeasurementSlack - ColumnSpacing);
-    int start = 0;
-    int used = 0;
-    for (int index = 0; index < widths.size(); ++index) {
-        const int required = widths.at(index) + (index > start ? ColumnSpacing : 0);
-        if (index > start && used + required > readingRoom) {
-            bands.append(Band{start, index});
-            start = index;
-            used = widths.at(index);
-        } else {
-            used += required;
-        }
-    }
-    bands.append(Band{start, int(widths.size())});
+    const QList<Band> bands = packBands(widths, readingRoom);
 
     for (int index = 0; index < bands.size(); ++index) {
         const Band &band = bands.at(index);

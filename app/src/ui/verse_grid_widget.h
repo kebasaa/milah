@@ -3,11 +3,11 @@
 #include "core/alignment.h"
 #include "core/suggestions.h"
 #include "core/types.h"
+#include "ui/band_grid.h"
 
 #include <QFont>
 #include <QMultiHash>
 #include <QPlainTextEdit>
-#include <QWidget>
 
 class QGridLayout;
 class QHBoxLayout;
@@ -25,7 +25,7 @@ class AppController;
 /// Corresponding readings share a column. A verse wider than the card is split
 /// into successive bands, each an independent table that repeats the whole row
 /// stack, so nothing has to scroll sideways.
-class VerseGridWidget final : public QWidget
+class VerseGridWidget final : public BandedGridWidget
 {
     Q_OBJECT
 
@@ -42,7 +42,6 @@ public:
     void refresh();
 
 protected:
-    void resizeEvent(QResizeEvent *event) override;
     /// Watches the Combined fields so that giving one the focus — by clicking
     /// it or tabbing to it — tells the controller which word is being worked
     /// on. A filter rather than a QLineEdit subclass, because the field needs
@@ -79,16 +78,7 @@ private:
         QString color;
     };
 
-    /// A half-open run of aligned columns drawn as one table.
-    struct Band
-    {
-        int start = 0;
-        int end = 0;
-    };
-
-    void build();
-    void clearBands();
-    int availableWidth() const;
+    void build() override;
 
     Row manuscriptRow(
         const SourceDocument *source,
@@ -101,7 +91,6 @@ private:
     /// The editable interlinear translation, one word per Combined column.
     Row interlinearRow() const;
 
-    QGridLayout *addBand(bool separator);
     int addCells(QGridLayout *grid, int row, const Band &band, const Row &data);
     /// The Combined row: one editable field per aligned column.
     int addCombinedCells(QGridLayout *grid, int row, const Band &band, const Row &data);
@@ -115,6 +104,8 @@ private:
         const Band &band,
         const SourceDocument *translation,
         const QHash<QString, QString> &acronyms);
+    /// A row's name, with the right-click menu its source offers. Wraps the
+    /// base class's version, which knows nothing of sources.
     void addRowAcronym(
         QGridLayout *grid,
         int row,
@@ -134,23 +125,15 @@ private:
     AppController *m_controller = nullptr;
     AlignedVerse m_aligned;
 
-    QWidget *m_bandHost = nullptr;
-    QVBoxLayout *m_bandLayout = nullptr;
     /// Holds the preview and its flags. Kept so build() can inset it by the
     /// width of the row-name column, which only build() knows.
     QHBoxLayout *m_previewRow = nullptr;
     QPlainTextEdit *m_preview = nullptr;
     QLabel *m_flags = nullptr;
 
-    QFont m_readingFont;
-    QFont m_acronymFont;
     /// What the last build found worth flagging, keyed by aligned column, so
     /// the context menu can offer it without reviewing the verse again.
     QMultiHash<int, Suggestion> m_suggestions;
-    /// Width the current bands were packed for. Reflowing keys off this rather
-    /// than off the card's own width, which follows the content it is given.
-    int m_builtForAvailable = -1;
-    bool m_rebuildQueued = false;
 };
 
 } // namespace milah

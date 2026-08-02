@@ -3,17 +3,24 @@
 #include "app_controller.h"
 #include "core/books.h"
 #include "core/tokenize.h"
+#include "core/transcription.h"
+#include "transcription_controller.h"
 #include "ui/about_dialog.h"
 #include "ui/icons.h"
 #include "ui/notes_widget.h"
 #include "ui/source_settings_widget.h"
+#include "ui/transcription_meta_widget.h"
+#include "ui/transcription_notes_widget.h"
+#include "ui/transcription_widget.h"
 #include "ui/verse_grid_widget.h"
 
 #include <QAction>
 #include <QCloseEvent>
 #include <QApplication>
 #include <QComboBox>
+#include <QCompleter>
 #include <QDockWidget>
+#include <QIntValidator>
 #include <QKeySequence>
 #include <QLabel>
 #include <QLineEdit>
@@ -22,10 +29,16 @@
 #include <QScrollArea>
 #include <QSet>
 #include <QSignalBlocker>
+#include <QStackedWidget>
 #include <QStatusBar>
+#include <QStyle>
+#include <QStyleOptionMenuItem>
+#include <QTabBar>
 #include <QToolBar>
 #include <QToolButton>
 #include <QVBoxLayout>
+
+#include <algorithm>
 
 namespace milah {
 namespace {
@@ -96,9 +109,35 @@ QLabel#verseFlags {
     color: rgba(176, 90, 43, 1.0);
     font-size: 11px;
 }
+/* What to do when there is nothing on screen yet — so the one label whose whole
+   job is telling a newcomer where to start has to be legible, and palette(mid)
+   is not that on a dark palette. Its colour is the sole substitution this sheet
+   takes, filled in from the palette where the sheet is applied. */
 QLabel#emptyState {
-    color: palette(mid);
+    color: %1;
     font-size: 14px;
+}
+/* The mode tabs are not here: the colour of the tab that is not chosen has to be
+   quieter than the other and still plainly legible, and palette(mid) is not that
+   on a dark palette — it all but disappears. So the whole block is built in
+   buildModeTabs() against a colour worked out from the palette, which is the
+   same rule the readings follow. */
+/* A transcribed word and its gloss. Like the Combined row, they look like plain
+   text until they are being worked on, because a folio of boxed fields reads as
+   a form rather than as a text. Their size is set in code, so that measuring a
+   word and drawing it agree. */
+QLineEdit#transcribedToken, QLineEdit#transcribedGloss {
+    background: transparent;
+    border: none;
+    border-bottom: 1px solid transparent;
+    color: palette(text);
+}
+QLineEdit#transcribedToken:hover, QLineEdit#transcribedGloss:hover {
+    border-bottom: 1px solid palette(mid);
+}
+QLineEdit#transcribedToken:focus, QLineEdit#transcribedGloss:focus {
+    background: palette(alternate-base);
+    border-bottom: 2px solid palette(highlight);
 }
 )CSS";
 
@@ -122,6 +161,85 @@ void showIconOnly(QToolBar *toolBar, QAction *action)
     }
 }
 
+/// A width that fits the longest of `entries`, plus the room a line edit needs
+/// around its text.
+///
+/// Measured rather than written down because the longest book name is fifteen
+/// characters and a pixel count that suits one interface font clips at the
+/// next — and because a field that is too narrow here silently truncates the
+/// name of the book being transcribed.
+/// An abbreviation fit to stand in a verse id.
+///
+/// A verse is addressed as book, chapter and number with dots between them, so
+/// a book carrying a dot of its own would make "Tob.it.1.1" out of Tobit and
+/// there would be no reading it back. Whitespace goes for the same reason.
+/// Stripped rather than refused: the transcriber meant a book, not a syntax.
+QString sanitisedBookId(const QString &raw)
+{
+    QString id;
+    id.reserve(raw.size());
+    for (const QChar character : raw) {
+        if (!character.isSpace() && character != QLatin1Char('.')) {
+            id.append(character);
+        }
+    }
+    return id;
+}
+
+int fieldWidthFor(const QWidget *field, const QStringList &entries)
+{
+    const QFontMetrics metrics(field->font());
+    int widest = 0;
+    for (const QString &entry : entries) {
+        widest = std::max(widest, metrics.horizontalAdvance(entry));
+    }
+    // Frame, text margins and a little air. A line edit draws its text inset
+    // from its own edge, and the amount is the style's business, not ours.
+    return widest + 28;
+}
+
+/// The mode tabs, kept to the height of a menu row.
+///
+/// QMenuBar takes its own height from its corner widget's size hint and does
+/// not clamp it, so a stock QTabBar — which asks for a good deal more room than
+/// a menu row — would push the whole bar, and everything under it, down. The
+/// cap has to be on the hint rather than on the maximum height: a maximum
+/// clamps what is drawn while the bar still reserves the full hint, which
+/// leaves a short tab bar floating in a bar that is too tall.
+///
+/// The row is measured off the style rather than remembered, so a change of
+/// screen scaling or of interface font carries the tabs with it.
+class MenuRowTabBar final : public QTabBar
+{
+public:
+    using QTabBar::QTabBar;
+
+    QSize sizeHint() const override { return capped(QTabBar::sizeHint()); }
+    QSize minimumSizeHint() const override { return capped(QTabBar::minimumSizeHint()); }
+
+private:
+    QSize capped(QSize size) const
+    {
+        auto *bar = qobject_cast<QMenuBar *>(parentWidget());
+        if (!bar) {
+            return size;
+        }
+        QStyleOptionMenuItem option;
+        option.initFrom(bar);
+        option.menuItemType = QStyleOptionMenuItem::Normal;
+        const int row =
+            bar->style()
+                ->sizeFromContents(
+                    QStyle::CT_MenuBarItem,
+                    &option,
+                    QSize(1, bar->fontMetrics().height()),
+                    bar)
+                .height();
+        size.setHeight(std::min(size.height(), row));
+        return size;
+    }
+};
+
 } // namespace
 
 MainWindow::MainWindow(QWidget *parent)
@@ -133,13 +251,21 @@ MainWindow::MainWindow(QWidget *parent)
     // for a verse to read as one band.
     resize(1440, 900);
     setMinimumSize(900, 600);
-    setStyleSheet(QString::fromUtf8(kStyleSheet));
+    setStyleSheet(QString::fromUtf8(kStyleSheet).arg(acronymColor(palette())));
 
     m_controller = new AppController(this, this);
+    // The editor's dictionary is the editor's, not the edition's: a word
+    // defined while transcribing is a word defined while comparing, so the
+    // transcription side is handed the one AppController already keeps.
+    m_transcriptionController =
+        new TranscriptionController(this, &m_controller->dictionary(), this);
 
     createActions();
+    createTranscriptionActions();
     buildMenuBar();
+    buildModeTabs();
     buildToolBar();
+    buildTranscriptionToolBar();
 
     m_verseHost = new QWidget;
     m_verseLayout = new QVBoxLayout(m_verseHost);
@@ -160,7 +286,30 @@ MainWindow::MainWindow(QWidget *parent)
     // Verse cards wrap themselves to the viewport. A scrollbar that comes and
     // goes would change that width under them, so it is always reserved.
     m_verseArea->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOn);
-    setCentralWidget(m_verseArea);
+
+    m_transcription = new TranscriptionWidget(m_transcriptionController);
+
+    // Two jobs, one window. A stack rather than a second window because the
+    // reader keeps their place in both, and because Quit, the title bar and the
+    // unsaved-work question stay one thing each.
+    //
+    // A stacked layout lays out only the page on screen, so the verse cards get
+    // no resize event while a folio is up and repack themselves on the way
+    // back. That is safe only while nothing can rebuild them from the other
+    // mode: if a transcription command ever reaches AppController, guard
+    // rebuildVerseList() on m_verseArea->isVisible(), or the cards will be
+    // packed for a width nothing was ever drawn at.
+    m_pages = new QStackedWidget;
+    m_pages->setFrameShape(QFrame::NoFrame);
+    // A fresh layout is handed the style's own margin. The verse list already
+    // insets itself by 14px and the readings are measured against the viewport,
+    // so anything here would move the text sideways for no reason.
+    if (QLayout *stack = m_pages->layout()) {
+        stack->setContentsMargins(0, 0, 0, 0);
+    }
+    m_pages->addWidget(m_verseArea);
+    m_pages->addWidget(m_transcription);
+    setCentralWidget(m_pages);
 
     m_settings = new SourceSettingsWidget(m_controller);
 
@@ -176,11 +325,30 @@ MainWindow::MainWindow(QWidget *parent)
     dockLayout->addWidget(new NotesWidget(m_controller));
     dockLayout->addStretch(1);
 
-    auto *dock = new QDockWidget(QStringLiteral("Sources"), this);
-    dock->setObjectName(QStringLiteral("sourcesDock"));
-    dock->setWidget(dockBody);
-    dock->setAllowedAreas(Qt::LeftDockWidgetArea | Qt::RightDockWidgetArea);
-    addDockWidget(Qt::RightDockWidgetArea, dock);
+    m_sourcesDock = new QDockWidget(QStringLiteral("Sources"), this);
+    m_sourcesDock->setObjectName(QStringLiteral("sourcesDock"));
+    m_sourcesDock->setWidget(dockBody);
+    m_sourcesDock->setAllowedAreas(Qt::LeftDockWidgetArea | Qt::RightDockWidgetArea);
+    addDockWidget(Qt::RightDockWidgetArea, m_sourcesDock);
+
+    // The transcription side's own panel, in the same place: the two describe
+    // what is being worked on, and only one job is being done at a time.
+    m_metadata = new TranscriptionMetaWidget(m_transcriptionController);
+    auto *metaBody = new QWidget;
+    auto *metaLayout = new QVBoxLayout(metaBody);
+    metaLayout->setContentsMargins(0, 0, 0, 0);
+    metaLayout->setSpacing(10);
+    metaLayout->addWidget(m_metadata);
+    // Beneath the codex's details, the way the comparison puts a word's notes
+    // beneath its sources: what is being worked on, then what is said about it.
+    metaLayout->addWidget(new TranscriptionNotesWidget(m_transcriptionController));
+    metaLayout->addStretch(1);
+
+    m_metadataDock = new QDockWidget(QStringLiteral("Manuscript"), this);
+    m_metadataDock->setObjectName(QStringLiteral("metadataDock"));
+    m_metadataDock->setWidget(metaBody);
+    m_metadataDock->setAllowedAreas(Qt::LeftDockWidgetArea | Qt::RightDockWidgetArea);
+    addDockWidget(Qt::RightDockWidgetArea, m_metadataDock);
 
     statusBar()->showMessage(m_controller->message());
 
@@ -233,7 +401,63 @@ MainWindow::MainWindow(QWidget *parent)
         updateSelectionActions();
     });
 
+    connect(
+        m_magnifyAction,
+        &QAction::toggled,
+        m_transcription,
+        &TranscriptionWidget::setMagnifierEnabled);
+
+    connect(
+        m_transcriptionController,
+        &TranscriptionController::messageChanged,
+        this,
+        [this](const QString &text) { statusBar()->showMessage(text); });
+    connect(
+        m_transcriptionController,
+        &TranscriptionController::dirtyChanged,
+        this,
+        [this](bool) { updateWindowTitle(); });
+    connect(
+        m_transcriptionController,
+        &TranscriptionController::historyChanged,
+        this,
+        &MainWindow::updateTranscriptionActions);
+    connect(
+        m_transcriptionController,
+        &TranscriptionController::selectionChanged,
+        this,
+        [this] {
+            updateTranscriptionActions();
+            // Defining a word is offered on this side too, so which word is
+            // under the caret decides whether it is live.
+            updateSelectionActions();
+            // The Chapter field shows the chapter of the verse being typed in,
+            // which a chapter break partway down a folio moves.
+            refreshTranscriptionToolBar();
+        });
+    connect(
+        m_transcriptionController,
+        &TranscriptionController::pageChanged,
+        this,
+        [this] {
+            refreshTranscriptionToolBar();
+            updateTranscriptionActions();
+        });
+    connect(
+        m_transcriptionController,
+        &TranscriptionController::documentChanged,
+        this,
+        &MainWindow::updateTranscriptionActions);
+    connect(
+        m_transcriptionController,
+        &TranscriptionController::versesChanged,
+        this,
+        &MainWindow::updateTranscriptionActions);
+
     rebuildAll();
+    // States the opening position — which is Textual criticism — rather than
+    // leaving it implied by the order things were built in.
+    applyMode();
 }
 
 void MainWindow::openFiles(
@@ -385,7 +609,11 @@ void MainWindow::createActions()
         "Records what the selected word means, and stops Milah asking about "
         "it, in every project."));
     connect(m_dictionaryAction, &QAction::triggered, this, [this] {
-        const QString word = m_controller->selectedWord();
+        // The dictionary is one, so the action is one; which word it means is
+        // whichever the mode in front has under the caret.
+        const QString word = editingEdition()
+            ? m_controller->selectedWord()
+            : m_transcriptionController->selectedWord();
         if (!word.isEmpty()) {
             m_controller->addToDictionary(word);
         }
@@ -426,64 +654,448 @@ void MainWindow::createActions()
     connect(m_aboutAction, &QAction::triggered, this, &MainWindow::showAbout);
 }
 
+void MainWindow::createTranscriptionActions()
+{
+    const QPalette windowPalette = palette();
+
+    m_openImageAction = new QAction(QStringLiteral("Open Image"), this);
+    m_openImageAction->setIcon(
+        actionIcon(QIcon::ThemeIcon::DocumentOpen, QStringLiteral("document-open"), windowPalette));
+    connect(
+        m_openImageAction,
+        &QAction::triggered,
+        m_transcriptionController,
+        &TranscriptionController::openImage);
+
+    m_openScanAction = new QAction(QStringLiteral("Get online manuscript scan…"), this);
+    m_openScanAction->setToolTip(QStringLiteral(
+        "Transcribe from a manuscript a library has published, without "
+        "downloading it first. Folios are fetched as you reach them."));
+    connect(
+        m_openScanAction,
+        &QAction::triggered,
+        m_transcriptionController,
+        &TranscriptionController::openOnlineScan);
+
+    m_openTranscriptionAction =
+        new QAction(QStringLiteral("Open Transcription Project"), this);
+    connect(
+        m_openTranscriptionAction,
+        &QAction::triggered,
+        m_transcriptionController,
+        &TranscriptionController::openTranscription);
+
+    m_saveTranscriptionAction =
+        new QAction(QStringLiteral("Save Transcription project"), this);
+    m_saveTranscriptionAction->setIcon(
+        actionIcon(QIcon::ThemeIcon::DocumentSave, QStringLiteral("document-save"), windowPalette));
+    // The same key the edition saves with. Safe because at most one of the two
+    // is ever enabled — the mode sees to that — so the shortcut is never
+    // ambiguous even though two actions carry it.
+    m_saveTranscriptionAction->setShortcut(QKeySequence::Save);
+    describeShortcut(m_saveTranscriptionAction);
+    connect(m_saveTranscriptionAction, &QAction::triggered, this, [this] {
+        m_transcriptionController->saveTranscription();
+    });
+
+    m_exportOsisAction = new QAction(QStringLiteral("Export to OSIS"), this);
+    m_exportOsisAction->setIcon(actionIcon(
+        QIcon::ThemeIcon::DocumentSaveAs, QStringLiteral("document-save-as"), windowPalette));
+    m_exportOsisAction->setShortcut(QKeySequence(QStringLiteral("Ctrl+E")));
+    describeShortcut(m_exportOsisAction);
+    connect(
+        m_exportOsisAction,
+        &QAction::triggered,
+        m_transcriptionController,
+        &TranscriptionController::exportOsis);
+
+    m_addToLibraryAction = new QAction(QStringLiteral("Add to my library"), this);
+    m_addToLibraryAction->setToolTip(QStringLiteral(
+        "Files this transcription with the manuscripts the Textual criticism "
+        "tab collates, one book to a file, so it can be read against them."));
+    connect(
+        m_addToLibraryAction,
+        &QAction::triggered,
+        m_transcriptionController,
+        &TranscriptionController::addToLibrary);
+
+    m_closeTranscriptionAction =
+        new QAction(QStringLiteral("Close Transcription Project"), this);
+    m_closeTranscriptionAction->setShortcut(QKeySequence(QStringLiteral("Ctrl+W")));
+    describeShortcut(m_closeTranscriptionAction);
+    connect(
+        m_closeTranscriptionAction,
+        &QAction::triggered,
+        m_transcriptionController,
+        &TranscriptionController::closeTranscription);
+
+    m_transcriptionUndoAction = new QAction(QStringLiteral("Undo"), this);
+    m_transcriptionUndoAction->setIcon(
+        actionIcon(QIcon::ThemeIcon::EditUndo, QStringLiteral("edit-undo"), windowPalette));
+    m_transcriptionUndoAction->setShortcut(QKeySequence::Undo);
+    describeShortcut(m_transcriptionUndoAction);
+    connect(m_transcriptionUndoAction, &QAction::triggered, this, &MainWindow::undo);
+
+    m_transcriptionRedoAction = new QAction(QStringLiteral("Redo"), this);
+    m_transcriptionRedoAction->setIcon(
+        actionIcon(QIcon::ThemeIcon::EditRedo, QStringLiteral("edit-redo"), windowPalette));
+    m_transcriptionRedoAction->setShortcut(QKeySequence::Redo);
+    describeShortcut(m_transcriptionRedoAction);
+    connect(m_transcriptionRedoAction, &QAction::triggered, this, &MainWindow::redo);
+
+    m_newChapterAction = new QAction(QStringLiteral("Move verse to new chapter"), this);
+    m_newChapterAction->setToolTip(QStringLiteral(
+        "The verse being typed in, and every verse after it, move into the next "
+        "chapter."));
+    connect(m_newChapterAction, &QAction::triggered, this, [this] {
+        m_transcriptionController->moveVerseToNewChapter(
+            m_transcriptionController->selectedVerse());
+    });
+
+    // The chapter arrows' keys, which are free here because the chapter actions
+    // carrying them are dead while a folio is on screen.
+    m_previousImageAction = new QAction(QStringLiteral("Previous image"), this);
+    m_previousImageAction->setIcon(actionIcon(
+        QIcon::ThemeIcon::GoPrevious, QStringLiteral("go-previous"), windowPalette));
+    m_previousImageAction->setShortcut(QKeySequence(QStringLiteral("Alt+Left")));
+    connect(
+        m_previousImageAction,
+        &QAction::triggered,
+        m_transcriptionController,
+        &TranscriptionController::goToPreviousImage);
+
+    m_nextImageAction = new QAction(QStringLiteral("Next image"), this);
+    m_nextImageAction->setIcon(
+        actionIcon(QIcon::ThemeIcon::GoNext, QStringLiteral("go-next"), windowPalette));
+    m_nextImageAction->setShortcut(QKeySequence(QStringLiteral("Alt+Right")));
+    connect(
+        m_nextImageAction,
+        &QAction::triggered,
+        m_transcriptionController,
+        &TranscriptionController::goToNextImage);
+
+    m_magnifyAction = new QAction(QStringLiteral("Magnify"), this);
+    m_magnifyAction->setIcon(appIcon(QStringLiteral("zoom-in"), windowPalette));
+    m_magnifyAction->setCheckable(true);
+    m_magnifyAction->setToolTip(QStringLiteral(
+        "Move a magnifier over the folio. The wheel changes how much it enlarges."));
+}
+
 void MainWindow::buildMenuBar()
 {
-    // The menus carry the very same QAction objects the toolbar does, so a
+    // Five menus, made once. Which two the bar carries is the mode's business;
+    // what is in them is not, so it is written out here and never touched
+    // again. The menus are parented to the window rather than to the bar
+    // because they come and go from it, and a menu the bar is not holding still
+    // has to exist to go back in.
+    //
+    // The menus carry the very same QAction objects the toolbars do, so a
     // shortcut, an icon and an enabled state are each stated once and the two
     // cannot drift apart.
-    QMenu *file = menuBar()->addMenu(QStringLiteral("&File"));
-    file->addAction(m_openAction);
-    file->addAction(m_saveAction);
-    file->addAction(m_closeAction);
-    file->addSeparator();
-    file->addAction(m_downloadAction);
-    file->addAction(m_loadManuscriptsAction);
-    file->addAction(m_loadTranslationsAction);
-    file->addSeparator();
-    file->addAction(m_exportAction);
-    file->addSeparator();
-    file->addAction(m_saveDictionaryAction);
-    file->addAction(m_loadDictionaryAction);
-    file->addSeparator();
-    file->addAction(m_quitAction);
+    m_editionFileMenu = new QMenu(QStringLiteral("&File"), this);
+    m_editionFileMenu->addAction(m_openAction);
+    m_editionFileMenu->addAction(m_saveAction);
+    m_editionFileMenu->addAction(m_closeAction);
+    m_editionFileMenu->addSeparator();
+    m_editionFileMenu->addAction(m_downloadAction);
+    m_editionFileMenu->addAction(m_loadManuscriptsAction);
+    m_editionFileMenu->addAction(m_loadTranslationsAction);
+    m_editionFileMenu->addSeparator();
+    m_editionFileMenu->addAction(m_exportAction);
+    m_editionFileMenu->addSeparator();
+    m_editionFileMenu->addAction(m_saveDictionaryAction);
+    m_editionFileMenu->addAction(m_loadDictionaryAction);
+    m_editionFileMenu->addSeparator();
+    m_editionFileMenu->addAction(m_quitAction);
     updateDictionaryActions();
 
-    QMenu *edit = menuBar()->addMenu(QStringLiteral("&Edit"));
-    edit->addAction(m_undoAction);
-    edit->addAction(m_redoAction);
-    edit->addSeparator();
-    edit->addAction(m_splitAction);
-    edit->addAction(m_mergePreviousAction);
-    edit->addAction(m_mergeNextAction);
-    edit->addSeparator();
-    edit->addAction(m_dictionaryAction);
+    m_editionEditMenu = new QMenu(QStringLiteral("&Edit"), this);
+    m_editionEditMenu->addAction(m_undoAction);
+    m_editionEditMenu->addAction(m_redoAction);
+    m_editionEditMenu->addSeparator();
+    m_editionEditMenu->addAction(m_splitAction);
+    m_editionEditMenu->addAction(m_mergePreviousAction);
+    m_editionEditMenu->addAction(m_mergeNextAction);
+    m_editionEditMenu->addSeparator();
+    m_editionEditMenu->addAction(m_dictionaryAction);
 
-    QMenu *about = menuBar()->addMenu(QStringLiteral("&About"));
-    about->addAction(m_aboutAction);
+    m_transcriptionFileMenu = new QMenu(QStringLiteral("&File"), this);
+    m_transcriptionFileMenu->addAction(m_openImageAction);
+    m_transcriptionFileMenu->addAction(m_openScanAction);
+    m_transcriptionFileMenu->addAction(m_openTranscriptionAction);
+    m_transcriptionFileMenu->addAction(m_saveTranscriptionAction);
+    m_transcriptionFileMenu->addSeparator();
+    m_transcriptionFileMenu->addAction(m_exportOsisAction);
+    m_transcriptionFileMenu->addAction(m_addToLibraryAction);
+    m_transcriptionFileMenu->addAction(m_closeTranscriptionAction);
+    m_transcriptionFileMenu->addSeparator();
+    // The same object the edition's File menu offers, so Quit means one thing:
+    // close the window, which is where the unsaved-work question lives.
+    m_transcriptionFileMenu->addAction(m_quitAction);
+
+    m_transcriptionEditMenu = new QMenu(QStringLiteral("&Edit"), this);
+    m_transcriptionEditMenu->addAction(m_transcriptionUndoAction);
+    m_transcriptionEditMenu->addAction(m_transcriptionRedoAction);
+    m_transcriptionEditMenu->addSeparator();
+    m_transcriptionEditMenu->addAction(m_newChapterAction);
+    m_transcriptionEditMenu->addSeparator();
+    // The dictionary is the editor's rather than the edition's, so defining a
+    // word is offered on both sides.
+    m_transcriptionEditMenu->addAction(m_dictionaryAction);
+
+    // About is not a mode's business, so it stays in the bar throughout and the
+    // mode's two menus are inserted before it.
+    m_aboutMenu = new QMenu(QStringLiteral("&About"), this);
+    m_aboutMenu->addAction(m_aboutAction);
+    menuBar()->addMenu(m_aboutMenu);
 
     updateSelectionActions();
+}
+
+void MainWindow::buildModeTabs()
+{
+    m_modeTabs = new MenuRowTabBar;
+    m_modeTabs->setObjectName(QStringLiteral("modeTabs"));
+    m_modeTabs->setDocumentMode(true); // No frame of its own.
+    m_modeTabs->setDrawBase(false);    // No base line running under the menus.
+    m_modeTabs->setExpanding(false);
+    m_modeTabs->setUsesScrollButtons(false);
+    // Left and Right inside the menu bar belong to the menus, and the tab chain
+    // belongs to whatever is being typed in.
+    m_modeTabs->setFocusPolicy(Qt::NoFocus);
+    m_modeTabs->addTab(QStringLiteral("Textual criticism"));
+    m_modeTabs->addTab(QStringLiteral("Transcription"));
+    m_modeTabs->setTabToolTip(
+        0, QStringLiteral("Compare manuscripts and build an edition (Ctrl+1)"));
+    m_modeTabs->setTabToolTip(
+        1, QStringLiteral("Read a folio and transcribe it (Ctrl+2)"));
+
+    // The box is stated rather than left to the style's tab metrics, which are
+    // built for a tab strip above a pane and are far taller than a menu row.
+    // The height is capped in MenuRowTabBar as well, because QMenuBar reads its
+    // corner widget's size hint and grows to it.
+    //
+    // The unchosen tab is drawn in the same muted ink the row labels use — a
+    // fraction of the text colour, so it holds up in a light and a dark palette
+    // alike, which palette(mid) does not: on a dark one it sinks into the bar.
+    // The chosen tab is told apart by its underline more than by its colour.
+    //
+    // Nothing under :selected may change a tab's width — a bolder face would
+    // shift the pair sideways every time the mode changed, and they are pinned
+    // to the right-hand edge where that would be plain to see.
+    m_modeTabs->setStyleSheet(QStringLiteral(R"CSS(
+QTabBar#modeTabs { background: transparent; }
+QTabBar#modeTabs::tab {
+    background: transparent;
+    border: none;
+    border-bottom: 2px solid transparent;
+    padding: 0px 12px;
+    margin: 0px;
+    color: %1;
+}
+QTabBar#modeTabs::tab:hover { color: palette(text); }
+QTabBar#modeTabs::tab:selected {
+    color: palette(text);
+    border-bottom: 2px solid palette(highlight);
+}
+)CSS")
+                                  .arg(acronymColor(palette())));
+
+    connect(m_modeTabs, &QTabBar::currentChanged, this, [this](int index) {
+        setMode(index == 0 ? Mode::TextualCriticism : Mode::Transcription);
+    });
+    menuBar()->setCornerWidget(m_modeTabs, Qt::TopRightCorner);
+
+    // The tabs sit outside the menu bar's arrow-key walk and, by NoFocus,
+    // outside the tab chain, so the keyboard needs its own way in. addAction is
+    // not optional here: an action merely parented to a widget has no
+    // associated widget of its own, and its shortcut never fires.
+    auto *toEdition = new QAction(this);
+    toEdition->setShortcut(QKeySequence(QStringLiteral("Ctrl+1")));
+    connect(toEdition, &QAction::triggered, this, [this] {
+        setMode(Mode::TextualCriticism);
+    });
+    addAction(toEdition);
+
+    auto *toTranscription = new QAction(this);
+    toTranscription->setShortcut(QKeySequence(QStringLiteral("Ctrl+2")));
+    connect(toTranscription, &QAction::triggered, this, [this] {
+        setMode(Mode::Transcription);
+    });
+    addAction(toTranscription);
+}
+
+void MainWindow::setMode(Mode mode)
+{
+    if (m_mode == mode) {
+        return;
+    }
+    m_mode = mode;
+    applyMode();
+}
+
+void MainWindow::applyMode()
+{
+    const bool editing = editingEdition();
+
+    // The tabs may be what asked for this, or may not — a shortcut and the
+    // opening position both come through here — so they are told either way,
+    // silently, rather than being allowed to ask again.
+    {
+        const QSignalBlocker blocker(m_modeTabs);
+        m_modeTabs->setCurrentIndex(editing ? 0 : 1);
+    }
+
+    // Taken out before the other goes in, and both inserted before About, so
+    // the bar always reads File, Edit, About and never briefly holds two menus
+    // called the same thing — a menu bar grabs Alt+F from every title it
+    // carries, and two of them would make the key mean nothing. removeAction on
+    // an action the bar does not hold is a no-op, so this states the opening
+    // position as well as every change.
+    QMenu *const outFile = editing ? m_transcriptionFileMenu : m_editionFileMenu;
+    QMenu *const outEdit = editing ? m_transcriptionEditMenu : m_editionEditMenu;
+    QMenu *const inFile = editing ? m_editionFileMenu : m_transcriptionFileMenu;
+    QMenu *const inEdit = editing ? m_editionEditMenu : m_transcriptionEditMenu;
+    menuBar()->removeAction(outFile->menuAction());
+    menuBar()->removeAction(outEdit->menuAction());
+    menuBar()->insertMenu(m_aboutMenu->menuAction(), inFile);
+    menuBar()->insertMenu(m_aboutMenu->menuAction(), inEdit);
+
+    // Each mode's toolbar and panel say nothing about the other's work, so they
+    // go away entirely rather than sitting there greyed. What the reader had
+    // done with a dock is remembered, so it comes back as they left it and not
+    // as Milah first drew it.
+    //
+    // Only on a real switch: the first time through, the window has not been
+    // shown yet and both docks report themselves hidden, which would record the
+    // panel this mode is not showing as one the reader had closed — and it
+    // would then never open.
+    if (m_modeApplied) {
+        if (editing) {
+            m_metadataDockWasVisible = m_metadataDock->isVisible();
+        } else {
+            m_sourcesDockWasVisible = m_sourcesDock->isVisible();
+        }
+    }
+    m_modeApplied = true;
+    m_toolBar->setVisible(editing);
+    m_sourcesDock->setVisible(editing && m_sourcesDockWasVisible);
+    m_transcriptionToolBar->setVisible(!editing);
+    m_metadataDock->setVisible(!editing && m_metadataDockWasVisible);
+
+    m_pages->setCurrentWidget(
+        editing ? static_cast<QWidget *>(m_verseArea)
+                : static_cast<QWidget *>(m_transcription));
+
+    // Every enabled state asked again rather than remembered: the refreshers
+    // work them out from the work itself, so coming back is a question and not
+    // a restore, and nothing can go stale in between.
+    updateSourceActions();
+    updateProjectActions();
+    updateNavigationActions();
+    updateHistoryActions();
+    updateDictionaryActions();
+    updateSelectionActions();
+    updateTranscriptionActions();
+}
+
+void MainWindow::updateSourceActions()
+{
+    const bool editing = editingEdition();
+    m_openAction->setEnabled(editing);
+    m_downloadAction->setEnabled(editing);
+    m_loadManuscriptsAction->setEnabled(editing);
+    m_loadTranslationsAction->setEnabled(editing);
+    m_loadDictionaryAction->setEnabled(editing);
+}
+
+void MainWindow::updateProjectActions()
+{
+    const bool ready = editingEdition() && !m_controller->manuscripts().isEmpty();
+    m_regenerateAction->setEnabled(ready);
+    m_saveAction->setEnabled(ready);
+    m_closeAction->setEnabled(ready);
+    m_exportAction->setEnabled(ready);
+}
+
+void MainWindow::updateNavigationActions()
+{
+    const std::optional<Location> current = m_controller->location();
+    const int index =
+        current.has_value() ? m_controller->indexOfLocation(*current) : -1;
+    const int count = m_controller->locations().size();
+    const bool editing = editingEdition();
+    m_previousAction->setEnabled(editing && index > 0);
+    m_nextAction->setEnabled(editing && index >= 0 && index < count - 1);
+}
+
+void MainWindow::updateTranscriptionActions()
+{
+    const bool transcribing = !editingEdition();
+    const bool open = m_transcriptionController->hasDocument();
+
+    m_openImageAction->setEnabled(transcribing);
+    m_openScanAction->setEnabled(transcribing);
+    m_openTranscriptionAction->setEnabled(transcribing);
+    m_saveTranscriptionAction->setEnabled(transcribing && open);
+    m_exportOsisAction->setEnabled(transcribing && open);
+    m_addToLibraryAction->setEnabled(transcribing && open);
+    m_closeTranscriptionAction->setEnabled(transcribing && open);
+    m_magnifyAction->setEnabled(transcribing && open);
+
+    m_transcriptionUndoAction->setEnabled(
+        transcribing && m_transcriptionController->canUndo());
+    m_transcriptionRedoAction->setEnabled(
+        transcribing && m_transcriptionController->canRedo());
+    m_newChapterAction->setEnabled(
+        transcribing && m_transcriptionController->selectedVerse() >= 0);
+
+    m_previousImageAction->setEnabled(
+        transcribing && !m_transcriptionController->previousImageName().isEmpty());
+    m_nextImageAction->setEnabled(
+        transcribing && !m_transcriptionController->nextImageName().isEmpty());
+    // The arrows name the folio they lead to, because the file names are the
+    // only order a folder of scans has.
+    const QString previous = m_transcriptionController->previousImageName();
+    const QString next = m_transcriptionController->nextImageName();
+    m_previousImageAction->setToolTip(previous.isEmpty()
+        ? QStringLiteral("This is the first image in the folder")
+        : QStringLiteral("Back to %1 (Alt+Left)").arg(previous));
+    m_nextImageAction->setToolTip(next.isEmpty()
+        ? QStringLiteral("This is the last image in the folder")
+        : QStringLiteral("On to %1 (Alt+Right)").arg(next));
+
+    m_bookField->setEnabled(transcribing && open);
+    m_chapterField->setEnabled(transcribing && open);
 }
 
 void MainWindow::updateSelectionActions()
 {
     const WordSelection selected = m_controller->selection();
     const QString word = m_controller->selectedWord();
+    const bool editing = editingEdition();
 
     // Dividing is offered only where there is something to divide at, the same
     // question the context menu asks.
-    m_splitAction->setEnabled(selected.isValid() && dividedWords(word).size() > 1);
+    m_splitAction->setEnabled(
+        editing && selected.isValid() && dividedWords(word).size() > 1);
     m_mergePreviousAction->setEnabled(
-        selected.isValid()
+        editing && selected.isValid()
         && m_controller->canMergeWithPrevious(selected.verseId, selected.columnIndex));
     m_mergeNextAction->setEnabled(
-        selected.isValid()
+        editing && selected.isValid()
         && m_controller->canMergeWithNext(selected.verseId, selected.columnIndex));
-    m_dictionaryAction->setEnabled(!word.isEmpty());
+    // Defining a word is offered on both sides, on whichever word the mode in
+    // front has under the caret.
+    m_dictionaryAction->setEnabled(editing
+        ? !word.isEmpty()
+        : !m_transcriptionController->selectedWord().isEmpty());
 }
 
 void MainWindow::buildToolBar()
 {
     auto *toolBar = addToolBar(QStringLiteral("Main"));
+    m_toolBar = toolBar;
     toolBar->setObjectName(QStringLiteral("mainToolBar"));
     toolBar->setMovable(false);
     toolBar->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
@@ -546,11 +1158,239 @@ void MainWindow::buildToolBar()
     toolBar->addAction(m_regenerateAction);
 }
 
+void MainWindow::buildTranscriptionToolBar()
+{
+    auto *toolBar = addToolBar(QStringLiteral("Transcription"));
+    m_transcriptionToolBar = toolBar;
+    toolBar->setObjectName(QStringLiteral("transcriptionToolBar"));
+    toolBar->setMovable(false);
+    toolBar->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+
+    toolBar->addWidget(new QLabel(QStringLiteral(" Book ")));
+
+    // Typed rather than chosen: a transcriber meets works Milah has never heard
+    // of, and a list would refuse a folio the canon does not contain. The
+    // completer assists without constraining.
+    m_bookField = new QLineEdit;
+    m_bookField->setPlaceholderText(QStringLiteral("Revelation"));
+    m_bookField->setToolTip(QStringLiteral(
+        "The book on this folio, by name — Genesis, Matthew, Revelation. What "
+        "it is abbreviated to is shown beside it."));
+    // A QLineEdit expands by default, and in a toolbar that means taking every
+    // pixel the other controls have not claimed. Wide enough for the longest
+    // book there is and no wider — measured rather than guessed, so a larger
+    // interface font or a higher display scale does not clip it.
+    m_bookField->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
+    m_bookField->setFixedWidth(fieldWidthFor(m_bookField, bookNames()));
+
+    auto *completer = new QCompleter(bookNames(), m_bookField);
+    completer->setCaseSensitivity(Qt::CaseInsensitive);
+    completer->setCompletionMode(QCompleter::PopupCompletion);
+    // Contains rather than starts-with, so that "Chr" reaches both books of
+    // Chronicles — their names open with a digit, which nobody types first.
+    completer->setFilterMode(Qt::MatchContains);
+    m_bookField->setCompleter(completer);
+    connect(m_bookField, &QLineEdit::textEdited, this, &MainWindow::autofillBook);
+    connect(m_bookField, &QLineEdit::editingFinished, this, &MainWindow::commitBook);
+    toolBar->addWidget(m_bookField);
+
+    toolBar->addWidget(new QLabel(QStringLiteral(" as ")));
+
+    // What the verses will actually be addressed by. Derived and read-only for
+    // a book the canon knows; the transcriber's own to write for anything else,
+    // since nobody but them can say what an apocryphal work should be called.
+    m_bookAcronymField = new QLineEdit;
+    m_bookAcronymField->setAlignment(Qt::AlignCenter);
+    m_bookAcronymField->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
+    m_bookAcronymField->setFixedWidth(fieldWidthFor(m_bookAcronymField, bookIds()));
+    connect(m_bookAcronymField, &QLineEdit::editingFinished, this, [this] {
+        commitBookAcronym();
+    });
+    toolBar->addWidget(m_bookAcronymField);
+
+    toolBar->addWidget(new QLabel(QStringLiteral(" Chapter ")));
+
+    m_chapterField = new QLineEdit;
+    m_chapterField->setMaximumWidth(70);
+    m_chapterField->setValidator(new QIntValidator(1, 999, m_chapterField));
+    m_chapterField->setToolTip(QStringLiteral(
+        "The chapter this folio opens in. Where a chapter begins partway down "
+        "it, right-click that verse's number instead."));
+    connect(m_chapterField, &QLineEdit::editingFinished, this, [this] {
+        m_transcriptionController->setFirstChapter(m_chapterField->text().toInt());
+    });
+    toolBar->addWidget(m_chapterField);
+
+    toolBar->addAction(m_previousImageAction);
+    showIconOnly(toolBar, m_previousImageAction);
+    toolBar->addAction(m_nextImageAction);
+    showIconOnly(toolBar, m_nextImageAction);
+
+    toolBar->addSeparator();
+    toolBar->addAction(m_magnifyAction);
+    // The magnifier is wired to the workspace in the constructor rather than
+    // here: the toolbar is built before the page it acts on exists, and a
+    // connection to a receiver that is still null is quietly dropped.
+
+    refreshTranscriptionToolBar();
+}
+
+void MainWindow::autofillBook(const QString &typed)
+{
+    // Qt has no mode that pops up a list and fills the box at once, so the list
+    // is the completer's and the filling is done here.
+    const QString previous = m_bookTyped;
+    m_bookTyped = typed;
+
+    // Not while deleting. Backspace shortens the text, and putting back what was
+    // just removed would make the field impossible to clear.
+    if (previous.startsWith(typed)) {
+        return;
+    }
+    // Not from the middle of a word either: an insertion before the end is a
+    // correction, not the start of a name.
+    if (typed.isEmpty() || m_bookField->cursorPosition() != typed.size()) {
+        return;
+    }
+
+    QCompleter *completer = m_bookField->completer();
+    if (!completer) {
+        return;
+    }
+    completer->setCompletionPrefix(typed);
+
+    // The completer matches anywhere in a name, so its first answer need not
+    // begin with what was typed — and only something that does can be filled in
+    // ahead of the caret.
+    for (int index = 0; index < completer->completionCount(); ++index) {
+        completer->setCurrentRow(index);
+        const QString candidate = completer->currentCompletion();
+        if (!candidate.startsWith(typed, Qt::CaseInsensitive)) {
+            continue;
+        }
+        const QSignalBlocker blocker(m_bookField);
+        m_bookField->setText(candidate);
+        // The part they did not type is left selected, so carrying on typing
+        // replaces it and the suggestion never has to be deleted.
+        m_bookField->setSelection(typed.size(), candidate.size() - typed.size());
+        m_bookTyped = candidate;
+        return;
+    }
+}
+
+void MainWindow::commitBook()
+{
+    const QString typed = m_bookField->text().trimmed();
+    m_bookTyped = typed;
+    if (typed.isEmpty()) {
+        m_transcriptionController->setBook(QString(), QString());
+        return;
+    }
+
+    const QString id = bookIdFor(typed);
+    if (!id.isEmpty()) {
+        // A book the canon knows names itself: whatever spelling got them here,
+        // the field settles on the canonical one and the id follows from it.
+        m_transcriptionController->setBook(id, QString());
+        return;
+    }
+
+    // Outside the canon. What they wrote is the name, and the abbreviation is
+    // now theirs to write — seeded from the name so there is something valid to
+    // export with, and left editable so they can shorten it.
+    const TranscribedPage *page = m_transcriptionController->currentPage();
+    const bool alreadyCoined =
+        page && !page->bookLabel.isEmpty() && bookIdFor(page->bookLabel).isEmpty();
+    const QString id2 =
+        alreadyCoined && page->bookLabel == typed ? page->book : sanitisedBookId(typed);
+    m_transcriptionController->setBook(id2, typed);
+}
+
+void MainWindow::commitBookAcronym()
+{
+    if (m_bookAcronymField->isReadOnly()) {
+        return;
+    }
+    const TranscribedPage *page = m_transcriptionController->currentPage();
+    if (!page) {
+        return;
+    }
+    const QString raw = m_bookAcronymField->text().trimmed();
+    if (raw.isEmpty()) {
+        return;
+    }
+    const QString id = sanitisedBookId(raw);
+    if (id != raw) {
+        statusBar()->showMessage(
+            QStringLiteral("A book is written as %1: a verse is addressed as "
+                           "book, chapter and number separated by dots, so the "
+                           "book itself cannot carry one.")
+                .arg(id));
+    }
+    m_transcriptionController->setBook(id, page->bookLabel);
+}
+
+void MainWindow::refreshTranscriptionToolBar()
+{
+    const TranscribedPage *page = m_transcriptionController->currentPage();
+
+    // Blocked because filling a field is not an edit: without this, showing a
+    // folio would write its own book back into the document as though the
+    // transcriber had typed it.
+    const QSignalBlocker blockBook(m_bookField);
+    const QSignalBlocker blockAcronym(m_bookAcronymField);
+    const QSignalBlocker blockChapter(m_chapterField);
+
+    if (!page) {
+        m_bookField->clear();
+        m_bookAcronymField->clear();
+        m_chapterField->clear();
+        m_bookTyped.clear();
+        return;
+    }
+
+    // The name as the transcriber wrote it, or the canonical one for the id
+    // where they never had to write anything — which is also what a file
+    // written before the book could be named reads back as.
+    const QString label =
+        page->bookLabel.isEmpty() ? bookName(page->book) : page->bookLabel;
+    m_bookField->setText(label);
+    m_bookTyped = label;
+
+    m_bookAcronymField->setText(page->book);
+
+    // Derived and untouchable for a book the canon knows; the transcriber's own
+    // for anything else.
+    const bool canonical = !page->book.isEmpty() && !bookIdFor(label).isEmpty();
+    m_bookAcronymField->setReadOnly(canonical);
+    m_bookAcronymField->setFocusPolicy(canonical ? Qt::NoFocus : Qt::StrongFocus);
+    m_bookAcronymField->setToolTip(canonical
+        ? QStringLiteral("How %1 is written in the exported file. Milah knows "
+                         "this book, so it is not yours to change.")
+              .arg(label)
+        : QStringLiteral("Milah does not know this work, so what it is "
+                         "abbreviated to is yours to decide. The verses will be "
+                         "exported as %1.1.1 and so on.")
+              .arg(page->book.isEmpty() ? QStringLiteral("…") : page->book));
+
+    // The chapter of the verse being typed in, not the folio's first: a folio
+    // that turns a chapter partway down has two, and the useful one is where
+    // the caret is.
+    const int chapter = m_transcriptionController->selectedChapter();
+    m_chapterField->setText(
+        QString::number(chapter > 0 ? chapter : page->firstChapter));
+}
+
 void MainWindow::closeEvent(QCloseEvent *event)
 {
+    // Both jobs are asked about, in the order they are offered by the tabs.
+    // Either one changing their mind stops the close: the window is one, so a
+    // half-shut Milah would take the other's work with it.
     if (!m_controller->confirmDiscard()) {
-        // Changed their mind: the window stays open and Milah stays running,
-        // rather than dying half-shut.
+        event->ignore();
+        return;
+    }
+    if (!m_transcriptionController->confirmDiscard()) {
         event->ignore();
         return;
     }
@@ -565,21 +1405,26 @@ void MainWindow::showAbout()
 void MainWindow::updateDictionaryActions()
 {
     if (m_saveDictionaryAction) {
-        m_saveDictionaryAction->setEnabled(!m_controller->dictionary().isEmpty());
+        m_saveDictionaryAction->setEnabled(
+            editingEdition() && !m_controller->dictionary().isEmpty());
     }
 }
 
 void MainWindow::undo()
 {
     // Ctrl+Z reaches the window's action before the focus widget sees the key,
-    // so a Combined word being typed in would otherwise lose the whole verse
-    // edit instead of the last few characters.
+    // so a word being typed in would otherwise lose the whole edit instead of
+    // the last few characters.
     auto *editor = qobject_cast<QLineEdit *>(QApplication::focusWidget());
     if (editor && editor->isUndoAvailable()) {
         editor->undo();
         return;
     }
-    m_controller->undo();
+    if (editingEdition()) {
+        m_controller->undo();
+    } else {
+        m_transcriptionController->undo();
+    }
 }
 
 void MainWindow::redo()
@@ -589,12 +1434,19 @@ void MainWindow::redo()
         editor->redo();
         return;
     }
-    m_controller->redo();
+    if (editingEdition()) {
+        m_controller->redo();
+    } else {
+        m_transcriptionController->redo();
+    }
 }
 
 void MainWindow::updateWindowTitle()
 {
-    setWindowTitle(m_controller->isDirty()
+    // Either job having unsaved work marks the window, because the window is
+    // what would take it away.
+    const bool dirty = m_controller->isDirty() || m_transcriptionController->isDirty();
+    setWindowTitle(dirty
         ? QStringLiteral("Milah •")
         : QStringLiteral("Milah"));
 }
@@ -619,8 +1471,9 @@ void MainWindow::markCoverage(
 
 void MainWindow::updateHistoryActions()
 {
-    m_undoAction->setEnabled(m_controller->canUndo());
-    m_redoAction->setEnabled(m_controller->canRedo());
+    const bool editing = editingEdition();
+    m_undoAction->setEnabled(editing && m_controller->canUndo());
+    m_redoAction->setEnabled(editing && m_controller->canRedo());
 }
 
 void MainWindow::rebuildBookList()
@@ -686,11 +1539,7 @@ void MainWindow::rebuildChapterList()
     }
     m_chapterCombo->setEnabled(m_chapterCombo->count() > 0);
 
-    const int index = current.has_value()
-        ? m_controller->indexOfLocation(*current)
-        : -1;
-    m_previousAction->setEnabled(index > 0);
-    m_nextAction->setEnabled(index >= 0 && index < locations.size() - 1);
+    updateNavigationActions();
 }
 
 QString MainWindow::missingFrom(const Location &location) const
@@ -738,12 +1587,10 @@ void MainWindow::rebuildPriorityList()
         m_priorityCombo->setCurrentIndex(index);
     }
 
-    const bool hasManuscripts = !manuscripts.isEmpty();
-    m_priorityCombo->setEnabled(hasManuscripts);
-    m_regenerateAction->setEnabled(hasManuscripts);
-    m_saveAction->setEnabled(hasManuscripts);
-    m_closeAction->setEnabled(hasManuscripts);
-    m_exportAction->setEnabled(hasManuscripts);
+    // The combo lives on the criticism toolbar, which is hidden wholesale in
+    // the other mode, so it is not a mode's question — only the edition's.
+    m_priorityCombo->setEnabled(!manuscripts.isEmpty());
+    updateProjectActions();
 }
 
 void MainWindow::rebuildVerseList()

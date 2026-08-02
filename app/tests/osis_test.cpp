@@ -17,6 +17,25 @@ ParseOptions options(const QString &id, const QString &name)
     return parseOptions;
 }
 
+/// A header shaped like the published ones: the text's own `<work>` first, then
+/// the versification `<work>` that every one of these files carries after it.
+QString osisWithRights(const QString &rights)
+{
+    return QStringLiteral(
+               "<?xml version='1.0' encoding='UTF-8'?>"
+               "<osis xmlns='http://www.bibletechnologies.net/2003/OSIS/namespace'>"
+               "<osisText osisIDWork='W' xml:lang='he'><header>"
+               "<work osisWork='W'><title>A witness</title>%1<scope>REV</scope>"
+               "</work>"
+               "<work osisWork='bible'><title>Referenced versification</title>"
+               "<refSystem>StandardV11N</refSystem></work>"
+               "</header>"
+               "<div type='book' osisID='Rev'>"
+               "<verse osisID='Rev.1.1'>שלום</verse></div>"
+               "</osisText></osis>")
+        .arg(rights);
+}
+
 } // namespace
 
 class OsisTest final : public QObject
@@ -36,6 +55,59 @@ private slots:
         QVERIFY(!verse->tokens.isEmpty());
         QVERIFY(!verse->tokens.at(0).notes.isEmpty());
         QCOMPARE(verse->tokens.at(0).notes.at(0).text, QStringLiteral("A comment"));
+    }
+
+    void theRightsAreReadFromTheHeader()
+    {
+        const SourceDocument document = parseOsis(
+            osisWithRights(QStringLiteral("<rights>© 2017 by Nehemia Gordon</rights>")),
+            options(QStringLiteral("w"), QStringLiteral("t.osis")));
+        QCOMPARE(document.metadata.rights,
+                 QStringLiteral("© 2017 by Nehemia Gordon"));
+    }
+
+    void aFileStatingNoRightsClaimsNone()
+    {
+        // Silence is not a licence. An empty field must stay empty rather than
+        // acquire terms the file never stated.
+        const SourceDocument document =
+            parseOsis(osisWithRights(QString()),
+                      options(QStringLiteral("w"), QStringLiteral("t.osis")));
+        QVERIFY(document.metadata.rights.isEmpty());
+    }
+
+    void theVersificationWorkDoesNotSupplyTheTerms()
+    {
+        // Every published file carries a second <work> for the versification
+        // system. Taking the last <rights> seen rather than the first would let
+        // that one speak for the text.
+        const QString osis = QStringLiteral(
+            "<?xml version='1.0' encoding='UTF-8'?>"
+            "<osis xmlns='http://www.bibletechnologies.net/2003/OSIS/namespace'>"
+            "<osisText osisIDWork='W' xml:lang='he'><header>"
+            "<work osisWork='W'><title>A witness</title>"
+            "<rights>© 2017 by Nehemia Gordon</rights></work>"
+            "<work osisWork='bible'><rights>Public domain</rights></work>"
+            "</header>"
+            "<div type='book' osisID='Rev'>"
+            "<verse osisID='Rev.1.1'>שלום</verse></div>"
+            "</osisText></osis>");
+        const SourceDocument document =
+            parseOsis(osis, options(QStringLiteral("w"), QStringLiteral("t.osis")));
+        QCOMPARE(document.metadata.rights,
+                 QStringLiteral("© 2017 by Nehemia Gordon"));
+    }
+
+    void theRightsAreKeptWordForWord()
+    {
+        // "All rights reserved" is not a phrase to paraphrase, shorten, or
+        // translate into a licence code.
+        const QString statement =
+            QStringLiteral("© 2018 Nehemia Gordon. All rights reserved.");
+        const SourceDocument document = parseOsis(
+            osisWithRights(QStringLiteral("<rights>%1</rights>").arg(statement)),
+            options(QStringLiteral("w"), QStringLiteral("t.osis")));
+        QCOMPARE(document.metadata.rights, statement);
     }
 
     void punctuationStandsApartInAManuscript()

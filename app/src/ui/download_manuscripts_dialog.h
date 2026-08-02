@@ -5,6 +5,7 @@
 #include <QDialog>
 #include <QElapsedTimer>
 #include <QList>
+#include <QPointer>
 #include <QString>
 
 class QTimer;
@@ -16,6 +17,7 @@ class QProgressBar;
 class QPushButton;
 class QTreeWidget;
 class QTreeWidgetItem;
+class QUrl;
 
 namespace milah {
 
@@ -41,7 +43,16 @@ private:
     static QString baseUrl();
 
     void fetchCatalogue();
+    /// Whichever attempt arrives first, ordinary or fallen back.
+    void readCatalogueReply(QNetworkReply *reply);
     void showCatalogue();
+    /// Ticks every row whose held copy differs from the published one.
+    void selectUpdates();
+
+    /// Issues a GET through ui/network_fetch.h, which is where the redirect,
+    /// timeout and IPv4-fallback policy now lives — shared with the scan
+    /// catalogue, which needs exactly the same handling.
+    QNetworkReply *request(const QUrl &url);
     /// Keeps the window honest while the first connection is being made. That
     /// can take a minute on a network whose IPv6 route is advertised but does
     /// not carry traffic — every address is tried in turn before the working
@@ -58,9 +69,24 @@ private:
     QProgressBar *m_progress = nullptr;
     QLabel *m_status = nullptr;
     QPushButton *m_download = nullptr;
+    QPushButton *m_refresh = nullptr;
+    QPushButton *m_selectUpdates = nullptr;
 
     QTimer *m_waiting = nullptr;
     QElapsedTimer m_waited;
+    /// Set once the fallback has been shown to be the one that works, so the
+    /// downloads that follow go straight there rather than each paying the
+    /// wait again.
+    bool m_preferIPv4 = false;
+
+    /// The two attempts at the catalogue, racing. The second exists only when
+    /// the first has gone quiet long enough to be doubted, and either may win.
+    /// Held by QPointer because the loser is deleteLater'd out from under this.
+    QPointer<QNetworkReply> m_primary;
+    QPointer<QNetworkReply> m_fallback;
+    /// True once one of them has produced a catalogue, or once the last one
+    /// standing has failed. Whatever arrives afterwards is no longer news.
+    bool m_settled = false;
 
     ManuscriptCatalogue m_catalogue;
     /// What Download will fetch, drained as it goes.

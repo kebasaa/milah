@@ -948,7 +948,7 @@ void AppController::loadSources(SourceRole role)
     // The library first, for manuscripts: what was downloaded is what an editor
     // most often wants, and it knows which files are translations, so they load
     // the right way round without being asked. Browsing is still one click away
-    // — the corpus in data/01_osis never passes through the library.
+    // — the corpus in tools/data/01_osis never passes through the library.
     if (role == SourceRole::Manuscript) {
         ManuscriptLibraryDialog library(m_dialogParent);
         if (!library.isEmpty()) {
@@ -1294,6 +1294,13 @@ CombinedApparatus AppController::editorApparatus() const
             [](const SourceNote &left, const SourceNote &right) {
                 return left.charOffset < right.charOffset;
             });
+
+        // Numbered once they are in order. Without this every note in a verse
+        // exports as n="" and osisID="…!note.", which is one identifier for all
+        // of them — and an OSIS id is supposed to name one thing.
+        for (int index = 0; index < notes.size(); ++index) {
+            notes[index].number = QString::number(index + 1);
+        }
     }
     return apparatus;
 }
