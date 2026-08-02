@@ -3,6 +3,7 @@
 #include "ui/band_grid.h"
 
 #include <QHash>
+#include <QString>
 
 class QGridLayout;
 class QLabel;
@@ -47,8 +48,11 @@ private:
 
     /// One editable cell, made the same way for both editable rows.
     QLineEdit *makeCell(int verse, int column, Role role);
-    void addVerseLabel(QGridLayout *grid, int verse, int rowSpan);
+    /// Names the verse at the top of its own card, as the comparison does.
+    void addVerseHeading(QVBoxLayout *card, int verse);
     void showVerseMenu(int verse, const QPoint &globalPosition);
+    /// What can be done to one word: remark on it, or define it.
+    void showWordMenu(int verse, int column, const QPoint &globalPosition);
 
     /// What the space bar does: divide here, or open a verse when what was
     /// typed is a number. Returns true when the key has been dealt with.
@@ -56,6 +60,8 @@ private:
     /// What backspace at the very start of a word does: join it onto the one
     /// before it. Returns true when the key has been dealt with.
     bool handleBackspace(QLineEdit *field, int verse, int column);
+    /// Divides a cell whose text arrived whole into words and verses.
+    void handlePaste(int verse, int column, const QString &text);
     /// Moves along the row, or between the two editable rows. Returns true
     /// when there was somewhere to go — Qt's own focus chain walks the order
     /// the cells were made in, which in a right-to-left band is neither along
@@ -71,6 +77,18 @@ private:
 
     TranscriptionController *m_controller = nullptr;
     QLabel *m_emptyState = nullptr;
+    /// The typing rules, shown over a folio nothing has been read off yet.
+    QLabel *m_hint = nullptr;
+    /// The folio the caret was last placed on, so opening one moves it there
+    /// and merely editing one does not take it back.
+    QString m_focusedEntry;
+    /// True while build() is tearing the folio down and putting it back.
+    ///
+    /// Hiding the focused cell is a focus change, and Qt reports that as
+    /// editingFinished — carrying whatever was in the field and the verse and
+    /// column it used to be. Committing that writes a stale answer over a model
+    /// that has already moved on, which is how a verse number became a word.
+    bool m_rebuilding = false;
 
     QHash<int, QLineEdit *> m_hebrewCells;
     QHash<int, QLineEdit *> m_englishCells;

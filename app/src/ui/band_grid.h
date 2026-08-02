@@ -49,6 +49,11 @@ inline constexpr int UnlaidOutWidth = 900;
 /// Ignore width changes smaller than this, so scrollbar jitter cannot start a
 /// rebuild loop.
 inline constexpr int ReflowThreshold = 4;
+/// The inset of a card opened by addBandGroup(), which the bands inside it do
+/// not have to themselves. Named because the packing has to subtract it: a card
+/// measured as though it had the whole width packs one word too many onto a
+/// line and then clips it.
+inline constexpr int CardPadding = 12;
 
 /// A half-open run of columns drawn as one table.
 struct Band
@@ -80,6 +85,10 @@ QString unsettledColor(const QPalette &palette);
 
 QString acronymColor(const QPalette &palette);
 
+/// The mark on a word somebody has written a remark about. Red, and lightened
+/// on a dark background where a saturated red goes muddy against the base.
+QColor noteMarkerColor(const QPalette &palette);
+
 /// A stack of banded rows that repacks itself when the room it has changes.
 ///
 /// Subclasses say what the rows are and how wide each column has to be; this
@@ -107,6 +116,16 @@ protected:
 
     /// Opens a band, optionally ruled off from the one above it.
     QGridLayout *addBand(bool separator);
+
+    /// Opens a card that the bands after it belong to, and hands back its
+    /// layout so a heading can go above them.
+    ///
+    /// For a stack that holds several things at once — a folio's verses, where
+    /// the comparison has one widget per verse and needs none of this. Until
+    /// this is called, and again after clearBands(), bands go straight into the
+    /// stack as before.
+    QVBoxLayout *addBandGroup();
+
     void clearBands();
 
     /// How much room the bands actually have, which is not this widget's own
@@ -136,6 +155,9 @@ protected:
 private:
     QWidget *m_bandHost = nullptr;
     QVBoxLayout *m_bandLayout = nullptr;
+    /// Where addBand() puts a band: the stack itself, or the card most recently
+    /// opened by addBandGroup().
+    QVBoxLayout *m_bandTarget = nullptr;
 };
 
 } // namespace milah

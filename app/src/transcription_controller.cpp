@@ -5,6 +5,9 @@
 #include "core/serialize.h"
 #include "core/suggestions.h"
 #include "project_storage.h"
+#include "ui/network_fetch.h"
+#include "ui/online_scan_dialog.h"
+#include "ui/scan_metadata_dialog.h"
 
 #include <QCollator>
 #include <QDir>
@@ -12,8 +15,12 @@
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QGuiApplication>
+#include <QApplication>
+#include <QEventLoop>
 #include <QImageReader>
 #include <QMessageBox>
+#include <QNetworkAccessManager>
+#include <QNetworkReply>
 #include <QSaveFile>
 #include <QSettings>
 
@@ -24,6 +31,12 @@ namespace {
 /// works down a page in very small steps and the thing they want back is
 /// usually several of them ago; bounded, because a step carries a whole folio.
 constexpr int MaxUndoDepth = 200;
+
+/// The most a single folio may weigh. A library serves a page at a size meant
+/// for reading — Cambridge's are a couple of hundred kilobytes at the width
+/// Milah asks for, and it caps delivery besides — so this is a bound on what a
+/// reply may be trusted to be, not a limit anything real comes near.
+constexpr qint64 ScanImageLimit = 64 * 1024 * 1024;
 
 QString transcriptionFilter()
 {
@@ -94,8 +107,22 @@ QByteArray TranscriptionController::currentImageBytes() const
     return page ? m_images.value(page->imageEntry) : QByteArray();
 }
 
+bool TranscriptionController::navigatesByDocument() const
+{
+    // A scan's folios are all pages of the document already, and there is no
+    // folder to read. A local image's siblings are the folder's business.
+    return m_folderImages.isEmpty() && m_document.pages.size() > 1;
+}
+
 QString TranscriptionController::previousImageName() const
 {
+    if (navigatesByDocument()) {
+        if (m_currentPage <= 0) {
+            return QString();
+        }
+        const TranscribedPage &page = m_document.pages.at(m_currentPage - 1);
+        return page.imageLabel.isEmpty() ? page.imageName : page.imageLabel;
+    }
     if (m_folderIndex <= 0) {
         return QString();
     }
@@ -104,6 +131,13 @@ QString TranscriptionController::previousImageName() const
 
 QString TranscriptionController::nextImageName() const
 {
+    if (navigatesByDocument()) {
+        if (m_currentPage < 0 || m_currentPage + 1 >= m_document.pages.size()) {
+            return QString();
+        }
+        const TranscribedPage &page = m_document.pages.at(m_currentPage + 1);
+        return page.imageLabel.isEmpty() ? page.imageName : page.imageLabel;
+    }
     if (m_folderIndex < 0 || m_folderIndex + 1 >= m_folderImages.size()) {
         return QString();
     }
@@ -125,6 +159,14 @@ QString TranscriptionController::selectedWord() const
         return QString();
     }
     return currentPage()->verses.at(m_selectedVerse).words.at(m_selectedColumn).hebrew;
+}
+
+QString TranscriptionController::selectedNote() const
+{
+    if (!isValid(m_selectedVerse, m_selectedColumn)) {
+        return QString();
+    }
+    return currentPage()->verses.at(m_selectedVerse).words.at(m_selectedColumn).note;
 }
 
 int TranscriptionController::selectedChapter() const
@@ -195,16 +237,6 @@ QString TranscriptionController::suggestedGloss(const QString &hebrew)
     // would set the width of the column the word above it has to fit in.
     const QString meaning = entry.meaning.section(QLatin1Char('\n'), 0, 0).trimmed();
     return meaning;
-}
-
-QString TranscriptionController::imageEntryFor(int pageIndex, const QString &imageName)
-{
-    // Numbered by page, because two folios called `1.jpg` out of different
-    // folders would otherwise be the same entry and the second would silently
-    // replace the first.
-    return QStringLiteral("images/%1-%2")
-        .arg(pageIndex + 1, 3, 10, QLatin1Char('0'))
-        .arg(imageName);
 }
 
 void TranscriptionController::pushUndo()
@@ -356,6 +388,7 @@ void TranscriptionController::showImage(const QString &imagePath)
     // chapter — and correcting it is one field rather than two.
     if (const TranscribedPage *previous = currentPage()) {
         page.book = previous->book;
+        page.bookLabel = previous->bookLabel;
         page.firstChapter = chapterOfVerse(*previous, previous->verses.size() - 1);
     }
 
@@ -365,7 +398,10 @@ void TranscriptionController::showImage(const QString &imagePath)
     ensureTypingRoom();
 
     readImageFolder(imagePath);
-    setDirty(true);
+    // Deliberately not marked changed. Opening a folio is looking at a picture,
+    // not writing anything down, and a transcriber who walks a folder of three
+    // hundred leaves to find their chapter has made nothing they could lose.
+    // Whatever a real edit established is left alone: nothing is reset here.
     setMessage(QStringLiteral("Transcribing %1.").arg(page.imageName));
     emit documentChanged();
     emit pageChanged();
@@ -392,17 +428,26 @@ bool TranscriptionController::commitBeforeLeavingPage()
     if (!hasDocument()) {
         return true;
     }
-    // Leaving a folio commits what was typed on it. The first time, that means
-    // asking where the transcription is to live: everything after depends on
-    // there being a file, and a transcriber who has just read a page should not
-    // be able to walk off it into nothing. After that the file is simply
-    // written, because being asked once per folio would be worse than not being
-    // asked at all.
+    // Not a word typed anywhere in the transcription yet, so there is nothing to
+    // commit and nowhere it needs to live. Asked before the file path and not
+    // after, which is the whole of the bug this fixes: a never-saved
+    // transcription used to open a Save As on every arrow press, and cancelling
+    // it refused the turn — so a transcriber paging through a codex to find
+    // where their chapter starts could not get off folio one without first
+    // naming a file with nothing in it.
+    if (isUntouched(m_document)) {
+        return true;
+    }
+    // Already on disk exactly as it stands.
+    if (!m_dirty && !m_filePath.isEmpty()) {
+        return true;
+    }
+    // Leaving a folio commits what was typed on it. The first folio with text on
+    // it is what settles where the transcription lives; everything after depends
+    // on there being a file. After that it is simply written, because being
+    // asked once per folio would be worse than not being asked at all.
     if (m_filePath.isEmpty()) {
         return saveTranscription();
-    }
-    if (!m_dirty) {
-        return true;
     }
     return writeTo(m_filePath);
 }
@@ -420,14 +465,199 @@ void TranscriptionController::goToImage(int index)
     showImage(m_folderImages.at(index));
 }
 
+void TranscriptionController::goToPage(int index)
+{
+    if (index < 0 || index >= m_document.pages.size() || index == m_currentPage) {
+        return;
+    }
+    const int leaving = m_currentPage;
+    // Let go of the folio before the file is written, not after. A folio nobody
+    // read anything off would otherwise be base64'd into the archive on the way
+    // past and only then dropped from memory — which is the one cost that
+    // fetching and releasing exists to avoid.
+    const QByteArray released = releaseImageIfUnread(leaving);
+    if (!commitBeforeLeavingPage()) {
+        // Cancelled, or the write failed. The transcriber stays where they are
+        // with their text intact — and with the picture they are still looking
+        // at, which was let go of a moment ago on the way out.
+        if (!released.isEmpty()) {
+            m_images.insert(m_document.pages.at(leaving).imageEntry, released);
+        }
+        return;
+    }
+
+    m_currentPage = index;
+    ensureTypingRoom();
+    ensureImageFetched();
+
+    const TranscribedPage &page = m_document.pages.at(m_currentPage);
+    setMessage(QStringLiteral("Transcribing %1.")
+                   .arg(page.imageLabel.isEmpty() ? page.imageName : page.imageLabel));
+    emit pageChanged();
+    emit versesChanged();
+}
+
 void TranscriptionController::goToPreviousImage()
 {
+    if (navigatesByDocument()) {
+        goToPage(m_currentPage - 1);
+        return;
+    }
     goToImage(m_folderIndex - 1);
 }
 
 void TranscriptionController::goToNextImage()
 {
+    if (navigatesByDocument()) {
+        goToPage(m_currentPage + 1);
+        return;
+    }
     goToImage(m_folderIndex + 1);
+}
+
+QByteArray TranscriptionController::releaseImageIfUnread(int pageIndex)
+{
+    if (pageIndex < 0 || pageIndex >= m_document.pages.size()) {
+        return QByteArray();
+    }
+    const TranscribedPage &page = m_document.pages.at(pageIndex);
+    if (page.imageUrl.isEmpty()) {
+        // A local folio's image is the only copy Milah has of it; letting go
+        // would mean the transcription could not show what was being read.
+        return QByteArray();
+    }
+    if (!isUntouched(page)) {
+        // Worked on, so it is kept — and saved, so the folio can still be seen
+        // beside its text on a machine with no internet.
+        return QByteArray();
+    }
+    // Taken rather than removed, so a navigation that is then refused can put
+    // the picture back instead of leaving the transcriber looking at a blank
+    // folio they never left.
+    return m_images.take(page.imageEntry);
+}
+
+void TranscriptionController::ensureImageFetched()
+{
+    TranscribedPage *page = mutablePage();
+    if (!page || page->imageUrl.isEmpty() || m_images.contains(page->imageEntry)) {
+        return;
+    }
+
+    if (!m_network) {
+        m_network = new QNetworkAccessManager(this);
+    }
+
+    const QString folio = page->imageLabel.isEmpty() ? page->imageName : page->imageLabel;
+    setMessage(QStringLiteral("Fetching %1…").arg(folio));
+    QApplication::setOverrideCursor(Qt::WaitCursor);
+
+    // Redirects off the host are followed here, unlike the manifests: a folio's
+    // address belongs to the library's image server, which redirects freely,
+    // and refusing to follow would simply not fetch the picture.
+    QNetworkReply *reply =
+        fetch(m_network, QUrl(page->imageUrl), Redirects::AnywhereNoLessSafe, m_preferIPv4);
+
+    // Waited for rather than handled later. Everything else here assumes the
+    // page it is on is the page on screen, and a folio is one picture that the
+    // transcriber is sitting looking at — an asynchronous version would have to
+    // answer what the grid shows in the meantime, which is a bigger change than
+    // this feature is worth.
+    QEventLoop waiting;
+    connect(reply, &QNetworkReply::finished, &waiting, &QEventLoop::quit);
+    waiting.exec();
+
+    QApplication::restoreOverrideCursor();
+    reply->deleteLater();
+
+    if (reply->error() != QNetworkReply::NoError) {
+        setMessage(QStringLiteral("Could not fetch %1: %2")
+                       .arg(folio, reply->errorString()));
+        return;
+    }
+
+    const QByteArray bytes = reply->read(ScanImageLimit);
+    if (bytes.isEmpty()) {
+        setMessage(QStringLiteral("%1 arrived empty.").arg(folio));
+        return;
+    }
+    m_images.insert(page->imageEntry, bytes);
+    setMessage(QStringLiteral("Transcribing %1.").arg(folio));
+}
+
+void TranscriptionController::openOnlineScan()
+{
+    if (!confirmDiscard()) {
+        return;
+    }
+
+    OnlineScanDialog picker(m_dialogParent);
+    if (picker.exec() != QDialog::Accepted || picker.chosen().id.isEmpty()) {
+        return;
+    }
+    const ScanEntry scan = picker.chosen();
+
+    // Offered rather than applied: the library's record and the transcriber's
+    // own judgement are both worth something, and only one of them is here.
+    ScanMetadataDialog details(scan, m_document.metadata, m_dialogParent);
+    if (details.exec() != QDialog::Accepted) {
+        return;
+    }
+
+    m_document = TranscriptionDocument();
+    m_document.metadata = details.merged();
+    m_images.clear();
+    m_filePath.clear();
+    m_folderImages.clear();
+    m_folderIndex = -1;
+    m_undoStack.clear();
+    m_redoStack.clear();
+    m_selectedVerse = -1;
+    m_selectedColumn = -1;
+
+    m_document.pages.reserve(scan.pages.size());
+    for (const ScanPage &folio : scan.pages) {
+        TranscribedPage page;
+        page.imageName = folio.label.isEmpty()
+            ? QStringLiteral("%1").arg(folio.number)
+            : folio.label;
+        page.imageLabel = folio.label;
+        page.imageUrl = folio.imageUrl;
+        // Named by the manuscript and the folio as well as by position, so that
+        // somebody who opens the archive can see which leaf of which codex an
+        // entry is. Sanitised on the way in rather than trusted: a scan's id is
+        // whatever its catalogue said, a catalogue that names no manuscript has
+        // only the manifest address to give, and an entry name with "https://"
+        // in it is refused by the archive writer — which meant the transcription
+        // could not be saved, and so the page could not be turned.
+        page.imageEntry = imageEntryFor(
+            m_document.pages.size(),
+            QStringLiteral("%1-%2.jpg")
+                .arg(scan.id)
+                .arg(folio.number, 4, 10, QLatin1Char('0')));
+        page.book = scan.book;
+        m_document.pages.append(page);
+    }
+
+    m_currentPage = m_document.pages.isEmpty() ? -1 : 0;
+    ensureTypingRoom();
+    ensureImageFetched();
+
+    // Cleared rather than simply left alone. A scan just opened is one nobody
+    // has read anything off yet — but confirmDiscard() returns true on Discard
+    // without clearing the mark, and the document discarded a moment ago was
+    // replaced wholesale just above, so its mark would otherwise follow the new
+    // scan in and offer to save a manuscript nobody has touched.
+    setDirty(false);
+    setMessage(QStringLiteral("%1 — %2 folios. %3")
+                   .arg(scan.displayTitle())
+                   .arg(scan.pages.size())
+                   .arg(scan.attribution));
+    emit documentChanged();
+    emit pageChanged();
+    emit versesChanged();
+    emit selectionChanged();
+    emit historyChanged();
 }
 
 // --------------------------------------------------------------------------
@@ -522,6 +752,10 @@ void TranscriptionController::openTranscription()
     m_filePath = path;
     m_currentPage = m_document.pages.isEmpty() ? -1 : 0;
     ensureTypingRoom();
+    // A folio of a scan that was never worked on was not saved with the file,
+    // so it is fetched again — which is the bargain that keeps a transcription
+    // of six folios from weighing what a codex weighs.
+    ensureImageFetched();
     m_undoStack.clear();
     m_redoStack.clear();
     m_selectedVerse = -1;
@@ -585,7 +819,9 @@ void TranscriptionController::exportOsis()
     // one function and cannot drift apart.
     QMap<QString, CombinedDraft> drafts;
     InterlinearGlosses glosses;
+    CombinedApparatus apparatus;
     int unnamed = 0;
+    int strandedNotes = 0;
 
     for (const TranscribedPage &page : m_document.pages) {
         for (int index = 0; index < page.verses.size(); ++index) {
@@ -593,6 +829,14 @@ void TranscriptionController::exportOsis()
             const QString id = transcribedVerseId(page, index);
             if (id.isEmpty()) {
                 ++unnamed;
+                for (const TranscribedWord &word : verse.words) {
+                    if (!word.note.isEmpty()) {
+                        // A note is anchored to a verse by its osisID, and this
+                        // verse has none — so it goes nowhere, and that is
+                        // worth saying rather than discovering later.
+                        ++strandedNotes;
+                    }
+                }
                 continue;
             }
 
@@ -610,6 +854,17 @@ void TranscriptionController::exportOsis()
                 draft.columns.append(cell);
                 if (!word.english.isEmpty()) {
                     verseGlosses.insert(column, word.english);
+                }
+                if (!word.note.isEmpty()) {
+                    SourceNote note;
+                    note.text = word.note;
+                    // Which word it belongs to. The interlinear body writes
+                    // each word separately, so it anchors by this rather than
+                    // by a character offset into running text there is none of.
+                    note.tokenIndex = column;
+                    note.number =
+                        QString::number(apparatus.notes[id].size() + 1);
+                    apparatus.notes[id].append(note);
                 }
             }
             if (!verseGlosses.isEmpty()) {
@@ -661,7 +916,7 @@ void TranscriptionController::exportOsis()
         path += QStringLiteral(".osis");
     }
 
-    const QString osis = serializeInterlinearOsis(drafts, glosses, work);
+    const QString osis = serializeInterlinearOsis(drafts, glosses, work, apparatus);
     QSaveFile file(path);
     if (!file.open(QIODevice::WriteOnly)
         || file.write(osis.toUtf8()) < 0
@@ -678,14 +933,23 @@ void TranscriptionController::exportOsis()
     // Verses that could not be addressed are named rather than dropped quietly:
     // a transcriber who has not filled the Book field in would otherwise see a
     // successful export that is missing a folio.
-    setMessage(unnamed > 0
-        ? QStringLiteral("Exported %1 verses. %2 could not be addressed and were "
-                         "left out — they need a book and a verse number.")
-              .arg(drafts.size())
-              .arg(unnamed)
-        : QStringLiteral("Exported %1 verses to %2.")
-              .arg(drafts.size())
-              .arg(QFileInfo(path).fileName()));
+    if (unnamed > 0) {
+        setMessage(strandedNotes > 0
+            ? QStringLiteral("Exported %1 verses. %2 could not be addressed and were "
+                             "left out — they need a book and a verse number — and "
+                             "%3 of your notes went with them.")
+                  .arg(drafts.size())
+                  .arg(unnamed)
+                  .arg(strandedNotes)
+            : QStringLiteral("Exported %1 verses. %2 could not be addressed and were "
+                             "left out — they need a book and a verse number.")
+                  .arg(drafts.size())
+                  .arg(unnamed));
+        return;
+    }
+    setMessage(QStringLiteral("Exported %1 verses to %2.")
+                   .arg(drafts.size())
+                   .arg(QFileInfo(path).fileName()));
 }
 
 // --------------------------------------------------------------------------
@@ -867,6 +1131,113 @@ void TranscriptionController::insertVerse(int afterVerse, const QString &number)
     ensureTypingRoom();
     setDirty(true);
     emit versesChanged();
+}
+
+void TranscriptionController::startVerse(int verse, int column, const QString &number)
+{
+    if (!isValid(verse, column)) {
+        return;
+    }
+    pushUndo();
+    TranscribedPage *page = mutablePage();
+    QList<TranscribedWord> &words = page->verses[verse].words;
+
+    TranscribedVerse opened;
+    opened.number = number;
+    // Everything after the number goes with it. A number typed between spaces
+    // is a boundary wherever it falls, and the words beyond it are the new
+    // verse's — leaving them behind would put the back half of one verse under
+    // the number of the one before it.
+    for (int index = column + 1; index < words.size(); ++index) {
+        opened.words.append(words.at(index));
+    }
+    words.remove(column, words.size() - column);
+
+    page->verses.insert(verse + 1, opened);
+    ensureTypingRoom();
+    // The caret is about to be put in the new verse, and the word it was in no
+    // longer exists.
+    m_selectedVerse = -1;
+    m_selectedColumn = -1;
+    setDirty(true);
+    emit versesChanged();
+    emit selectionChanged();
+}
+
+void TranscriptionController::pasteAt(int verse, int column, const QString &text)
+{
+    if (!isValid(verse, column)) {
+        return;
+    }
+    const QList<TranscribedVerse> pasted = parseTranscribedText(text);
+    if (pasted.isEmpty()) {
+        return;
+    }
+
+    pushUndo();
+    TranscribedPage *page = mutablePage();
+    QList<TranscribedWord> &words = page->verses[verse].words;
+
+    // The words after this one on the line. They keep their place at the end of
+    // whatever the pasted text turns into, so pasting into the middle of a
+    // verse pushes the rest along rather than overwriting it.
+    QList<TranscribedWord> trailing;
+    for (int index = column + 1; index < words.size(); ++index) {
+        trailing.append(words.at(index));
+    }
+    words.remove(column, words.size() - column);
+
+    // The first of the pasted verses joins the one being typed in — text cut
+    // out of the middle of a chapter opens mid-verse and has no number to give.
+    for (const TranscribedWord &word : pasted.constFirst().words) {
+        TranscribedWord read = word;
+        read.english = suggestedGloss(read.hebrew);
+        words.append(read);
+    }
+    if (!pasted.constFirst().number.isEmpty()) {
+        // Unless it did open with one, and this verse had none of its own.
+        if (page->verses[verse].number.isEmpty()) {
+            page->verses[verse].number = pasted.constFirst().number;
+        }
+    }
+
+    int landedIn = verse;
+    for (int index = 1; index < pasted.size(); ++index) {
+        TranscribedVerse opened = pasted.at(index);
+        for (TranscribedWord &word : opened.words) {
+            word.english = suggestedGloss(word.hebrew);
+        }
+        page->verses.insert(++landedIn, opened);
+    }
+
+    page->verses[landedIn].words.append(trailing);
+
+    ensureTypingRoom();
+    m_selectedVerse = -1;
+    m_selectedColumn = -1;
+    setDirty(true);
+    emit versesChanged();
+    emit selectionChanged();
+}
+
+void TranscriptionController::setNote(int verse, int column, const QString &note)
+{
+    if (!isValid(verse, column)) {
+        return;
+    }
+    TranscribedPage *page = mutablePage();
+    TranscribedWord &word = page->verses[verse].words[column];
+    const QString trimmed = note.trimmed();
+    if (word.note == trimmed) {
+        return;
+    }
+    pushUndo();
+    word.note = trimmed;
+    setDirty(true);
+    emit versesChanged();
+    // The panel shows the note for whichever word is selected, and this is that
+    // word: it has to be told the note it is displaying has just changed.
+    emit selectionChanged();
 }
 
 void TranscriptionController::setVerseNumber(int verse, const QString &number)

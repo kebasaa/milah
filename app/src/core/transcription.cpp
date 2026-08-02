@@ -13,6 +13,14 @@ namespace {
 const QLatin1String kFormat("milah-transcription");
 constexpr int kVersion = 1;
 
+/// Room for a shelfmark, a folio label and an extension together, and no more.
+/// A scan's id is a remote string — MILAH_MANUSCRIPT_URL points Milah at any
+/// catalogue an institution cares to serve — so its length is not this
+/// program's to trust. The bound is about what happens when someone unzips a
+/// transcription by hand: an entry longer than a filesystem will take extracts
+/// as an error rather than as a folio.
+constexpr int kMaxNameFragment = 96;
+
 /// Writes a string only when it says something.
 ///
 /// Every field a transcriber can leave blank is left out rather than written
@@ -75,6 +83,7 @@ QJsonObject wordToJson(const TranscribedWord &word)
     if (word.englishIsOwn) {
         json.insert(QStringLiteral("englishIsOwn"), true);
     }
+    put(json, QStringLiteral("note"), word.note);
     return json;
 }
 
@@ -84,6 +93,9 @@ TranscribedWord wordFromJson(const QJsonObject &json)
     word.hebrew = json.value(QStringLiteral("hebrew")).toString();
     word.english = json.value(QStringLiteral("english")).toString();
     word.englishIsOwn = json.value(QStringLiteral("englishIsOwn")).toBool();
+    // Absent from files written before a word could be remarked on, which reads
+    // correctly as nothing having been said about it.
+    word.note = json.value(QStringLiteral("note")).toString();
     return word;
 }
 
@@ -129,6 +141,8 @@ QJsonObject pageToJson(const TranscribedPage &page)
     put(json, QStringLiteral("imageEntry"), page.imageEntry);
     put(json, QStringLiteral("imageName"), page.imageName);
     put(json, QStringLiteral("sourcePath"), page.sourcePath);
+    put(json, QStringLiteral("imageUrl"), page.imageUrl);
+    put(json, QStringLiteral("imageLabel"), page.imageLabel);
     put(json, QStringLiteral("book"), page.book);
     put(json, QStringLiteral("bookLabel"), page.bookLabel);
     json.insert(QStringLiteral("firstChapter"), page.firstChapter);
@@ -144,6 +158,10 @@ TranscribedPage pageFromJson(const QJsonObject &json)
     page.imageEntry = json.value(QStringLiteral("imageEntry")).toString();
     page.imageName = json.value(QStringLiteral("imageName")).toString();
     page.sourcePath = json.value(QStringLiteral("sourcePath")).toString();
+    // Absent from files written before a folio could come from a library, which
+    // reads correctly as "this one came off a disk".
+    page.imageUrl = json.value(QStringLiteral("imageUrl")).toString();
+    page.imageLabel = json.value(QStringLiteral("imageLabel")).toString();
     page.book = json.value(QStringLiteral("book")).toString();
     // Absent from files written before the book could be named as well as
     // abbreviated, which reads correctly as "the canonical name of the id".
@@ -197,6 +215,124 @@ bool looksLikeVerseNumber(const QString &text)
     // and a transcriber typing what they see must be able to say so.
     static const QRegularExpression pattern(QStringLiteral("^[0-9]+[a-zA-Z]?$"));
     return pattern.match(text.trimmed()).hasMatch();
+}
+
+bool isUntouched(const TranscribedPage &page)
+{
+    for (const TranscribedVerse &verse : page.verses) {
+        if (!verse.number.isEmpty()) {
+            return false;
+        }
+        for (const TranscribedWord &word : verse.words) {
+            if (!word.hebrew.isEmpty()) {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
+bool isUntouched(const TranscriptionDocument &document)
+{
+    for (const TranscribedPage &page : document.pages) {
+        if (!isUntouched(page)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+QString archiveNameFragment(const QString &text)
+{
+    // ASCII only, and not merely because of the slash: an entry name is read
+    // back by whatever tool the transcriber unzips the file with, and one made
+    // of letters, digits, dot, dash and underscore is one every tool agrees on.
+    static const QRegularExpression unusable(QStringLiteral("[^A-Za-z0-9._-]+"));
+    QString fragment = text;
+    fragment.replace(unusable, QStringLiteral("_"));
+
+    // The end rather than the beginning, because the end is what tells one
+    // folio from the next: the folio number is the last thing the name carries,
+    // and an address's distinctive part is its tail as well.
+    if (fragment.size() > kMaxNameFragment) {
+        fragment = fragment.right(kMaxNameFragment);
+    }
+
+    // A name opening with a dot extracts as a hidden file, and a run of them is
+    // how a path climbs out of a directory. Trailing ones are noise, and a cut
+    // through a run of punctuation is exactly how one gets left behind.
+    static const QRegularExpression edges(QStringLiteral("^[._-]+|[._-]+$"));
+    fragment.remove(edges);
+    return fragment;
+}
+
+QString imageEntryFor(int pageIndex, const QString &name)
+{
+    const QString fragment = archiveNameFragment(name);
+    // Numbered by page, because two folios called `1.jpg` out of different
+    // folders would otherwise be the same entry and the second would silently
+    // replace the first — and because the sanitised name cannot be asked to do
+    // it: an id that is an address, and the same id with one separator changed,
+    // come out of archiveNameFragment() identical.
+    //
+    // The number in front is also what makes ".." harmless: no entry is ever
+    // that name, whatever the catalogue said.
+    if (fragment.isEmpty()) {
+        // Nothing in the name survived — an id written entirely in Hebrew, say.
+        // The folio's place still names it, which is the part that matters.
+        return QStringLiteral("images/%1").arg(pageIndex + 1, 3, 10, QLatin1Char('0'));
+    }
+    return QStringLiteral("images/%1-%2")
+        .arg(pageIndex + 1, 3, 10, QLatin1Char('0'))
+        .arg(fragment);
+}
+
+QList<TranscribedVerse> parseTranscribedText(const QString &text)
+{
+    QList<TranscribedVerse> verses;
+    const QStringList tokens = text.split(QRegularExpression(QStringLiteral("\\s+")),
+                                          Qt::SkipEmptyParts);
+
+    for (const QString &token : tokens) {
+        if (looksLikeVerseNumber(token)) {
+            TranscribedVerse verse;
+            verse.number = token.trimmed();
+            verses.append(verse);
+            continue;
+        }
+        if (verses.isEmpty()) {
+            // Words before any number. A fragment cut out of the middle of a
+            // chapter begins mid-verse, and refusing it because it does not
+            // open with a number would be refusing the commonest paste there is.
+            verses.append(TranscribedVerse());
+        }
+        TranscribedWord word;
+        word.hebrew = token;
+        verses.last().words.append(word);
+    }
+
+    return verses;
+}
+
+QString verseHeading(const TranscribedPage &page, int verseIndex)
+{
+    if (verseIndex < 0 || verseIndex >= page.verses.size()) {
+        return QString();
+    }
+    const QString number = page.verses.at(verseIndex).number;
+    if (number.isEmpty()) {
+        // Nothing has been read off it yet — but it is still a verse, and the
+        // card still has to be headed something.
+        return QStringLiteral("Unnumbered");
+    }
+
+    const int chapter = chapterOfVerse(page, verseIndex);
+    if (page.book.isEmpty()) {
+        // The chapter is known from the folio even when the book is not, and
+        // half a reference is worth more than none while transcribing.
+        return QStringLiteral("%1:%2").arg(chapter).arg(number);
+    }
+    return QStringLiteral("%1 %2:%3").arg(page.book).arg(chapter).arg(number);
 }
 
 MilahProjectPayload transcriptionPayload(

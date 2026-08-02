@@ -1,5 +1,7 @@
 #include "ui/download_manuscripts_dialog.h"
 
+#include "ui/network_fetch.h"
+
 #include <QDialogButtonBox>
 #include <QDir>
 #include <QFileInfo>
@@ -23,25 +25,26 @@ namespace {
 /// Where the manuscripts are published. One constant, so pointing Milah
 /// somewhere else is one edit.
 constexpr auto kDefaultBaseUrl =
-    "https://raw.githubusercontent.com/kebasaa/nt_hebrew_manuscripts/main/";
-constexpr auto kManifestName = "manifest.json";
-/// The texts sit in a folder of their own within the repository.
-constexpr auto kDataFolder = "data/";
+    "https://raw.githubusercontent.com/kebasaa/hebrew_manuscripts/main/";
+/// The catalogue, at the root of the published set.
+constexpr auto kManifestName = "manifest_manuscripts.json";
+/// The texts, in a folder of their own below it.
+///
+/// The manifest names a file, not a path, so this is the one place that knows
+/// where the texts are kept — moving them is this line rather than every entry
+/// in the catalogue.
+constexpr auto kTextFolder = "manuscripts/";
 
 /// A manifest that has grown far beyond a catalogue is not one, and reading an
 /// unbounded reply from the network into memory is how that becomes a problem.
 constexpr qint64 kManifestSizeLimit = 1 * 1024 * 1024;
 
-/// How long a request may make no progress before it is given up on.
-///
-/// Generous on purpose. Where a network advertises an IPv6 route that does not
-/// carry traffic, the first connection spends roughly twenty seconds per
-/// address before falling back to one that works — a minute is normal there and
-/// it does eventually succeed. Cutting it short would turn a slow success into
-/// a failure, which is the worse of the two.
-constexpr int kTransferTimeoutMs = 120 * 1000;
 /// After this long with nothing to show, say so rather than look frozen.
 constexpr int kWaitingNoticeMs = 6 * 1000;
+
+} // namespace
+
+namespace {
 /// No published text is anywhere near this; the largest is under a quarter of a
 /// megabyte.
 constexpr qint64 kFileSizeLimit = 32 * 1024 * 1024;
@@ -100,6 +103,27 @@ DownloadManuscriptsDialog::DownloadManuscriptsDialog(QWidget *parent)
     m_status->setWordWrap(true);
 
     auto *buttons = new QDialogButtonBox(QDialogButtonBox::Close);
+    // ResetRole keeps these to the left of Download on every platform, which is
+    // where a thing you do *before* deciding belongs.
+    m_refresh = buttons->addButton(
+        QStringLiteral("Refresh"), QDialogButtonBox::ResetRole);
+    m_refresh->setToolTip(
+        QStringLiteral("Read the catalogue again, to see texts added or corrected "
+                       "since this window opened."));
+    connect(m_refresh, &QPushButton::clicked, this, [this] {
+        if (!m_busy) {
+            fetchCatalogue();
+        }
+    });
+
+    m_selectUpdates = buttons->addButton(
+        QStringLiteral("Select updates"), QDialogButtonBox::ResetRole);
+    m_selectUpdates->setEnabled(false);
+    m_selectUpdates->setToolTip(
+        QStringLiteral("Tick every text whose published version has changed since "
+                       "it was downloaded."));
+    connect(m_selectUpdates, &QPushButton::clicked, this, [this] { selectUpdates(); });
+
     m_download = buttons->addButton(
         QStringLiteral("Download"), QDialogButtonBox::AcceptRole);
     m_download->setEnabled(false);
@@ -126,6 +150,27 @@ DownloadManuscriptsDialog::DownloadManuscriptsDialog(QWidget *parent)
     fetchCatalogue();
 }
 
+// Nothing here tries to defeat the CDN, because nothing can. The catalogue is
+// served with Cache-Control: max-age=300, and both of the usual answers were
+// measured against the published host and both failed: a unique ?t= query is
+// stripped from the cache key (a random query returned the stale copy at the
+// same moment a commit-SHA URL returned the new one), and Cache-Control:
+// no-cache on the request is ignored outright (X-Cache: HIT either way). Only
+// an immutable commit-SHA URL is reliably fresh, and reaching one means asking
+// the GitHub API what the branch points at — a second host, a rate limit, and
+// the end of MILAH_MANUSCRIPT_URL pointing anywhere that is not GitHub.
+//
+// So a text corrected minutes ago may take up to five to appear. Refresh is
+// still worth its place: it is what shows a library going stale after a text
+// was corrected an hour or a month ago, which is the case this is actually for.
+QNetworkReply *DownloadManuscriptsDialog::request(const QUrl &url)
+{
+    // Same host only: these addresses are the published repository's, and a
+    // redirect off it is not something to follow with a text that will be
+    // written into somebody's library.
+    return fetch(m_network, url, Redirects::SameHost, m_preferIPv4);
+}
+
 void DownloadManuscriptsDialog::fetchCatalogue()
 {
     const QUrl url(baseUrl() + QString::fromLatin1(kManifestName));
@@ -134,32 +179,113 @@ void DownloadManuscriptsDialog::fetchCatalogue()
         return;
     }
 
-    QNetworkRequest request(url);
-    request.setAttribute(QNetworkRequest::RedirectPolicyAttribute,
-                         QNetworkRequest::NoLessSafeRedirectPolicy);
-    request.setMaximumRedirectsAllowed(3);
-    request.setTransferTimeout(kTransferTimeoutMs);
+    m_tree->clear();
+    if (m_refresh) {
+        m_refresh->setEnabled(false);
+    }
 
+    m_settled = false;
+    m_fallback = nullptr;
     startWaitingNotice();
-    QNetworkReply *reply = m_network->get(request);
+
+    QNetworkReply *reply = request(url);
+    m_primary = reply;
     connect(reply, &QNetworkReply::finished, this, [this, reply] {
-        reply->deleteLater();
-        stopWaitingNotice();
-        if (reply->error() != QNetworkReply::NoError) {
-            report(QStringLiteral("Could not read the catalogue: %1")
-                       .arg(reply->errorString()),
-                   true);
-            return;
-        }
-        const QByteArray body = reply->read(kManifestSizeLimit);
-        const QJsonDocument document = QJsonDocument::fromJson(body);
-        if (!document.isObject()) {
-            report(QStringLiteral("The catalogue is not readable."), true);
-            return;
-        }
-        m_catalogue = ManuscriptCatalogue::fromJson(document.object());
-        showCatalogue();
+        readCatalogueReply(reply);
     });
+
+    // The route probe. If nothing at all has arrived by the time this fires,
+    // the addresses being tried are not carrying traffic, and waiting longer
+    // only wastes the editor's time.
+    if (m_preferIPv4) {
+        return;
+    }
+    auto *probe = new QTimer(reply);
+    probe->setSingleShot(true);
+    connect(probe, &QTimer::timeout, this, [this, reply] {
+        if (m_settled || reply->bytesAvailable() > 0 || reply->isFinished()) {
+            return;
+        }
+        // The first attempt is deliberately left running rather than aborted.
+        // Three seconds of silence is a suspicion, not a verdict: the route may
+        // be merely slow, and on the evidence it usually is. Racing the two and
+        // taking whichever answers first means a wrong suspicion costs one
+        // spare request, where aborting would have thrown away the attempt that
+        // was going to work and left a failed fallback with nothing behind it.
+        QNetworkReply *direct =
+            fetchOverIPv4(m_network, reply->request().url(), Redirects::SameHost);
+        if (!direct) {
+            // An IPv6-only network has nothing to fall back to. Nothing to say
+            // either: the first attempt is still running and may yet arrive.
+            return;
+        }
+        m_fallback = direct;
+        report(QStringLiteral("The connection is slow; trying a direct route…"));
+        connect(direct, &QNetworkReply::finished, this, [this, direct] {
+            readCatalogueReply(direct);
+        });
+    });
+    probe->start(RouteProbeMs);
+}
+
+void DownloadManuscriptsDialog::readCatalogueReply(QNetworkReply *reply)
+{
+    reply->deleteLater();
+    if (m_settled) {
+        // The other attempt already answered. This one is the loser of the
+        // race, and whatever it has to say is no longer news.
+        return;
+    }
+
+    // Whether anything else is still in flight decides what a failure means.
+    const QNetworkReply *other = (reply == m_primary) ? m_fallback : m_primary;
+    const bool aloneNow = !other || other->isFinished();
+
+    const bool usable = reply->error() == QNetworkReply::NoError;
+    QJsonDocument document;
+    if (usable) {
+        document = QJsonDocument::fromJson(reply->read(kManifestSizeLimit));
+    }
+
+    if (!usable || !document.isObject()) {
+        if (!aloneNow) {
+            // Say nothing: the other attempt is still running and is entitled
+            // to answer. Reporting here would put a failure on screen moments
+            // before the catalogue appeared.
+            return;
+        }
+        m_settled = true;
+        stopWaitingNotice();
+        if (m_refresh) {
+            m_refresh->setEnabled(true);
+        }
+        report(usable ? QStringLiteral("The catalogue is not readable.")
+                      : QStringLiteral("Could not read the catalogue: %1")
+                            .arg(reply->errorString()),
+               true);
+        return;
+    }
+
+    m_settled = true;
+    stopWaitingNotice();
+    if (m_refresh) {
+        m_refresh->setEnabled(true);
+    }
+    // Whichever attempt lost has nothing left to contribute, and a request left
+    // running would go on holding a connection open behind a finished window.
+    if (other && !other->isFinished()) {
+        const_cast<QNetworkReply *>(other)->abort();
+    }
+    // Decided by who won, and only when there was a race to win: the ordinary
+    // route answering first is proof it works, and the twelve downloads that
+    // follow should not be sent down a fallback it did not need. Left alone
+    // when no fallback ran, so a preference learned earlier survives a Refresh.
+    if (m_fallback) {
+        m_preferIPv4 = (reply == m_fallback);
+    }
+
+    m_catalogue = ManuscriptCatalogue::fromJson(document.object());
+    showCatalogue();
 }
 
 void DownloadManuscriptsDialog::showCatalogue()
@@ -171,6 +297,9 @@ void DownloadManuscriptsDialog::showCatalogue()
 
     const QString library = manuscriptWriteDirectory();
     const QStringList held = m_catalogue.installedFiles(library);
+    // Held but no longer matching the published checksum: the text has been
+    // corrected since it was taken.
+    const QStringList stale = m_catalogue.updatableFiles(library);
 
     // Grouped by the book they belong to, so a witness and its translation sit
     // together and the two Revelation manuscripts can be told apart by title.
@@ -186,29 +315,60 @@ void DownloadManuscriptsDialog::showCatalogue()
             books.insert(entry.book, book);
         }
 
-        const bool alreadyHeld = held.contains(entry.file);
+        const bool updatable = stale.contains(entry.file);
+        const bool alreadyHeld = held.contains(entry.file) && !updatable;
         auto *row = new QTreeWidgetItem(book);
-        row->setText(0,
-                     entry.isTranslation()
-                         ? QStringLiteral("%1  (translation)").arg(entry.title)
-                         : entry.title);
+        row->setText(0, entry.displayTitle());
         row->setText(1, entry.covers);
-        row->setText(2, alreadyHeld ? QStringLiteral("held") : humanSize(entry.bytes));
+        row->setText(2,
+                     updatable      ? QStringLiteral("update available")
+                         : alreadyHeld ? QStringLiteral("held")
+                                       : humanSize(entry.bytes));
         row->setToolTip(0,
                         entry.date.isEmpty()
                             ? entry.file
                             : QStringLiteral("%1\n%2").arg(entry.date, entry.file));
         row->setFlags(row->flags() | Qt::ItemIsUserCheckable);
-        // Already held is left unchecked: downloading again would only spend
-        // somebody's connection to arrive at the same file.
+        // Nothing is ticked for the editor, updates included: this window's
+        // rule is that opening it puts nothing on the wire. Select updates is
+        // there for the case where taking them all is what is wanted.
         row->setCheckState(0, Qt::Unchecked);
         row->setDisabled(alreadyHeld);
         row->setData(0, Qt::UserRole, entry.file);
+        row->setData(0, Qt::UserRole + 1, updatable);
     }
 
     m_tree->resizeColumnToContents(0);
-    report(QStringLiteral("%1 manuscripts available. Choose what to download.")
-               .arg(m_catalogue.entries().size()));
+    if (m_selectUpdates) {
+        m_selectUpdates->setEnabled(!stale.isEmpty());
+    }
+
+    QString found = QStringLiteral("%1 manuscripts available.")
+                        .arg(m_catalogue.entries().size());
+    if (!stale.isEmpty()) {
+        // Said out loud rather than left to be discovered by reading down the
+        // tree, which is where an update sits several headings from the top.
+        found += stale.size() == 1
+                     ? QStringLiteral(" 1 can be updated.")
+                     : QStringLiteral(" %1 can be updated.").arg(stale.size());
+    }
+    report(found + QStringLiteral(" Choose what to download."));
+    updateDownloadButton();
+}
+
+void DownloadManuscriptsDialog::selectUpdates()
+{
+    for (int book = 0; book < m_tree->topLevelItemCount(); ++book) {
+        QTreeWidgetItem *heading = m_tree->topLevelItem(book);
+        for (int index = 0; index < heading->childCount(); ++index) {
+            QTreeWidgetItem *row = heading->child(index);
+            if (row->data(0, Qt::UserRole + 1).toBool()) {
+                row->setCheckState(0, Qt::Checked);
+            }
+        }
+    }
+    // Whatever was already ticked stays ticked: this adds the updates, it does
+    // not decide on the editor's behalf what else they wanted.
     updateDownloadButton();
 }
 
@@ -236,6 +396,14 @@ void DownloadManuscriptsDialog::updateDownloadButton()
     }
 
     m_download->setEnabled(!m_queue.isEmpty() && !m_busy);
+    // Re-reading the catalogue mid-download would rebuild the tree under the
+    // queue that is being drained from it.
+    if (m_refresh) {
+        m_refresh->setEnabled(!m_busy);
+    }
+    if (m_selectUpdates && m_busy) {
+        m_selectUpdates->setEnabled(false);
+    }
     // Say what pressing it will do, before it is pressed.
     m_download->setText(m_queue.isEmpty()
                             ? QStringLiteral("Download")
@@ -272,18 +440,8 @@ void DownloadManuscriptsDialog::startNextDownload()
     const CatalogueEntry entry = m_queue.first();
     report(QStringLiteral("Downloading %1…").arg(entry.title));
 
-    const QUrl url(baseUrl() + QString::fromLatin1(kDataFolder) + entry.file);
-    QNetworkRequest request(url);
-    // A redirect that drops to plain HTTP, or wanders to another host, is not
-    // followed: the editor asked for one place and should get it or nothing.
-    request.setAttribute(QNetworkRequest::RedirectPolicyAttribute,
-                         QNetworkRequest::SameOriginRedirectPolicy);
-    request.setMaximumRedirectsAllowed(3);
-    // The connection is already open by now, so this only guards against a
-    // transfer that stalls part way rather than against the slow first reach.
-    request.setTransferTimeout(kTransferTimeoutMs);
-
-    QNetworkReply *reply = m_network->get(request);
+    const QUrl url(baseUrl() + QString::fromLatin1(kTextFolder) + entry.file);
+    QNetworkReply *reply = request(url);
     connect(reply, &QNetworkReply::finished, this, [this, reply] {
         finishDownload(reply);
     });
