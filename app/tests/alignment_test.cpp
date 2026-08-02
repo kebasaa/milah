@@ -68,13 +68,13 @@ QString corpusPath(const QString &file)
 
 const QString &cochinFile()
 {
-    static const QString name = QStringLiteral("REV_CochinOo.1.16.2_hebrew");
+    static const QString name = QStringLiteral("Rev_CochinOo.1.16.2_hebrew");
     return name;
 }
 
 const QString &sloaneFile()
 {
-    static const QString name = QStringLiteral("REV_Sloane237_hebrew");
+    static const QString name = QStringLiteral("Rev_Sloane237_hebrew");
     return name;
 }
 

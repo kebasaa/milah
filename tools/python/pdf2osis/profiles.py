@@ -88,8 +88,8 @@ REV = BookProfile(
     key="rev",
     name="Revelation",
     osis_book="Rev",
-    scope="REV",
-    stem="REV_CochinOo.1.16.2",
+    scope="Rev",
+    stem="Rev_CochinOo.1.16.2",
     default_pdf="MS_Cochin_Oo.1.16.2_REV_ProjectTruthMinistries.pdf",
     first_page=15,
     # The final 22:21 transcription is on PDF page 370 and its translation
@@ -125,8 +125,8 @@ JAS = BookProfile(
     key="jas",
     name="James",
     osis_book="Jas",
-    scope="JAS",
-    stem="JAS_CochinOo.1.32",
+    scope="Jas",
+    stem="Jas_CochinOo.1.32",
     default_pdf="MS_Cochin_Oo.1.32_JAS_ProjectTruthMinistries.pdf",
     first_page=10,
     last_page=68,
@@ -155,11 +155,11 @@ SLOANE_REV = BookProfile(
     key="sloane_rev",
     name="Revelation",
     osis_book="Rev",
-    scope="REV",
+    scope="Rev",
     # The edition prints "MS Sloane 273", but the British Library catalogue
     # records the Hebrew Revelation as Sloane MS 237 — four paper folios in
     # square Hebrew script, which is exactly the 1r–4v this text occupies.
-    stem="REV_Sloane237",
+    stem="Rev_Sloane237",
     default_pdf=(
         "A-Hebrew-Manuscript-of-the-Book-of-Revelation-"
         "British-Library-Sloane-273.pdf"
@@ -238,8 +238,8 @@ EBR530_LUKE = BookProfile(
     name="Luke",
     osis_book="Luke",
     osis_book_name="Luke",
-    scope="LUK",
-    stem="LUK_Ebr530",
+    scope="Luke",
+    stem="Luke_Ebr530",
     default_pdf=(
         "Hebrew-Gospels-of-Luke-and-John-from-the-Vatican_"
         "Biblioteca Apostolica ebr. 530.pdf"
@@ -323,8 +323,8 @@ EBR530_JOHN = BookProfile(
     name="John",
     osis_book="John",
     osis_book_name="John",
-    scope="JOH",
-    stem="JOH_Ebr530",
+    scope="John",
+    stem="John_Ebr530",
     default_pdf=(
         "Hebrew-Gospels-of-Luke-and-John-from-the-Vatican_"
         "Biblioteca Apostolica ebr. 530.pdf"
@@ -408,8 +408,8 @@ MAT = BookProfile(
     name="Matthew",
     osis_book="Matt",
     osis_book_name="Matthew",
-    scope="MAT",
-    stem="MAT_CochinOo.1.32",
+    scope="Matt",
+    stem="Matt_CochinOo.1.32",
     default_pdf="MS_Cochin_Oo.1.32_MAT_ProjectTruthMinistries.pdf",
     # The volume opens with front matter and stops at Matthew 19:30.
     first_page=12,

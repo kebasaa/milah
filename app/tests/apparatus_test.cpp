@@ -22,7 +22,7 @@ SourceDocument parseSample()
 
 QString corpusPath(const QString &variant)
 {
-    return QStringLiteral("%1/tools/data/01_osis/REV_Sloane237_%2.osis")
+    return QStringLiteral("%1/tools/data/01_osis/Rev_Sloane237_%2.osis")
         .arg(QStringLiteral(MILAH_REPO_ROOT), variant);
 }
 

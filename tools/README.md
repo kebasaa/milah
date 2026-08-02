@@ -59,11 +59,17 @@ existing output. Its JSON report lists coverage, empty and alternate verses,
 note counts, excluded markers and source anomalies.
 
 Output is named `<BOOK>_<Manuscript>_<variant>.osis` — book code first, then the
-manuscript, as in `REV_CochinOo.1.16.2_hebrew_commented.osis` or
-`LUK_Ebr530_translation.osis`. `<BOOK>` is the three-letter code (`REV`, `JAS`,
-`MAT`, `LUK`, `JOH`) and `<variant>` is `hebrew`, `hebrew_commented` or
-`translation`. Every filename derives from `BookProfile.stem`, so that field is
-the single place the convention lives.
+manuscript, as in `Rev_CochinOo.1.16.2_hebrew_commented.osis` or
+`Luke_Ebr530_translation.osis`. `<BOOK>` is the OSIS book id — the same string
+that names the book's `<div type="book" osisID="…">` and every verse inside it
+(`Rev`, `Jas`, `Matt`, `Luke`, `John`, …), or `NT` for a source spanning the
+whole New Testament in one file. This is *not* USFM: USFM's own 3-letter codes
+are uppercase and fixed-width (`REV`, `JHN`), which is what the C++ app's own
+`libraryFileName()`/`usfmCode()` (`app/src/core/books.cpp`) uses when *it*
+names a file — a deliberate difference between the two tools, not an
+oversight. `<variant>` is `hebrew`, `hebrew_commented` or `translation`. Every
+filename derives from `BookProfile.stem`, so that field is the single place
+the convention lives.
 
 ### Package layout
 
