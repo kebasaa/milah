@@ -4,6 +4,9 @@
 #include "core/word_marker.h"
 #include "transcription_controller.h"
 
+#include "ui/icons.h"
+
+#include <QAction>
 #include <QFontMetrics>
 #include <QGridLayout>
 #include <QKeyEvent>
@@ -22,6 +25,31 @@ namespace {
 const char *const kVerseProperty = "transcriptionVerse";
 const char *const kColumnProperty = "transcriptionColumn";
 const char *const kRoleProperty = "transcriptionRole";
+
+/// What the first cell of an unread folio says until something is typed into it.
+///
+/// Two words on purpose. The line above it says what the keys do; this only has
+/// to say that the box is here — and because the cell is measured against it,
+/// anything longer would set the width of the opening column of every new folio.
+QString firstWordGhost()
+{
+    return QStringLiteral("start here");
+}
+
+/// Whether a user edit brought whitespace in with it.
+///
+/// Which is the same question as "was this pasted or dropped". A space cannot
+/// be typed into a Hebrew cell — the filter below takes the space bar and turns
+/// it into the next word — so whitespace can only have arrived whole, off the
+/// clipboard or the end of a drag. QLineEdit has no insertFromMimeData to
+/// override, and watching for Ctrl+V would miss the context menu, the middle
+/// click and the drop; this misses none of them.
+bool arrivedWhole(const QString &text)
+{
+    return std::any_of(text.cbegin(), text.cend(), [](QChar character) {
+        return character.isSpace();
+    });
+}
 
 } // namespace
 
@@ -42,9 +70,24 @@ TranscriptionGridWidget::TranscriptionGridWidget(
     m_emptyState->setAlignment(Qt::AlignCenter);
     m_emptyState->setWordWrap(true);
     m_emptyState->setText(QStringLiteral(
-        "No folio open.\n\nFile ▸ Open Image starts a transcription. Type what you "
-        "read; a space begins the next word, and a number begins a verse."));
+        "No folio open.\n\nFile ▸ Open Image starts a transcription."));
     outer->addWidget(m_emptyState);
+
+    // The rules, kept where they are needed: on screen while the folio is still
+    // blank, and gone once the first word shows they are no longer news. They
+    // used to live in the empty state above, which hides at exactly the moment
+    // a transcriber first has to know them.
+    m_hint = new QLabel;
+    m_hint->setObjectName(QStringLiteral("transcriptionHint"));
+    m_hint->setAlignment(Qt::AlignCenter);
+    m_hint->setWordWrap(true);
+    m_hint->setText(QStringLiteral(
+        "Type what you read. A space begins the next word, a number begins a "
+        "verse, and right-clicking a verse number starts a new chapter there."));
+    // Set here rather than in the window's stylesheet because it has to stay
+    // legible on a dark palette, which palette(mid) does not.
+    m_hint->setStyleSheet(QStringLiteral("color: %1;").arg(acronymColor(palette())));
+    outer->addWidget(m_hint);
 
     outer->addWidget(bandHost());
     outer->addStretch(1);
@@ -86,11 +129,63 @@ QLineEdit *TranscriptionGridWidget::makeCell(int verse, int column, Role role)
     field->setProperty(kRoleProperty, int(role));
     field->installEventFilter(this);
 
+    if (role == Hebrew) {
+        // Only the Hebrew row divides a paste. A gloss is English, and "son of
+        // man" pasted into it is one gloss and not three.
+        connect(field, &QLineEdit::textEdited, this, [this, verse, column](const QString &text) {
+            if (arrivedWhole(text)) {
+                handlePaste(verse, column, text);
+            }
+        });
+
+        field->setContextMenuPolicy(Qt::CustomContextMenu);
+        connect(
+            field,
+            &QLineEdit::customContextMenuRequested,
+            this,
+            [this, field, verse, column](const QPoint &position) {
+                showWordMenu(verse, column, field->mapToGlobal(position));
+            });
+    }
+
     connect(field, &QLineEdit::editingFinished, this, [this, field] { commit(field); });
     return field;
 }
 
-void TranscriptionGridWidget::addVerseLabel(QGridLayout *grid, int verse, int rowSpan)
+void TranscriptionGridWidget::showWordMenu(int verse, int column, const QPoint &globalPosition)
+{
+    const TranscribedPage *page = m_controller->currentPage();
+    if (!page || verse < 0 || verse >= page->verses.size()
+        || column < 0 || column >= page->verses.at(verse).words.size()) {
+        return;
+    }
+    const TranscribedWord &word = page->verses.at(verse).words.at(column);
+
+    QMenu menu(this);
+    // One entry either way: whether a remark is there yet is not worth two
+    // different menus, which is the same call the comparison makes.
+    QAction *note = menu.addAction(QStringLiteral("Add/edit note"));
+    note->setToolTip(QStringLiteral(
+        "Writes your own remark on this word, in the Notes panel beside the "
+        "manuscript's details."));
+    connect(note, &QAction::triggered, this, [this, verse, column] {
+        // Selecting it is what points the panel at this word; the panel then
+        // puts the caret in its editor.
+        m_controller->selectWord(verse, column);
+        m_controller->requestNoteEditing();
+    });
+
+    if (!word.note.isEmpty()) {
+        QAction *clear = menu.addAction(QStringLiteral("Remove note"));
+        connect(clear, &QAction::triggered, this, [this, verse, column] {
+            m_controller->setNote(verse, column, QString());
+        });
+    }
+
+    menu.exec(globalPosition);
+}
+
+void TranscriptionGridWidget::addVerseHeading(QVBoxLayout *card, int verse)
 {
     const TranscribedPage *page = m_controller->currentPage();
     if (!page) {
@@ -98,49 +193,47 @@ void TranscriptionGridWidget::addVerseLabel(QGridLayout *grid, int verse, int ro
     }
     const TranscribedVerse &data = page->verses.at(verse);
 
-    // The chapter is shown beside the number rather than only in the toolbar,
-    // because a chapter break is a thing that happens partway down a folio and
-    // the transcriber has to be able to see where.
-    const QString text = data.number.isEmpty()
-        ? QStringLiteral("·")
-        : QStringLiteral("%1:%2").arg(chapterOfVerse(*page, verse)).arg(data.number);
-
-    auto *label = new QLabel(text);
-    label->setObjectName(QStringLiteral("rowAcronym"));
-    label->setLayoutDirection(Qt::LeftToRight);
-    label->setFont(m_acronymFont);
-    label->setStyleSheet(QStringLiteral("color: %1; padding-left: %2px;")
-                             .arg(acronymColor(palette()))
-                             .arg(AcronymPadding));
-    label->setAlignment(Qt::AlignLeft | Qt::AlignTop);
-    label->setToolTip(data.startsNewChapter
+    // The same heading a verse of the comparison carries, and the same rule in
+    // the window's stylesheet sets it — except that a transcription is written
+    // before it is identified, so it says as much of the reference as is known.
+    auto *heading = new QLabel(verseHeading(*page, verse));
+    heading->setObjectName(QStringLiteral("verseHeading"));
+    heading->setLayoutDirection(Qt::LeftToRight);
+    heading->setToolTip(data.startsNewChapter
         ? QStringLiteral("This verse opens chapter %1. Right-click to put it back.")
               .arg(chapterOfVerse(*page, verse))
         : QStringLiteral("Right-click to start a new chapter here."));
 
-    label->setContextMenuPolicy(Qt::CustomContextMenu);
+    heading->setContextMenuPolicy(Qt::CustomContextMenu);
     connect(
-        label,
+        heading,
         &QLabel::customContextMenuRequested,
         this,
-        [this, label, verse](const QPoint &position) {
-            showVerseMenu(verse, label->mapToGlobal(position));
+        [this, heading, verse](const QPoint &position) {
+            showVerseMenu(verse, heading->mapToGlobal(position));
         });
 
-    grid->addWidget(label, 0, AcronymColumn, rowSpan, 1);
+    card->addWidget(heading);
 }
 
 void TranscriptionGridWidget::build()
 {
+    m_rebuilding = true;
     clearBands();
     m_hebrewCells.clear();
     m_englishCells.clear();
+    m_rebuilding = false;
 
     const TranscribedPage *page = m_controller->currentPage();
     const bool open = page != nullptr;
+    // Nothing read off this folio yet, so the workspace still offers to say
+    // where to begin — a ghost in the opening cell, and the rules above it.
+    const bool unread = open && isUntouched(*page);
     m_emptyState->setVisible(!open);
+    m_hint->setVisible(unread);
     bandHost()->setVisible(open);
     if (!open) {
+        m_focusedEntry.clear();
         m_builtForAvailable = availableWidth();
         return;
     }
@@ -148,27 +241,13 @@ void TranscriptionGridWidget::build()
     const QFontMetrics readingMetrics(m_readingFont);
     const QFontMetrics glossMetrics(m_acronymFont);
 
-    // The verse labels all sit in one column, so the widest of them decides how
-    // much room is left for the words — measured over the whole folio, or the
-    // columns would step sideways when a two-digit verse arrived.
-    int labelWidth = glossMetrics.horizontalAdvance(QStringLiteral("000:000"));
-    for (int verse = 0; verse < page->verses.size(); ++verse) {
-        const QString number = page->verses.at(verse).number;
-        if (number.isEmpty()) {
-            continue;
-        }
-        labelWidth = std::max(
-            labelWidth,
-            glossMetrics.horizontalAdvance(
-                QStringLiteral("%1:%2").arg(chapterOfVerse(*page, verse)).arg(number)));
-    }
-
     const int available = availableWidth();
     m_builtForAvailable = available;
+    // The verse is named above its words now rather than beside them, so the
+    // whole width is the text's. What comes off it is the card's own padding.
     const int readingRoom =
-        std::max(ColumnSpacing, available - labelWidth - MeasurementSlack - ColumnSpacing);
+        std::max(ColumnSpacing, available - 2 * CardPadding - MeasurementSlack - ColumnSpacing);
 
-    bool ruled = false;
     for (int verse = 0; verse < page->verses.size(); ++verse) {
         const TranscribedVerse &data = page->verses.at(verse);
 
@@ -184,26 +263,36 @@ void TranscriptionGridWidget::build()
             const WordMarker marker = markerFor(word.hebrew, m_controller->dictionary());
             markers.append(marker);
             widths.append(std::max({
-                readingMetrics.horizontalAdvance(word.hebrew) + CaretCushion,
+                // A note marker sits inside the same field and takes its room
+                // out of the text, so a remarked word is measured wider by
+                // exactly what the marker costs — or the word is squeezed.
+                readingMetrics.horizontalAdvance(word.hebrew) + CaretCushion
+                    + (word.note.isEmpty() ? 0 : NoteMarkerWidth),
                 glossMetrics.horizontalAdvance(word.english) + CaretCushion,
                 glossMetrics.horizontalAdvance(marker.text) + MeasurementSlack,
             }));
         }
+        // A cell measured only by what is in it is ten pixels wide when that is
+        // nothing, which leaves a placeholder nowhere to appear — and is the
+        // whole reason an unread folio looks like an empty pane. The one cell
+        // carrying the ghost is measured against the ghost instead.
+        if (unread && verse == 0 && !widths.isEmpty()) {
+            widths[0] = std::max(
+                widths.at(0),
+                readingMetrics.horizontalAdvance(firstWordGhost()) + CaretCushion);
+        }
+
+        // Its own card, headed with as much of its reference as is known — the
+        // same shape a verse of the comparison takes, so a folio and a
+        // comparison read as the same kind of thing.
+        addVerseHeading(addBandGroup(), verse);
 
         const QList<Band> bands = packBands(widths, readingRoom);
         for (int index = 0; index < bands.size(); ++index) {
             const Band &band = bands.at(index);
-            // Ruled between verses, and between the bands of one verse, so a
-            // line that wraps is as plainly one line continued as it is in the
-            // comparison.
-            QGridLayout *grid = addBand(ruled);
-            ruled = true;
-
-            // The number names the verse once, at its first band: repeating it
-            // down a wrapped verse would read as several verses.
-            if (index == 0) {
-                addVerseLabel(grid, verse, 3);
-            }
+            // Ruled only between the bands of one verse now, which is what the
+            // rule was ever for: the card says where a verse ends.
+            QGridLayout *grid = addBand(index > 0);
 
             for (int column = band.start; column < band.end; ++column) {
                 const TranscribedWord &word = data.words.at(column);
@@ -211,6 +300,26 @@ void TranscriptionGridWidget::build()
 
                 QLineEdit *hebrew = makeCell(verse, column, Hebrew);
                 hebrew->setText(word.hebrew);
+                if (!word.note.isEmpty()) {
+                    // An action inside the field rather than anything in its
+                    // text: the text is the manuscript, and an asterisk typed
+                    // into it would be transcribed and exported as one.
+                    QAction *marker = hebrew->addAction(
+                        tintedIcon(QStringLiteral(":/img/icons/note-marker.svg"),
+                                   noteMarkerColor(palette())),
+                        QLineEdit::TrailingPosition);
+                    marker->setToolTip(word.note);
+                    connect(marker, &QAction::triggered, this, [this, hebrew] {
+                        hebrew->setFocus(Qt::MouseFocusReason);
+                        m_controller->requestNoteEditing();
+                    });
+                }
+                if (unread && verse == 0 && column == 0) {
+                    // Qt keeps a placeholder on screen while the field is empty
+                    // even once it has the focus, so the ghost and the caret
+                    // that lands here sit together until the first keystroke.
+                    hebrew->setPlaceholderText(firstWordGhost());
+                }
                 grid->addWidget(hebrew, 0, gridColumn);
                 m_hebrewCells.insert(cellKey(verse, column), hebrew);
 
@@ -262,6 +371,20 @@ void TranscriptionGridWidget::build()
         m_pendingColumn = -1;
         m_pendingRole = Hebrew;
         m_pendingCaret = -1;
+        m_focusedEntry = page->imageEntry;
+        return;
+    }
+
+    // A folio that has just come up is opened at its first word, so there is a
+    // caret to see and nothing to hunt for.
+    //
+    // Only when the folio itself changed. build() also runs on every edit, and
+    // on naming the book — setBook() reports a page change too — so following
+    // any page change would snatch the caret out of the Book field as it was
+    // being filled in.
+    if (page->imageEntry != m_focusedEntry) {
+        m_focusedEntry = page->imageEntry;
+        focusWord(0, 0);
     }
 }
 
@@ -319,6 +442,15 @@ void TranscriptionGridWidget::showVerseMenu(int verse, const QPoint &globalPosit
 
 void TranscriptionGridWidget::commit(QLineEdit *field)
 {
+    if (m_rebuilding) {
+        // While the folio is being redrawn the model is what is right and the
+        // fields are what is stale. clearBands() hides the focused one, which
+        // Qt reports as editingFinished, carrying the text that was in it and
+        // the verse and column it used to be — and writing that back is how a
+        // number that had just become a verse ended up a word instead.
+        return;
+    }
+
     const int verse = field->property(kVerseProperty).toInt();
     const int column = field->property(kColumnProperty).toInt();
     if (field->property(kRoleProperty).toInt() == English) {
@@ -345,7 +477,10 @@ bool TranscriptionGridWidget::handleSpace(QLineEdit *field, int verse, int colum
         return true;
     }
 
-    if (looksLikeVerseNumber(text) && last) {
+    // Wherever it is typed, not only at the end of the verse: a number between
+    // spaces is a verse boundary, and one typed further back used to become an
+    // ordinary word without a word of complaint.
+    if (looksLikeVerseNumber(text)) {
         const QString number = text.trimmed();
         // A verse with no number yet takes this one: the first thing typed on
         // a folio is nearly always the number the folio opens at.
@@ -354,11 +489,9 @@ bool TranscriptionGridWidget::handleSpace(QLineEdit *field, int verse, int colum
             m_controller->setVerseNumber(verse, number);
             focusWord(verse, column);
         } else {
-            // Otherwise it opens the next verse, and the digits go with it
-            // rather than staying behind as a word.
-            m_controller->setWord(verse, column, QString());
-            m_controller->removeColumn(verse, column);
-            m_controller->insertVerse(verse, number);
+            // One operation: the digits go, the words after them follow into
+            // the new verse, and the whole thing is one thing to undo.
+            m_controller->startVerse(verse, column, number);
             focusWord(verse + 1, 0);
         }
         return true;
@@ -370,6 +503,16 @@ bool TranscriptionGridWidget::handleSpace(QLineEdit *field, int verse, int colum
     m_controller->splitAt(verse, column, caret);
     focusWord(verse, column + 1, 0);
     return true;
+}
+
+void TranscriptionGridWidget::handlePaste(int verse, int column, const QString &text)
+{
+    // `text` is the whole field, not only what was dropped into it: whatever
+    // was already typed there is part of what has to be divided, and where the
+    // caret was is already answered by where the pasted words landed among the
+    // letters. So the cell is replaced by everything the text divides into, and
+    // the words after it on the line follow along.
+    m_controller->pasteAt(verse, column, text);
 }
 
 bool TranscriptionGridWidget::handleBackspace(QLineEdit *field, int verse, int column)

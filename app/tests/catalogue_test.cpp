@@ -1,5 +1,6 @@
 #include "core/manuscript_catalogue.h"
 
+#include <QCryptographicHash>
 #include <QFile>
 #include <QJsonDocument>
 #include <QTemporaryDir>
@@ -33,6 +34,32 @@ QByteArray sampleManifest()
        "book":"REV","role":"translation","language":"en",
        "date":"2017","bytes":12812}
     ]})JSON";
+}
+
+/// Writes `text` verbatim and returns its path.
+QString writeFile(const QTemporaryDir &directory, const QString &name, const QByteArray &text)
+{
+    const QString path = directory.filePath(name);
+    QFile file(path);
+    if (file.open(QIODevice::WriteOnly)) {
+        file.write(text);
+    }
+    return path;
+}
+
+/// The manifest's own recipe: sha256 over the LF form.
+QByteArray checksumOf(const QByteArray &text)
+{
+    QByteArray normalised = text;
+    normalised.replace("\r\n", "\n");
+    return QCryptographicHash::hash(normalised, QCryptographicHash::Sha256).toHex();
+}
+
+QByteArray manifestWithHash(const QByteArray &file, const QByteArray &hash, qint64 bytes)
+{
+    return QByteArray(R"JSON({"manuscripts":[{"file":")JSON") + file
+        + R"JSON(","title":"A text","role":"manuscript","bytes":)JSON"
+        + QByteArray::number(bytes) + R"JSON(,"sha256":")JSON" + hash + R"JSON("}]})JSON";
 }
 
 } // namespace
@@ -152,6 +179,116 @@ private slots:
                     .isEmpty());
     }
 
+    // --- telling a stale copy from a current one ---------------------------
+
+    void aHashIsReadFromTheManifest()
+    {
+        const ManuscriptCatalogue catalogue =
+            catalogueFrom(manifestWithHash("a.osis", "ABCDEF0123", 10));
+        // Lowercased on the way in, so a manifest written with upper-case hex
+        // still compares equal to what QCryptographicHash produces.
+        QCOMPARE(catalogue.entries().first().sha256, QStringLiteral("abcdef0123"));
+    }
+
+    void anEntryWithoutAHashIsStillOffered()
+    {
+        // A manifest written before checksums existed must not lose its
+        // manuscripts; they simply cannot report an update.
+        QTemporaryDir directory;
+        QVERIFY(directory.isValid());
+        writeFile(directory, QStringLiteral("a.osis"), "anything");
+
+        const ManuscriptCatalogue catalogue = catalogueFrom(
+            R"JSON({"manuscripts":[{"file":"a.osis","title":"A","role":"manuscript"}]})JSON");
+        QCOMPARE(catalogue.entries().size(), 1);
+        QVERIFY(catalogue.entries().first().sha256.isEmpty());
+        QCOMPARE(
+            catalogue.installedFiles(directory.path()),
+            QStringList{QStringLiteral("a.osis")});
+        QVERIFY(catalogue.updatableFiles(directory.path()).isEmpty());
+    }
+
+    void aFileMatchingItsHashIsNotUpdatable()
+    {
+        QTemporaryDir directory;
+        QVERIFY(directory.isValid());
+        const QByteArray text = "the published text\n";
+        writeFile(directory, QStringLiteral("a.osis"), text);
+
+        const ManuscriptCatalogue catalogue =
+            catalogueFrom(manifestWithHash("a.osis", checksumOf(text), text.size()));
+        QVERIFY(catalogue.updatableFiles(directory.path()).isEmpty());
+    }
+
+    void aFileDifferingFromItsHashIs()
+    {
+        QTemporaryDir directory;
+        QVERIFY(directory.isValid());
+        writeFile(directory, QStringLiteral("a.osis"), "the copy I downloaded\n");
+
+        const ManuscriptCatalogue catalogue = catalogueFrom(
+            manifestWithHash("a.osis", checksumOf("the corrected text\n"), 19));
+        QCOMPARE(
+            catalogue.updatableFiles(directory.path()),
+            QStringList{QStringLiteral("a.osis")});
+    }
+
+    void aFileNotHeldIsNotUpdatable()
+    {
+        // "You do not have this" and "yours is out of date" are different
+        // answers, and the download window shows them differently.
+        QTemporaryDir directory;
+        QVERIFY(directory.isValid());
+        const ManuscriptCatalogue catalogue =
+            catalogueFrom(manifestWithHash("a.osis", checksumOf("x"), 1));
+        QVERIFY(catalogue.installedFiles(directory.path()).isEmpty());
+        QVERIFY(catalogue.updatableFiles(directory.path()).isEmpty());
+    }
+
+    void aSameSizeChangeIsStillDetected()
+    {
+        // The reason this uses a checksum rather than the byte count. Fixing
+        // "Sloane MS 237" to "MS Sloane 273" moves not one byte of length, and
+        // that correction is outstanding in the published texts. Size-based
+        // detection passes every other test here and fails this one.
+        QTemporaryDir directory;
+        QVERIFY(directory.isValid());
+        const QByteArray held = "British Library, Sloane MS 237\n";
+        const QByteArray published = "British Library, Sloane MS 273\n";
+        QCOMPARE(held.size(), published.size());
+
+        writeFile(directory, QStringLiteral("a.osis"), held);
+        const ManuscriptCatalogue catalogue = catalogueFrom(
+            manifestWithHash("a.osis", checksumOf(published), published.size()));
+
+        QCOMPARE(
+            catalogue.updatableFiles(directory.path()),
+            QStringList{QStringLiteral("a.osis")});
+    }
+
+    void hashingIsBlindToLineEndings()
+    {
+        // A clone made with core.autocrlf=true holds CRLF where GitHub serves
+        // LF. Without normalising, every manuscript would read "update
+        // available" for ever and taking the update would not settle it.
+        QTemporaryDir directory;
+        QVERIFY(directory.isValid());
+        const QByteArray lf = "one\ntwo\nthree\n";
+        const QByteArray crlf = "one\r\ntwo\r\nthree\r\n";
+
+        const QString withCrlf = writeFile(directory, QStringLiteral("crlf.osis"), crlf);
+        const QString withLf = writeFile(directory, QStringLiteral("lf.osis"), lf);
+        QCOMPARE(manuscriptChecksum(withCrlf), manuscriptChecksum(withLf));
+        QCOMPARE(manuscriptChecksum(withLf), QString::fromLatin1(checksumOf(lf)));
+    }
+
+    void anUnreadableFileIsNotCalledStale()
+    {
+        // A missing file has no checksum, and re-downloading is not an answer
+        // to a question that was never asked.
+        QVERIFY(manuscriptChecksum(QStringLiteral("nowhere/at/all.osis")).isEmpty());
+    }
+
     // --- where the library lives -------------------------------------------
 
     void theWriteDirectoryIsWritable()
@@ -179,6 +316,103 @@ private slots:
 
         QVERIFY(!paths.isEmpty());
         QCOMPARE(paths.first(), QStringLiteral("C:/somewhere/of/my/own"));
+    }
+
+    void aWitnessKeepsItsTitleExactly()
+    {
+        CatalogueEntry entry;
+        entry.role = SourceRole::Manuscript;
+        entry.title = QStringLiteral("Revelation (British Library, Sloane MS 237)");
+        QCOMPARE(entry.displayTitle(), entry.title);
+    }
+
+    void aTranslationIsNamedForTheWitnessItRenders()
+    {
+        // The point of the whole thing: the pair reads as a pair, sorted
+        // together, differing only in the mark at the end.
+        CatalogueEntry witness;
+        witness.role = SourceRole::Manuscript;
+        witness.title = QStringLiteral("Luke (Vatican, Vat. ebr. 530)");
+
+        CatalogueEntry rendered;
+        rendered.role = SourceRole::Translation;
+        rendered.title =
+            QStringLiteral("English Translation of Luke (Vatican, Vat. ebr. 530)");
+
+        QVERIFY(rendered.displayTitle().startsWith(witness.displayTitle()));
+        QVERIFY(rendered.displayTitle().endsWith(QStringLiteral("(English translation)")));
+    }
+
+    void bothWordingsOfTheLeadAreTaken()
+    {
+        // The transcribers write it two ways across the published texts, and a
+        // fix that only knew one would leave half the rows saying it twice.
+        CatalogueEntry shorter;
+        shorter.role = SourceRole::Translation;
+        shorter.title = QStringLiteral("Translation of James (Cochin MS Oo.1.32)");
+        QCOMPARE(shorter.displayTitle(),
+                 QStringLiteral("James (Cochin MS Oo.1.32)  (English translation)"));
+
+        CatalogueEntry longer;
+        longer.role = SourceRole::Translation;
+        longer.title = QStringLiteral("English Translation of James (Cochin MS Oo.1.32)");
+        QCOMPARE(longer.displayTitle(), shorter.displayTitle());
+    }
+
+    void theLongerLeadIsNotLeftAsAStrayEnglish()
+    {
+        // Matching "Translation of " first would take it out of the middle and
+        // leave "English " behind. Order of the table is load-bearing.
+        CatalogueEntry entry;
+        entry.role = SourceRole::Translation;
+        entry.title = QStringLiteral("English Translation of Matthew");
+        QVERIFY(!entry.displayTitle().startsWith(QStringLiteral("English ")));
+    }
+
+    void aTitleWithNoLeadIsStillMarkedButNotMangled()
+    {
+        // A third wording is only a matter of time, and half a title is worse
+        // than a title that merely repeats itself.
+        CatalogueEntry entry;
+        entry.role = SourceRole::Translation;
+        entry.title = QStringLiteral("Revelation rendered into English");
+        QCOMPARE(entry.displayTitle(),
+                 QStringLiteral("Revelation rendered into English  (English translation)"));
+    }
+
+    void aTitleThatIsNothingButTheLeadIsLeftAlone()
+    {
+        CatalogueEntry entry;
+        entry.role = SourceRole::Translation;
+        entry.title = QStringLiteral("Translation of ");
+        // Stripping would leave an empty row, which says less than the doubled
+        // wording this replaces.
+        QVERIFY(entry.displayTitle().contains(QStringLiteral("Translation of")));
+    }
+
+    void everyPublishedTranslationLosesItsDoubling()
+    {
+        // Against the wording actually published rather than invented examples:
+        // if a transcriber writes a third form, this is what notices.
+        const QStringList published = {
+            QStringLiteral("Translation of James (Cochin MS Oo.1.32)"),
+            QStringLiteral("English Translation of John (Vatican, Vat. ebr. 530)"),
+            QStringLiteral("English Translation of Luke (Vatican, Vat. ebr. 530)"),
+            QStringLiteral("Translation of Matthew (Cochin MS Oo.1.32)"),
+            QStringLiteral("Translation of Revelation (Cochin MS Oo.1.16.2)"),
+            QStringLiteral(
+                "English Translation of Revelation (British Library, Sloane MS 237)"),
+        };
+        for (const QString &title : published) {
+            CatalogueEntry entry;
+            entry.role = SourceRole::Translation;
+            entry.title = title;
+            const QString shown = entry.displayTitle();
+            QVERIFY2(!shown.contains(QStringLiteral("Translation of"), Qt::CaseInsensitive),
+                     qPrintable(shown));
+            QVERIFY2(shown.endsWith(QStringLiteral("  (English translation)")),
+                     qPrintable(shown));
+        }
     }
 };
 

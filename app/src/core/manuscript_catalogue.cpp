@@ -1,7 +1,9 @@
 #include "core/manuscript_catalogue.h"
 
 #include <QCoreApplication>
+#include <QCryptographicHash>
 #include <QDir>
+#include <QFile>
 #include <QFileInfo>
 #include <QJsonArray>
 #include <QJsonObject>
@@ -19,7 +21,41 @@ const QString &libraryFolder()
     return name;
 }
 
+/// What a translation's title leads with, longest first so "English Translation
+/// of" is not left as a stray "English" by matching the shorter one.
+const QStringList &translationLeads()
+{
+    static const QStringList leads = {
+        QStringLiteral("English Translation of "),
+        QStringLiteral("Translation of "),
+    };
+    return leads;
+}
+
 } // namespace
+
+QString CatalogueEntry::displayTitle() const
+{
+    if (!isTranslation()) {
+        return title;
+    }
+
+    QString named = title;
+    for (const QString &lead : translationLeads()) {
+        if (named.startsWith(lead, Qt::CaseInsensitive)) {
+            named = named.mid(lead.size());
+            break;
+        }
+    }
+
+    // A title that was nothing but the lead would leave an empty row, which
+    // says less than the doubled wording it was meant to improve on.
+    if (named.trimmed().isEmpty()) {
+        named = title;
+    }
+
+    return QStringLiteral("%1  (English translation)").arg(named);
+}
 
 ManuscriptCatalogue ManuscriptCatalogue::fromJson(const QJsonObject &document)
 {
@@ -65,6 +101,11 @@ ManuscriptCatalogue ManuscriptCatalogue::fromJson(const QJsonObject &document)
         if (entry.bytes < 0) {
             entry.bytes = 0;
         }
+        // Absent from a manifest written before checksums existed. Such an
+        // entry is still perfectly downloadable; it simply cannot report that
+        // an update is waiting.
+        entry.sha256 =
+            record.value(QStringLiteral("sha256")).toString().trimmed().toLower();
 
         catalogue.m_entries.append(entry);
     }
@@ -86,6 +127,49 @@ QStringList ManuscriptCatalogue::installedFiles(const QString &directory) const
         }
     }
     return held;
+}
+
+QStringList ManuscriptCatalogue::updatableFiles(const QString &directory) const
+{
+    QStringList stale;
+    if (directory.isEmpty()) {
+        return stale;
+    }
+
+    const QDir folder(directory);
+    for (const CatalogueEntry &entry : m_entries) {
+        if (entry.sha256.isEmpty()) {
+            continue;
+        }
+        const QFileInfo held(folder, entry.file);
+        if (!held.isReadable()) {
+            continue;
+        }
+        const QString actual = manuscriptChecksum(held.absoluteFilePath());
+        // An unreadable file is not reported as stale: that is a different
+        // problem and re-downloading would not be an answer to it.
+        if (!actual.isEmpty() && actual != entry.sha256) {
+            stale.append(entry.file);
+        }
+    }
+    return stale;
+}
+
+QString manuscriptChecksum(const QString &path)
+{
+    QFile file(path);
+    if (!file.open(QIODevice::ReadOnly)) {
+        return QString();
+    }
+
+    // Read whole rather than streamed: the largest published text is under a
+    // quarter of a megabyte, and normalising line endings across chunk
+    // boundaries would be the only fiddly part of doing it incrementally.
+    QByteArray contents = file.readAll();
+    contents.replace("\r\n", "\n");
+
+    return QString::fromLatin1(
+        QCryptographicHash::hash(contents, QCryptographicHash::Sha256).toHex());
 }
 
 QStringList manuscriptSearchPaths()

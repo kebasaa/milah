@@ -44,14 +44,8 @@ struct DiffColors
     QString added;
 };
 
-/// The asterisk marking a word a manuscript comments on. Red, and lightened on
-/// a dark background where a saturated red goes muddy against the base.
-QColor noteMarkerColor(const QPalette &palette)
-{
-    return palette.color(QPalette::Base).lightness() < 128
-        ? QColor(QStringLiteral("#ff6b6b"))
-        : QColor(QStringLiteral("#c02626"));
-}
+// The note marker's colour moved to ui/band_grid.h: the transcription marks a
+// remarked word the same way, and one red is easier to keep than two.
 
 DiffColors diffColors(const QPalette &palette)
 {

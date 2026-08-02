@@ -32,9 +32,13 @@ using InterlinearGlosses = QHash<QString, QMap<int, QString>>;
 /// The Combined edition with each word marked up separately and carrying its
 /// gloss: `<w gloss="to-be">word</w>`. The words are the same as the plain
 /// edition's; only the markup around them differs.
+/// Notes in the apparatus are anchored by `SourceNote::tokenIndex` here — which
+/// word they belong to — rather than by character offset, because this body
+/// writes each word separately and skips the empty ones.
 QString serializeInterlinearOsis(
     const QMap<QString, CombinedDraft> &drafts,
     const InterlinearGlosses &glosses,
-    const WorkMetadata &metadata = WorkMetadata());
+    const WorkMetadata &metadata = WorkMetadata(),
+    const CombinedApparatus &apparatus = CombinedApparatus());
 
 } // namespace milah

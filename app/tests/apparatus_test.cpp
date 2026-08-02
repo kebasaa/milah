@@ -288,6 +288,99 @@ private slots:
         QVERIFY(fifteen != nullptr);
         QCOMPARE(fifteen->altNumber.value_or(QString()), QStringLiteral("14"));
     }
+
+    /// The interlinear edition can carry notes too, and has to write them the
+    /// way the plain one does — the transcription tab exports through it, and a
+    /// remark made while transcribing is the same kind of thing as a remark
+    /// made while comparing.
+    void theInterlinearWriterAnchorsANoteToItsWord()
+    {
+        CombinedDraft draft;
+        draft.reference.id = QStringLiteral("Rev.1.1");
+        draft.reference.book = QStringLiteral("Rev");
+        draft.reference.chapter = 1;
+        draft.reference.verse = QStringLiteral("1");
+        for (const QString &word : {QStringLiteral("alpha"),
+                                    QStringLiteral("beta"),
+                                    QStringLiteral("gamma")}) {
+            ConsensusColumn column;
+            column.text = word;
+            draft.columns.append(column);
+        }
+        const QMap<QString, CombinedDraft> drafts{{draft.reference.id, draft}};
+
+        SourceNote note;
+        note.text = QStringLiteral("Doubtful");
+        note.number = QStringLiteral("1");
+        // Which word, not how many characters in: the interlinear body writes
+        // each word separately, so an offset into running text means nothing.
+        note.tokenIndex = 1;
+
+        CombinedApparatus apparatus;
+        apparatus.notes.insert(draft.reference.id, {note});
+
+        const QString xml = serializeInterlinearOsis(
+            drafts, InterlinearGlosses(), WorkMetadata(), apparatus);
+
+        // Immediately before the word it belongs to, and not before any other.
+        QVERIFY(xml.contains(
+            QStringLiteral("<note type=\"explanation\" placement=\"foot\" n=\"1\" "
+                           "osisRef=\"Rev.1.1\" osisID=\"Rev.1.1!note.1\">Doubtful"
+                           "</note><w>beta</w>")));
+        QVERIFY(!xml.contains(QStringLiteral("</note><w>alpha</w>")));
+    }
+
+    void anInterlinearWithNoNotesIsUnchanged()
+    {
+        CombinedDraft draft;
+        draft.reference.id = QStringLiteral("Rev.1.1");
+        draft.reference.book = QStringLiteral("Rev");
+        draft.reference.chapter = 1;
+        draft.reference.verse = QStringLiteral("1");
+        ConsensusColumn column;
+        column.text = QStringLiteral("alpha");
+        draft.columns.append(column);
+        const QMap<QString, CombinedDraft> drafts{{draft.reference.id, draft}};
+
+        const QString xml = serializeInterlinearOsis(drafts, InterlinearGlosses());
+        QVERIFY(xml.contains(QStringLiteral("<w>alpha</w>")));
+        QVERIFY(!xml.contains(QStringLiteral("<note")));
+    }
+
+    /// Every note in a verse used to export as n="" and osisID="…!note.", so
+    /// two notes on one verse carried one identifier between them.
+    void notesInAVerseAreNumberedApart()
+    {
+        CombinedDraft draft;
+        draft.reference.id = QStringLiteral("Rev.1.1");
+        draft.reference.book = QStringLiteral("Rev");
+        draft.reference.chapter = 1;
+        draft.reference.verse = QStringLiteral("1");
+        for (const QString &word : {QStringLiteral("alpha"), QStringLiteral("beta")}) {
+            ConsensusColumn column;
+            column.text = word;
+            draft.columns.append(column);
+        }
+        const QMap<QString, CombinedDraft> drafts{{draft.reference.id, draft}};
+
+        CombinedApparatus apparatus;
+        SourceNote first;
+        first.text = QStringLiteral("On the first");
+        first.number = QStringLiteral("1");
+        first.tokenIndex = 0;
+        SourceNote second;
+        second.text = QStringLiteral("On the second");
+        second.number = QStringLiteral("2");
+        second.tokenIndex = 1;
+        apparatus.notes.insert(draft.reference.id, {first, second});
+
+        const QString xml = serializeInterlinearOsis(
+            drafts, InterlinearGlosses(), WorkMetadata(), apparatus);
+
+        QVERIFY(xml.contains(QStringLiteral("osisID=\"Rev.1.1!note.1\"")));
+        QVERIFY(xml.contains(QStringLiteral("osisID=\"Rev.1.1!note.2\"")));
+        QVERIFY(!xml.contains(QStringLiteral("osisID=\"Rev.1.1!note.\"")));
+    }
 };
 
 QTEST_MAIN(ApparatusTest)

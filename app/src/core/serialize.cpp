@@ -3,6 +3,8 @@
 #include "core/alignment.h"
 #include "core/books.h"
 
+#include <QMultiHash>
+
 #include <algorithm>
 
 namespace milah {
@@ -25,6 +27,19 @@ struct Anchor
     QString markup;
 };
 
+/// One note, as OSIS writes it.
+///
+/// In one place because two editions write notes now — the comparison anchors
+/// them by character offset in running text, the transcription by which word
+/// they belong to — and a remark made on one side of Milah has to come out
+/// looking exactly like a remark made on the other.
+QString noteMarkup(const SourceNote &note, const QString &verseId)
+{
+    return QStringLiteral("<note type=\"explanation\" placement=\"foot\" n=\"%1\""
+                          " osisRef=\"%2\" osisID=\"%2!note.%1\">%3</note>")
+        .arg(escapeXml(note.number), escapeXml(verseId), escapeXml(note.text));
+}
+
 QString verseBody(
     const QString &verseId,
     const QString &text,
@@ -37,10 +52,7 @@ QString verseBody(
         for (const SourceNote &note : notes.value()) {
             Anchor anchor;
             anchor.offset = note.charOffset;
-            anchor.markup =
-                QStringLiteral("<note type=\"explanation\" placement=\"foot\" n=\"%1\""
-                               " osisRef=\"%2\" osisID=\"%2!note.%1\">%3</note>")
-                    .arg(escapeXml(note.number), escapeXml(verseId), escapeXml(note.text));
+            anchor.markup = noteMarkup(note, verseId);
             anchors.append(anchor);
         }
     }
@@ -86,12 +98,28 @@ QString titleMarkup(const SourceTitle &title)
 /// The verse as separately marked words, each carrying its gloss where one is
 /// aligned to it. Only for the interlinear edition; the plain one writes the
 /// verse as running text.
-QString interlinearBody(const CombinedDraft &draft, const QMap<int, QString> &glosses)
+QString interlinearBody(
+    const QString &verseId,
+    const CombinedDraft &draft,
+    const QMap<int, QString> &glosses,
+    const CombinedApparatus &apparatus)
 {
     if (draft.manualText.has_value()) {
         // One string the columns no longer describe, so there is nothing to
         // hang a gloss on.
         return escapeXml(*draft.manualText);
+    }
+
+    // Anchored by which word they belong to, not by how many characters in it
+    // is: this body writes each word separately and skips the empty ones, so a
+    // character offset into the running text would point at nothing here.
+    // SourceNote::tokenIndex says exactly this and has had no other use.
+    QMultiHash<int, SourceNote> anchored;
+    const auto notes = apparatus.notes.constFind(verseId);
+    if (notes != apparatus.notes.constEnd()) {
+        for (const SourceNote &note : notes.value()) {
+            anchored.insert(note.tokenIndex, note);
+        }
     }
 
     QStringList words;
@@ -100,11 +128,21 @@ QString interlinearBody(const CombinedDraft &draft, const QMap<int, QString> &gl
         if (word.isEmpty()) {
             continue;
         }
+
+        QString marked;
+        // In the order they were given, which editorApparatus has already put
+        // in the order they appear.
+        const QList<SourceNote> here = anchored.values(index);
+        for (auto note = here.crbegin(); note != here.crend(); ++note) {
+            marked += noteMarkup(*note, verseId);
+        }
+
         const QString gloss = glosses.value(index);
-        words.append(gloss.isEmpty()
+        marked += gloss.isEmpty()
             ? QStringLiteral("<w>%1</w>").arg(escapeXml(word))
             : QStringLiteral("<w gloss=\"%1\">%2</w>")
-                  .arg(escapeXml(gloss), escapeXml(word)));
+                  .arg(escapeXml(gloss), escapeXml(word));
+        words.append(marked);
     }
     return words.join(QLatin1Char(' '));
 }
@@ -197,7 +235,11 @@ QString serializeOsis(
                         escapeXml(reference.id),
                         escapeXml(reference.verse),
                         glosses
-                            ? interlinearBody(draft, glosses->value(reference.id))
+                            ? interlinearBody(
+                                  reference.id,
+                                  draft,
+                                  glosses->value(reference.id),
+                                  apparatus)
                             : verseBody(reference.id, combinedText(draft), apparatus));
     }
 
@@ -243,11 +285,10 @@ QString serializeCombinedOsis(
 QString serializeInterlinearOsis(
     const QMap<QString, CombinedDraft> &drafts,
     const InterlinearGlosses &glosses,
-    const WorkMetadata &metadata)
+    const WorkMetadata &metadata,
+    const CombinedApparatus &apparatus)
 {
-    // No apparatus: the interlinear carries glosses, and the notes belong to
-    // the annotated edition beside it.
-    return serializeOsis(drafts, metadata, CombinedApparatus(), &glosses);
+    return serializeOsis(drafts, metadata, apparatus, &glosses);
 }
 
 } // namespace milah

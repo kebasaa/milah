@@ -7,6 +7,7 @@
 #include <QString>
 #include <QStringList>
 
+class QNetworkAccessManager;
 class QWidget;
 
 namespace milah {
@@ -67,12 +68,21 @@ public:
     int selectedVerse() const { return m_selectedVerse; }
     int selectedColumn() const { return m_selectedColumn; }
     QString selectedWord() const;
+    /// The transcriber's own remark on the word the caret is in, for the Notes
+    /// panel. Empty when nothing is selected or nothing has been written.
+    QString selectedNote() const;
+    /// Asks the Notes panel to take the caret, so "Add/edit note" lands there.
+    void requestNoteEditing() { emit noteEditingRequested(); }
     /// The chapter the caret is in, for the toolbar field. 0 when nothing is.
     int selectedChapter() const;
 
 public slots:
     /// Opens a folio and reads its folder, so the arrows have somewhere to go.
     void openImage();
+    /// Offers the published scans, and opens the chosen manuscript at its first
+    /// folio. Replaces whatever was open, after the unsaved-work question: a
+    /// transcription is of one manuscript.
+    void openOnlineScan();
     void openTranscription();
     /// Writes the transcription, asking where only the first time. True when a
     /// file was actually written — a cancelled dialog is a false, which is what
@@ -110,6 +120,22 @@ public slots:
     void removeColumn(int verse, int column);
     /// Opens a verse after `afterVerse`, numbered as typed. -1 opens the first.
     void insertVerse(int afterVerse, const QString &number);
+    /// Starts a verse at `column`, numbered `number`, carrying the words after
+    /// it along.
+    ///
+    /// One operation rather than a removal and an insertion, because it is one
+    /// thing the transcriber did and has to be one thing to undo — and because
+    /// the half-finished state between the two was where a stale cell used to
+    /// write the number back as a word.
+    ///
+    /// A number typed between spaces is a verse boundary wherever it falls, so
+    /// whatever followed it on the line belongs to the new verse.
+    void startVerse(int verse, int column, const QString &number);
+    /// Replaces the word at `column` with everything `text` divides into,
+    /// keeping the words after it on the line.
+    void pasteAt(int verse, int column, const QString &text);
+    /// The transcriber's own remark on a word. Empty removes it.
+    void setNote(int verse, int column, const QString &note);
     void setVerseNumber(int verse, const QString &number);
     void removeVerse(int verse);
     /// This verse and every verse after it move into the next chapter.
@@ -130,6 +156,8 @@ signals:
     void versesChanged();
     /// Which word the caret is in.
     void selectionChanged();
+    /// Asks the Notes panel to take the caret, for "Add/edit note".
+    void noteEditingRequested();
     void dirtyChanged(bool dirty);
     void messageChanged(const QString &text);
     void historyChanged();
@@ -168,19 +196,44 @@ private:
     void readImageFolder(const QString &imagePath);
     /// Commits the current folio and moves to `index` of the folder listing.
     void goToImage(int index);
+    /// True while the folios come from a scan rather than from a folder: every
+    /// one of them is already a page of the document, so the arrows walk the
+    /// document instead of a directory listing.
+    bool navigatesByDocument() const;
+    /// Commits the current folio and moves to page `index` of the document.
+    void goToPage(int index);
+    /// Fetches the current folio's image if it is a scan's and is not held.
+    /// Synchronous: a folio is one picture and the transcriber is waiting for
+    /// it, and everything else in this class assumes the page it is on is the
+    /// page on screen.
+    void ensureImageFetched();
+    /// Lets go of a folio's image on the way off it, unless it was worked on.
+    ///
+    /// This is what keeps a transcription of six folios out of a codex from
+    /// weighing what the codex weighs. A scan's images can always be had again
+    /// from the library, so the ones worth carrying are the ones somebody read
+    /// something off — and those are exactly the ones the file has to be able
+    /// to show when it is opened again with no internet.
+    /// Returns the bytes let go of, and an empty result when it kept them, so a
+    /// navigation that is then refused can put the picture back rather than
+    /// leaving the transcriber looking at a blank folio they have not left.
+    QByteArray releaseImageIfUnread(int pageIndex);
     /// Loads an image into the document as a new page, or moves to the page it
     /// already has for that file.
     void showImage(const QString &imagePath);
-    /// Writes the transcription to `m_filePath`, or asks where first. False
-    /// when nothing was written — cancelled, or the write failed.
+    /// Writes the transcription to `m_filePath`, or asks where first. False when
+    /// nothing was written — cancelled, or the write failed — and then the
+    /// navigation that called it does not happen.
+    ///
+    /// True at once while nothing has been read off any folio: a transcriber
+    /// paging through a codex to find their chapter is not making anything to
+    /// lose, and asking them to name a file for it refused the page turn when
+    /// they cancelled.
     bool commitBeforeLeavingPage();
     bool writeTo(const QString &path);
 
     void setDirty(bool dirty);
     void setMessage(const QString &text);
-    /// The entry path a folio's image takes inside the archive. Numbered by
-    /// page so two folios called `1.jpg` from different folders cannot collide.
-    static QString imageEntryFor(int pageIndex, const QString &imageName);
 
     QWidget *m_dialogParent = nullptr;
     const UserDictionary *m_dictionary = nullptr;
@@ -197,10 +250,18 @@ private:
     QStringList m_folderImages;
     int m_folderIndex = -1;
 
-    /// Where this transcription lives. Empty until it has been saved once,
-    /// which is exactly the condition that makes leaving a folio ask.
+    /// Where this transcription lives. Empty until it has been saved once, and
+    /// settled by the first folio somebody actually writes on: walking folios
+    /// with nothing typed asks for nothing and writes nothing.
     QString m_filePath;
     bool m_dirty = false;
+
+    /// Made only when a folio has to be fetched, so a session that never opens
+    /// a scan never builds one.
+    QNetworkAccessManager *m_network = nullptr;
+    /// Learned once per session: this network's ordinary route does not carry
+    /// traffic and the IPv4 fallback should be used from the start.
+    bool m_preferIPv4 = false;
 
     int m_selectedVerse = -1;
     int m_selectedColumn = -1;

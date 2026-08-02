@@ -1294,6 +1294,13 @@ CombinedApparatus AppController::editorApparatus() const
             [](const SourceNote &left, const SourceNote &right) {
                 return left.charOffset < right.charOffset;
             });
+
+        // Numbered once they are in order. Without this every note in a verse
+        // exports as n="" and osisID="…!note.", which is one identifier for all
+        // of them — and an OSIS id is supposed to name one thing.
+        for (int index = 0; index < notes.size(); ++index) {
+            notes[index].number = QString::number(index + 1);
+        }
     }
     return apparatus;
 }

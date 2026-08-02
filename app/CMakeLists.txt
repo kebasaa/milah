@@ -5,7 +5,7 @@ cmake_minimum_required(VERSION 3.24)
 # Windows VERSIONINFO resource. It is unrelated to the `.milah` project file
 # format version, which is pinned to 1 in src/core/project.cpp and gates
 # whether a saved project can be opened at all.
-project(Milah VERSION 1.0.0 LANGUAGES CXX)
+project(Milah VERSION 1.1.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -62,6 +62,8 @@ add_library(MilahCore STATIC
     src/core/coverage.h
     src/core/manuscript_catalogue.cpp
     src/core/manuscript_catalogue.h
+    src/core/scan_catalogue.cpp
+    src/core/scan_catalogue.h
     src/core/serialize.cpp
     src/core/serialize.h
     src/core/project.cpp
@@ -133,12 +135,20 @@ qt_add_executable(Milah WIN32
     src/ui/download_manuscripts_dialog.h
     src/ui/manuscript_image_view.cpp
     src/ui/manuscript_image_view.h
+    src/ui/network_fetch.cpp
+    src/ui/network_fetch.h
+    src/ui/online_scan_dialog.cpp
+    src/ui/online_scan_dialog.h
+    src/ui/scan_metadata_dialog.cpp
+    src/ui/scan_metadata_dialog.h
     src/ui/manuscript_library_dialog.cpp
     src/ui/manuscript_library_dialog.h
     src/ui/transcription_grid_widget.cpp
     src/ui/transcription_grid_widget.h
     src/ui/transcription_meta_widget.cpp
     src/ui/transcription_meta_widget.h
+    src/ui/transcription_notes_widget.cpp
+    src/ui/transcription_notes_widget.h
     src/ui/transcription_widget.cpp
     src/ui/transcription_widget.h
     src/ui/icons.cpp
@@ -226,7 +236,8 @@ if(MILAH_BUILD_TESTS)
 
     foreach(test_name
             project_storage osis consensus apparatus diff acronym lexicon suggestions
-            coverage alignment catalogue word_marker transcription)
+            coverage alignment catalogue word_marker transcription books
+            scan_catalogue)
         # Plain add_executable, not qt_add_executable: the latter finalises the
         # target as a Windows GUI application, and a GUI-subsystem binary
         # discards the stdout QTest reports through, leaving a failing test

@@ -89,8 +89,18 @@ private:
     /// What the transcription side may do, which turns on whether a folio is
     /// open and whether anything has been typed on it.
     void updateTranscriptionActions();
-    /// Fills the Book and Chapter fields from the folio on screen.
+    /// Fills the Book, abbreviation and Chapter fields from the folio on screen.
     void refreshTranscriptionToolBar();
+    /// Completes a book name into the field as it is typed. Qt offers a popup
+    /// list or an inline fill but not both, so the list is the completer's and
+    /// this is the fill.
+    void autofillBook(const QString &typed);
+    /// Settles what book the folio is: the id the verses will be addressed by,
+    /// and — where the canon has never heard of the work — the name as written.
+    void commitBook();
+    /// Takes an abbreviation the transcriber coined for a work Milah does not
+    /// know. Does nothing for a canonical book, whose id is not theirs to set.
+    void commitBookAcronym();
     /// Enables the word-level Edit entries for whichever Combined word has the
     /// focus, and greys them out when none has.
     void updateSelectionActions();
@@ -186,6 +196,7 @@ private:
     /// mean the same thing whichever job is being done, so both modes offer the
     /// very same objects.
     QAction *m_openImageAction = nullptr;
+    QAction *m_openScanAction = nullptr;
     QAction *m_openTranscriptionAction = nullptr;
     QAction *m_saveTranscriptionAction = nullptr;
     QAction *m_exportOsisAction = nullptr;
@@ -197,7 +208,14 @@ private:
     QAction *m_magnifyAction = nullptr;
     QAction *m_newChapterAction = nullptr;
     QLineEdit *m_bookField = nullptr;
+    /// The id the verses are exported under. Read-only where Milah knows the
+    /// book, the transcriber's own where it does not.
+    QLineEdit *m_bookAcronymField = nullptr;
     QLineEdit *m_chapterField = nullptr;
+    /// What the Book field said last, so the completer can tell a keystroke
+    /// that adds from one that deletes — a suggestion put back over a backspace
+    /// would make the field impossible to clear.
+    QString m_bookTyped;
 
     QScrollArea *m_verseArea = nullptr;
     QWidget *m_verseHost = nullptr;

@@ -34,6 +34,12 @@ struct TranscribedWord
     /// True once the transcriber has edited the gloss themselves, after which
     /// re-reading the Hebrew word must not overwrite what they wrote.
     bool englishIsOwn = false;
+    /// The transcriber's own remark on this word — a doubtful letter, a
+    /// correction the scribe made, anything the text alone cannot carry.
+    ///
+    /// Exported as an OSIS note anchored at the word, in the same markup the
+    /// comparison's notes use.
+    QString note;
 };
 
 struct TranscribedVerse
@@ -54,10 +60,22 @@ struct TranscribedPage
     QString imageEntry;
     /// The image file's own name, for the toolbar and the page list.
     QString imageName;
-    /// Where the image was opened from. A hint for reopening a project whose
-    /// folder has moved, never the thing the transcription depends on — the
-    /// image itself travels inside the archive.
+    /// Where the image was opened from on this machine. A hint for reopening a
+    /// project whose folder has moved, never the thing the transcription
+    /// depends on. Empty for a folio that came from a library.
     QString sourcePath;
+    /// Where the folio can be fetched from again, for one that came from a
+    /// published scan. Empty for a local image.
+    ///
+    /// A scan's folios are linked rather than copied: a codex runs to hundreds
+    /// of leaves, and carrying every one of them inside the file would make a
+    /// transcription of one page weigh as much as the whole manuscript. What is
+    /// kept instead is the address, and the bytes only for the folios actually
+    /// worked on — see TranscriptionController.
+    QString imageUrl;
+    /// What the library calls this folio: "front cover", "1r", "162v". The only
+    /// name a scanned folio has, since it has no filename.
+    QString imageLabel;
     /// The OSIS id of the book being transcribed — what transcribedVerseId()
     /// addresses the verses by, and what an exported file carries.
     QString book;
@@ -119,6 +137,70 @@ QString transcribedVerseId(const TranscribedPage &page, int verseIndex);
 /// True when `text` is a verse number rather than a word — digits, optionally
 /// with the letter a manuscript splits a verse with.
 bool looksLikeVerseNumber(const QString &text);
+
+/// True while nothing has been read off this folio: no word typed, and no verse
+/// numbered. What the workspace asks before it offers to say where to start.
+///
+/// Not the same as having no verses. A folio always carries one empty verse
+/// holding one empty word, because there has to be somewhere to type — so
+/// emptiness is a question about the contents, not about the count.
+bool isUntouched(const TranscribedPage &page);
+
+/// Text divided the way a transcriber would type it: whitespace separates
+/// words, and a token that looksLikeVerseNumber() opens a verse.
+///
+/// For pasting. Words standing before any number become a verse with no number
+/// of its own, which is what a fragment out of the middle of a chapter is.
+QList<TranscribedVerse> parseTranscribedText(const QString &text);
+
+/// How a verse should be named on screen: as much of its reference as is known.
+///
+/// A transcription is written before it is identified — the book may not have
+/// been typed yet, and a verse being started has no number at all — so this
+/// says the most it truthfully can rather than waiting for all three parts.
+/// "Rev 4:1", then "4:1", then "Verse 1", and "Unnumbered" before that.
+QString verseHeading(const TranscribedPage &page, int verseIndex);
+
+/// True while nothing has been read off any folio of this transcription.
+///
+/// Asked before leaving a folio writes the file. A transcriber walking a codex
+/// to find where their text begins has made nothing to lose, and stopping them
+/// for a filename made reading a manuscript cost more than transcribing it: the
+/// Save As could be cancelled, and cancelling refused the page turn.
+///
+/// Folios only, deliberately. The manuscript details are the library's record
+/// until the transcriber edits them, and editing them goes through
+/// setMetadata(), which marks the transcription changed on its own account.
+bool isUntouched(const TranscriptionDocument &document);
+
+/// A piece of text made fit to stand inside a `.trscrpt` archive entry name.
+///
+/// The character that matters is the slash. A published scan's id is whatever
+/// its catalogue says it is, and a catalogue that names no manuscript has only
+/// the manifest address to give — so `images/https://gallica.bnf.fr/…-0001.jpg`
+/// was being handed to the archive writer as an entry path. The doubled slash
+/// in `https://` does not survive being cleaned, the entry stops equalling its
+/// own clean form, ProjectStorage refuses the whole save, and a transcriber
+/// whose codex happened to be catalogued that way was pinned to folio one for
+/// ever — because turning the page needs a save that could never succeed.
+///
+/// Everything outside `[A-Za-z0-9._-]` becomes an underscore rather than being
+/// dropped, so a name stays about as long and as readable as it was. That is
+/// all this is for: the result is deliberately **not** unique — two ids
+/// differing only in punctuation come out identical, as do two differing only
+/// past the length cap. Nothing may use it to tell two folios apart. See
+/// imageEntryFor(), where the folio's place in the document does that.
+QString archiveNameFragment(const QString &text);
+
+/// The entry path a folio's image takes inside the archive: `images/`, where the
+/// folio sits in the document, and a readable remainder made out of `name`.
+///
+/// The position is what makes the entry unique, and it has to be. Two folios
+/// called `1.jpg` out of different folders would otherwise be one entry and the
+/// second would silently replace the first — and the same name also decides
+/// which folio the image pane and the grid believe they are showing, so a
+/// collision means turning the page without the picture changing.
+QString imageEntryFor(int pageIndex, const QString &name);
 
 /// Packs a transcription and its folio images into the payload a `.trscrpt`
 /// archive is written from. `imageBytes` is keyed by `TranscribedPage::

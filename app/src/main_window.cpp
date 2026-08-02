@@ -10,6 +10,7 @@
 #include "ui/notes_widget.h"
 #include "ui/source_settings_widget.h"
 #include "ui/transcription_meta_widget.h"
+#include "ui/transcription_notes_widget.h"
 #include "ui/transcription_widget.h"
 #include "ui/verse_grid_widget.h"
 
@@ -108,35 +109,19 @@ QLabel#verseFlags {
     color: rgba(176, 90, 43, 1.0);
     font-size: 11px;
 }
+/* What to do when there is nothing on screen yet — so the one label whose whole
+   job is telling a newcomer where to start has to be legible, and palette(mid)
+   is not that on a dark palette. Its colour is the sole substitution this sheet
+   takes, filled in from the palette where the sheet is applied. */
 QLabel#emptyState {
-    color: palette(mid);
+    color: %1;
     font-size: 14px;
 }
-/* The two jobs Milah does, in the menu bar's right-hand corner. The box is
-   stated here rather than left to the style's tab metrics, which are built for
-   a tab strip above a pane and are far taller than a menu row; the height is
-   capped in code as well, because QMenuBar reads its corner widget's size hint
-   and grows to it. Nothing under :selected may change the tab's width — a
-   bolder face would shift the pair sideways every time the mode changed, and
-   they are pinned to the right-hand edge where that would be plain. */
-QTabBar#modeTabs {
-    background: transparent;
-}
-QTabBar#modeTabs::tab {
-    background: transparent;
-    border: none;
-    border-bottom: 2px solid transparent;
-    padding: 0px 12px;
-    margin: 0px;
-    color: palette(mid);
-}
-QTabBar#modeTabs::tab:hover {
-    color: palette(text);
-}
-QTabBar#modeTabs::tab:selected {
-    color: palette(text);
-    border-bottom: 2px solid palette(highlight);
-}
+/* The mode tabs are not here: the colour of the tab that is not chosen has to be
+   quieter than the other and still plainly legible, and palette(mid) is not that
+   on a dark palette — it all but disappears. So the whole block is built in
+   buildModeTabs() against a colour worked out from the palette, which is the
+   same rule the readings follow. */
 /* A transcribed word and its gloss. Like the Combined row, they look like plain
    text until they are being worked on, because a folio of boxed fields reads as
    a form rather than as a text. Their size is set in code, so that measuring a
@@ -174,6 +159,43 @@ void showIconOnly(QToolBar *toolBar, QAction *action)
     if (auto *button = qobject_cast<QToolButton *>(toolBar->widgetForAction(action))) {
         button->setToolButtonStyle(Qt::ToolButtonIconOnly);
     }
+}
+
+/// A width that fits the longest of `entries`, plus the room a line edit needs
+/// around its text.
+///
+/// Measured rather than written down because the longest book name is fifteen
+/// characters and a pixel count that suits one interface font clips at the
+/// next — and because a field that is too narrow here silently truncates the
+/// name of the book being transcribed.
+/// An abbreviation fit to stand in a verse id.
+///
+/// A verse is addressed as book, chapter and number with dots between them, so
+/// a book carrying a dot of its own would make "Tob.it.1.1" out of Tobit and
+/// there would be no reading it back. Whitespace goes for the same reason.
+/// Stripped rather than refused: the transcriber meant a book, not a syntax.
+QString sanitisedBookId(const QString &raw)
+{
+    QString id;
+    id.reserve(raw.size());
+    for (const QChar character : raw) {
+        if (!character.isSpace() && character != QLatin1Char('.')) {
+            id.append(character);
+        }
+    }
+    return id;
+}
+
+int fieldWidthFor(const QWidget *field, const QStringList &entries)
+{
+    const QFontMetrics metrics(field->font());
+    int widest = 0;
+    for (const QString &entry : entries) {
+        widest = std::max(widest, metrics.horizontalAdvance(entry));
+    }
+    // Frame, text margins and a little air. A line edit draws its text inset
+    // from its own edge, and the amount is the style's business, not ours.
+    return widest + 28;
 }
 
 /// The mode tabs, kept to the height of a menu row.
@@ -229,7 +251,7 @@ MainWindow::MainWindow(QWidget *parent)
     // for a verse to read as one band.
     resize(1440, 900);
     setMinimumSize(900, 600);
-    setStyleSheet(QString::fromUtf8(kStyleSheet));
+    setStyleSheet(QString::fromUtf8(kStyleSheet).arg(acronymColor(palette())));
 
     m_controller = new AppController(this, this);
     // The editor's dictionary is the editor's, not the edition's: a word
@@ -317,6 +339,9 @@ MainWindow::MainWindow(QWidget *parent)
     metaLayout->setContentsMargins(0, 0, 0, 0);
     metaLayout->setSpacing(10);
     metaLayout->addWidget(m_metadata);
+    // Beneath the codex's details, the way the comparison puts a word's notes
+    // beneath its sources: what is being worked on, then what is said about it.
+    metaLayout->addWidget(new TranscriptionNotesWidget(m_transcriptionController));
     metaLayout->addStretch(1);
 
     m_metadataDock = new QDockWidget(QStringLiteral("Manuscript"), this);
@@ -642,6 +667,16 @@ void MainWindow::createTranscriptionActions()
         m_transcriptionController,
         &TranscriptionController::openImage);
 
+    m_openScanAction = new QAction(QStringLiteral("Get online manuscript scan…"), this);
+    m_openScanAction->setToolTip(QStringLiteral(
+        "Transcribe from a manuscript a library has published, without "
+        "downloading it first. Folios are fetched as you reach them."));
+    connect(
+        m_openScanAction,
+        &QAction::triggered,
+        m_transcriptionController,
+        &TranscriptionController::openOnlineScan);
+
     m_openTranscriptionAction =
         new QAction(QStringLiteral("Open Transcription Project"), this);
     connect(
@@ -776,6 +811,7 @@ void MainWindow::buildMenuBar()
 
     m_transcriptionFileMenu = new QMenu(QStringLiteral("&File"), this);
     m_transcriptionFileMenu->addAction(m_openImageAction);
+    m_transcriptionFileMenu->addAction(m_openScanAction);
     m_transcriptionFileMenu->addAction(m_openTranscriptionAction);
     m_transcriptionFileMenu->addAction(m_saveTranscriptionAction);
     m_transcriptionFileMenu->addSeparator();
@@ -822,6 +858,38 @@ void MainWindow::buildModeTabs()
         0, QStringLiteral("Compare manuscripts and build an edition (Ctrl+1)"));
     m_modeTabs->setTabToolTip(
         1, QStringLiteral("Read a folio and transcribe it (Ctrl+2)"));
+
+    // The box is stated rather than left to the style's tab metrics, which are
+    // built for a tab strip above a pane and are far taller than a menu row.
+    // The height is capped in MenuRowTabBar as well, because QMenuBar reads its
+    // corner widget's size hint and grows to it.
+    //
+    // The unchosen tab is drawn in the same muted ink the row labels use — a
+    // fraction of the text colour, so it holds up in a light and a dark palette
+    // alike, which palette(mid) does not: on a dark one it sinks into the bar.
+    // The chosen tab is told apart by its underline more than by its colour.
+    //
+    // Nothing under :selected may change a tab's width — a bolder face would
+    // shift the pair sideways every time the mode changed, and they are pinned
+    // to the right-hand edge where that would be plain to see.
+    m_modeTabs->setStyleSheet(QStringLiteral(R"CSS(
+QTabBar#modeTabs { background: transparent; }
+QTabBar#modeTabs::tab {
+    background: transparent;
+    border: none;
+    border-bottom: 2px solid transparent;
+    padding: 0px 12px;
+    margin: 0px;
+    color: %1;
+}
+QTabBar#modeTabs::tab:hover { color: palette(text); }
+QTabBar#modeTabs::tab:selected {
+    color: palette(text);
+    border-bottom: 2px solid palette(highlight);
+}
+)CSS")
+                                  .arg(acronymColor(palette())));
+
     connect(m_modeTabs, &QTabBar::currentChanged, this, [this](int index) {
         setMode(index == 0 ? Mode::TextualCriticism : Mode::Transcription);
     });
@@ -956,6 +1024,7 @@ void MainWindow::updateTranscriptionActions()
     const bool open = m_transcriptionController->hasDocument();
 
     m_openImageAction->setEnabled(transcribing);
+    m_openScanAction->setEnabled(transcribing);
     m_openTranscriptionAction->setEnabled(transcribing);
     m_saveTranscriptionAction->setEnabled(transcribing && open);
     m_exportOsisAction->setEnabled(transcribing && open);
@@ -1087,23 +1156,45 @@ void MainWindow::buildTranscriptionToolBar()
 
     toolBar->addWidget(new QLabel(QStringLiteral(" Book ")));
 
-    // Typed rather than chosen: a transcriber meets books Milah has never
-    // loaded, and a list would be the wrong shape for a folio that has not been
-    // identified yet. The completer helps without constraining.
+    // Typed rather than chosen: a transcriber meets works Milah has never heard
+    // of, and a list would refuse a folio the canon does not contain. The
+    // completer assists without constraining.
     m_bookField = new QLineEdit;
-    m_bookField->setMinimumWidth(150);
-    m_bookField->setPlaceholderText(QStringLiteral("Gen"));
+    m_bookField->setPlaceholderText(QStringLiteral("Revelation"));
     m_bookField->setToolTip(QStringLiteral(
-        "The OSIS abbreviation of the book on this folio — Gen, Exod, Matt. "
-        "It is what the exported file addresses the verses by."));
-    auto *completer = new QCompleter(bookIds(), m_bookField);
+        "The book on this folio, by name — Genesis, Matthew, Revelation. What "
+        "it is abbreviated to is shown beside it."));
+    // A QLineEdit expands by default, and in a toolbar that means taking every
+    // pixel the other controls have not claimed. Wide enough for the longest
+    // book there is and no wider — measured rather than guessed, so a larger
+    // interface font or a higher display scale does not clip it.
+    m_bookField->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
+    m_bookField->setFixedWidth(fieldWidthFor(m_bookField, bookNames()));
+
+    auto *completer = new QCompleter(bookNames(), m_bookField);
     completer->setCaseSensitivity(Qt::CaseInsensitive);
     completer->setCompletionMode(QCompleter::PopupCompletion);
+    // Contains rather than starts-with, so that "Chr" reaches both books of
+    // Chronicles — their names open with a digit, which nobody types first.
+    completer->setFilterMode(Qt::MatchContains);
     m_bookField->setCompleter(completer);
-    connect(m_bookField, &QLineEdit::editingFinished, this, [this] {
-        m_transcriptionController->setBook(m_bookField->text().trimmed());
-    });
+    connect(m_bookField, &QLineEdit::textEdited, this, &MainWindow::autofillBook);
+    connect(m_bookField, &QLineEdit::editingFinished, this, &MainWindow::commitBook);
     toolBar->addWidget(m_bookField);
+
+    toolBar->addWidget(new QLabel(QStringLiteral(" as ")));
+
+    // What the verses will actually be addressed by. Derived and read-only for
+    // a book the canon knows; the transcriber's own to write for anything else,
+    // since nobody but them can say what an apocryphal work should be called.
+    m_bookAcronymField = new QLineEdit;
+    m_bookAcronymField->setAlignment(Qt::AlignCenter);
+    m_bookAcronymField->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
+    m_bookAcronymField->setFixedWidth(fieldWidthFor(m_bookAcronymField, bookIds()));
+    connect(m_bookAcronymField, &QLineEdit::editingFinished, this, [this] {
+        commitBookAcronym();
+    });
+    toolBar->addWidget(m_bookAcronymField);
 
     toolBar->addWidget(new QLabel(QStringLiteral(" Chapter ")));
 
@@ -1132,6 +1223,101 @@ void MainWindow::buildTranscriptionToolBar()
     refreshTranscriptionToolBar();
 }
 
+void MainWindow::autofillBook(const QString &typed)
+{
+    // Qt has no mode that pops up a list and fills the box at once, so the list
+    // is the completer's and the filling is done here.
+    const QString previous = m_bookTyped;
+    m_bookTyped = typed;
+
+    // Not while deleting. Backspace shortens the text, and putting back what was
+    // just removed would make the field impossible to clear.
+    if (previous.startsWith(typed)) {
+        return;
+    }
+    // Not from the middle of a word either: an insertion before the end is a
+    // correction, not the start of a name.
+    if (typed.isEmpty() || m_bookField->cursorPosition() != typed.size()) {
+        return;
+    }
+
+    QCompleter *completer = m_bookField->completer();
+    if (!completer) {
+        return;
+    }
+    completer->setCompletionPrefix(typed);
+
+    // The completer matches anywhere in a name, so its first answer need not
+    // begin with what was typed — and only something that does can be filled in
+    // ahead of the caret.
+    for (int index = 0; index < completer->completionCount(); ++index) {
+        completer->setCurrentRow(index);
+        const QString candidate = completer->currentCompletion();
+        if (!candidate.startsWith(typed, Qt::CaseInsensitive)) {
+            continue;
+        }
+        const QSignalBlocker blocker(m_bookField);
+        m_bookField->setText(candidate);
+        // The part they did not type is left selected, so carrying on typing
+        // replaces it and the suggestion never has to be deleted.
+        m_bookField->setSelection(typed.size(), candidate.size() - typed.size());
+        m_bookTyped = candidate;
+        return;
+    }
+}
+
+void MainWindow::commitBook()
+{
+    const QString typed = m_bookField->text().trimmed();
+    m_bookTyped = typed;
+    if (typed.isEmpty()) {
+        m_transcriptionController->setBook(QString(), QString());
+        return;
+    }
+
+    const QString id = bookIdFor(typed);
+    if (!id.isEmpty()) {
+        // A book the canon knows names itself: whatever spelling got them here,
+        // the field settles on the canonical one and the id follows from it.
+        m_transcriptionController->setBook(id, QString());
+        return;
+    }
+
+    // Outside the canon. What they wrote is the name, and the abbreviation is
+    // now theirs to write — seeded from the name so there is something valid to
+    // export with, and left editable so they can shorten it.
+    const TranscribedPage *page = m_transcriptionController->currentPage();
+    const bool alreadyCoined =
+        page && !page->bookLabel.isEmpty() && bookIdFor(page->bookLabel).isEmpty();
+    const QString id2 =
+        alreadyCoined && page->bookLabel == typed ? page->book : sanitisedBookId(typed);
+    m_transcriptionController->setBook(id2, typed);
+}
+
+void MainWindow::commitBookAcronym()
+{
+    if (m_bookAcronymField->isReadOnly()) {
+        return;
+    }
+    const TranscribedPage *page = m_transcriptionController->currentPage();
+    if (!page) {
+        return;
+    }
+    const QString raw = m_bookAcronymField->text().trimmed();
+    if (raw.isEmpty()) {
+        return;
+    }
+    const QString id = sanitisedBookId(raw);
+    if (id != raw) {
+        statusBar()->showMessage(
+            QStringLiteral("A book is written as %1: a verse is addressed as "
+                           "book, chapter and number separated by dots, so the "
+                           "book itself cannot carry one.")
+                .arg(id));
+    }
+    m_transcriptionController->setBook(id, page->bookLabel);
+}
+
 void MainWindow::refreshTranscriptionToolBar()
 {
     const TranscribedPage *page = m_transcriptionController->currentPage();
@@ -1140,14 +1326,41 @@ void MainWindow::refreshTranscriptionToolBar()
     // folio would write its own book back into the document as though the
     // transcriber had typed it.
     const QSignalBlocker blockBook(m_bookField);
+    const QSignalBlocker blockAcronym(m_bookAcronymField);
     const QSignalBlocker blockChapter(m_chapterField);
 
     if (!page) {
         m_bookField->clear();
+        m_bookAcronymField->clear();
         m_chapterField->clear();
+        m_bookTyped.clear();
         return;
     }
-    m_bookField->setText(page->book);
+
+    // The name as the transcriber wrote it, or the canonical one for the id
+    // where they never had to write anything — which is also what a file
+    // written before the book could be named reads back as.
+    const QString label =
+        page->bookLabel.isEmpty() ? bookName(page->book) : page->bookLabel;
+    m_bookField->setText(label);
+    m_bookTyped = label;
+
+    m_bookAcronymField->setText(page->book);
+
+    // Derived and untouchable for a book the canon knows; the transcriber's own
+    // for anything else.
+    const bool canonical = !page->book.isEmpty() && !bookIdFor(label).isEmpty();
+    m_bookAcronymField->setReadOnly(canonical);
+    m_bookAcronymField->setFocusPolicy(canonical ? Qt::NoFocus : Qt::StrongFocus);
+    m_bookAcronymField->setToolTip(canonical
+        ? QStringLiteral("How %1 is written in the exported file. Milah knows "
+                         "this book, so it is not yours to change.")
+              .arg(label)
+        : QStringLiteral("Milah does not know this work, so what it is "
+                         "abbreviated to is yours to decide. The verses will be "
+                         "exported as %1.1.1 and so on.")
+              .arg(page->book.isEmpty() ? QStringLiteral("…") : page->book));
+
     // The chapter of the verse being typed in, not the folio's first: a folio
     // that turns a chapter partway down has two, and the useful one is where
     // the caret is.

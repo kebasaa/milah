@@ -67,6 +67,13 @@ QString unsettledColor(const QPalette &palette)
         : QStringLiteral("#5a6c8c");
 }
 
+QColor noteMarkerColor(const QPalette &palette)
+{
+    return palette.color(QPalette::Base).lightness() < 128
+        ? QColor(QStringLiteral("#ff6b6b"))
+        : QColor(QStringLiteral("#c02626"));
+}
+
 QString acronymColor(const QPalette &palette)
 {
     const QColor text = palette.color(QPalette::Text);
@@ -91,6 +98,7 @@ BandedGridWidget::BandedGridWidget(QWidget *parent)
     m_bandLayout = new QVBoxLayout(m_bandHost);
     m_bandLayout->setContentsMargins(0, 0, 0, 0);
     m_bandLayout->setSpacing(6);
+    m_bandTarget = m_bandLayout;
 }
 
 void BandedGridWidget::resizeEvent(QResizeEvent *event)
@@ -111,8 +119,28 @@ void BandedGridWidget::resizeEvent(QResizeEvent *event)
     });
 }
 
+QVBoxLayout *BandedGridWidget::addBandGroup()
+{
+    auto *card = new QWidget;
+    // The same card the comparison draws round a verse, and the same rule in
+    // the window's stylesheet draws it — a folio's verses and a comparison's
+    // ought to look like the same kind of thing, because they are.
+    card->setObjectName(QStringLiteral("verseCard"));
+
+    auto *layout = new QVBoxLayout(card);
+    layout->setContentsMargins(CardPadding, 10, CardPadding, CardPadding);
+    layout->setSpacing(8);
+
+    m_bandLayout->addWidget(card);
+    m_bandTarget = layout;
+    return layout;
+}
+
 void BandedGridWidget::clearBands()
 {
+    // Bands go back into the stack itself until another card is opened.
+    m_bandTarget = m_bandLayout;
+
     while (QLayoutItem *item = m_bandLayout->takeAt(0)) {
         if (QWidget *widget = item->widget()) {
             // A control inside a band can trigger the rebuild that deletes it,
@@ -152,7 +180,7 @@ QGridLayout *BandedGridWidget::addBand(bool separator)
         rule->setObjectName(QStringLiteral("bandRule"));
         rule->setFrameShape(QFrame::HLine);
         rule->setFrameShadow(QFrame::Plain);
-        m_bandLayout->addWidget(rule);
+        m_bandTarget->addWidget(rule);
     }
 
     auto *host = new QWidget;
@@ -162,7 +190,7 @@ QGridLayout *BandedGridWidget::addBand(bool separator)
     grid->setContentsMargins(0, 0, 0, 0);
     grid->setHorizontalSpacing(ColumnSpacing);
     grid->setVerticalSpacing(2);
-    m_bandLayout->addWidget(host);
+    m_bandTarget->addWidget(host);
     return grid;
 }
 
