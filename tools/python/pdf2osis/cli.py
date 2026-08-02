@@ -6,8 +6,21 @@ import json
 from pathlib import Path
 import sys
 
-from .converter import ConversionError, ConversionReport, convert_pdf
+from .converter import (
+    ConversionError,
+    ConversionReport,
+    convert_bsi_nt,
+    convert_pdf,
+    convert_sword_nt,
+)
 from .profiles import BOOK_PROFILES, get_profile
+
+_CONVERTERS = {"sword": convert_sword_nt, "bsi_hnt": convert_bsi_nt}
+
+
+def _convert(profile, input_path, output_dir) -> ConversionReport:
+    convert = _CONVERTERS.get(profile.extractor, convert_pdf)
+    return convert(input_path, profile, output_dir)
 
 
 def _report(report: ConversionReport) -> None:
@@ -46,17 +59,15 @@ def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     try:
         if args.command == "convert":
-            report = convert_pdf(
-                args.input,
-                get_profile(args.book),
-                args.output_dir,
+            report = _convert(
+                get_profile(args.book), args.input, args.output_dir
             )
             _report(report)
         else:
             for profile in BOOK_PROFILES.values():
-                report = convert_pdf(
-                    profile.default_path(args.source_dir),
+                report = _convert(
                     profile,
+                    profile.default_path(args.source_dir),
                     args.output_dir,
                 )
                 _report(report)

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "core/serialize.h"
 #include "core/transcription.h"
 
 #include <QHash>
@@ -88,7 +89,12 @@ public slots:
     /// file was actually written — a cancelled dialog is a false, which is what
     /// lets leaving a folio be refused rather than silently losing the text.
     bool saveTranscription();
+    /// Writes the transcription as OSIS where the transcriber chooses: the text
+    /// alone, the text with their notes, and the text with the glosses.
     void exportOsis();
+    /// Files the transcription in the manuscript library, one book to a file,
+    /// where the Textual criticism tab looks for witnesses to collate.
+    void addToLibrary();
     void closeTranscription();
     void goToPreviousImage();
     void goToNextImage();
@@ -163,6 +169,29 @@ signals:
     void historyChanged();
 
 private:
+    /// The transcription in the shape the OSIS writers take it.
+    ///
+    /// Built once and used by both commands, so what is exported and what is
+    /// filed in the library cannot come to differ in anything but their shape.
+    struct Exportable
+    {
+        QMap<QString, CombinedDraft> drafts;
+        InterlinearGlosses glosses;
+        CombinedApparatus apparatus;
+        /// Verses with no book, chapter or number, which OSIS cannot address.
+        int unnamed = 0;
+        /// Notes on those verses, which go nowhere with them.
+        int strandedNotes = 0;
+    };
+    Exportable exportable() const;
+    /// The work header both commands write, from the Manuscript panel.
+    WorkMetadata workMetadata() const;
+    /// What to say about verses OSIS could not address. Empty when it could
+    /// address them all.
+    static QString unaddressedNotice(const Exportable &work);
+    /// Writes one OSIS file, atomically, reporting a failure itself.
+    bool writeOsisTo(const QString &path, const QString &osis);
+
     TranscribedPage *mutablePage();
     /// True when `verse` and `column` name a word that exists.
     bool isValid(int verse, int column) const;

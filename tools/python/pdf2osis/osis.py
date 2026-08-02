@@ -5,7 +5,6 @@ from typing import Any
 
 from lxml import etree
 
-from .glyphs import strip_points
 from .models import Marker, Passage, VerseRecord
 from .profiles import BookProfile
 
@@ -46,7 +45,8 @@ def _work(
     # refSystem. Emitting them out of order fails schema validation.
     work = etree.SubElement(header, _tag("work"), osisWork=work_id)
     etree.SubElement(work, _tag("title")).text = title
-    if translation:
+
+    def add_translator_credit() -> None:
         etree.SubElement(
             work,
             _tag("contributor"),
@@ -56,25 +56,42 @@ def _work(
         etree.SubElement(work, _tag("creator"), role="trl").text = (
             profile.translator
         )
-        etree.SubElement(work, _tag("date"), event="eversion", type="ISO").text = (
-            profile.edition_date
-        )
-    else:
+
+    def add_original_date() -> None:
         etree.SubElement(
             work,
             _tag("date"),
             event="original",
             type=profile.date_calendar,
         ).text = profile.original_date
+
+    def add_edition_date() -> None:
+        etree.SubElement(work, _tag("date"), event="eversion", type="ISO").text = (
+            profile.edition_date
+        )
+
+    if not profile.has_translation:
+        # There is no separate translation variant to carry these, because the
+        # Hebrew text here is itself the translation (Delitzsch, from Greek) —
+        # unlike a manuscript, which just exists with no translator to credit.
+        add_translator_credit()
+        add_original_date()
+        add_edition_date()
+    elif translation:
+        add_translator_credit()
+        add_edition_date()
+    else:
+        add_original_date()
     etree.SubElement(work, _tag("description")).text = profile.description
     for kind, text in profile.descriptions:
         etree.SubElement(work, _tag("description"), type=kind).text = text
     etree.SubElement(work, _tag("publisher")).text = profile.publisher
+    is_edition = translation or not profile.has_translation
     etree.SubElement(
         work,
         _tag("type"),
-        type="x-bible" if translation else "x-manuscript",
-    ).text = "Edition" if translation else "Manuscript"
+        type="x-bible" if is_edition else "x-manuscript",
+    ).text = "Edition" if is_edition else "Manuscript"
     etree.SubElement(work, _tag("identifier"), type="OSIS").text = work_id
     etree.SubElement(work, _tag("identifier"), type="x-shelfmark").text = (
         profile.manuscript
@@ -89,7 +106,11 @@ def _work(
         etree.SubElement(work, _tag("relation")).text = profile.relation
     if profile.coverage:
         etree.SubElement(work, _tag("coverage")).text = profile.coverage
-    if translation:
+    # Rights are stated on the translation variant everywhere it exists — that
+    # is where the copyrightable modern text lives (Gordon's, PTM's). A source
+    # with no translation at all, like Delitzsch, has nothing else to carry
+    # the rights statement, so its Hebrew variants get it instead.
+    if translation or not profile.has_translation:
         etree.SubElement(work, _tag("rights")).text = profile.rights
     etree.SubElement(work, _tag("scope")).text = profile.scope
 
@@ -146,19 +167,8 @@ def _anchored(
     flow: _Flow,
     text: str,
     anchors: list[tuple[int, Callable[[_Flow], None]]],
-    *,
-    source: str | None = None,
 ) -> None:
-    """Write ``text`` into ``flow``, emitting each anchor at its offset.
-
-    Anchor offsets are measured against ``source``. When the text has been
-    reshaped — stripping the vowel points shortens it — offsets are mapped
-    across by reshaping the prefix each one refers to.
-    """
-    if source is not None and source != text:
-        anchors = [
-            (len(strip_points(source[:offset])), emit) for offset, emit in anchors
-        ]
+    """Write ``text`` into ``flow``, emitting each anchor at its offset."""
     cursor = 0
     for offset, emit in sorted(anchors, key=lambda item: item[0]):
         offset = max(cursor, min(offset, len(text)))
@@ -268,67 +278,25 @@ def _passage_text(passage: Passage, *, translation: bool) -> str:
     return passage.english if translation else passage.hebrew
 
 
-def build_structured_osis(
-    document: Any, profile: BookProfile, variant: str
-) -> bytes:
-    """Build OSIS for a pointed manuscript, using milestoned verses.
+def _write_book(
+    osis_text: etree._Element,
+    osis_book: str,
+    document: Any,
+    *,
+    translation: bool,
+    with_notes: bool,
+) -> None:
+    """Write one book's div — verses, chapters, titles, folios, notes.
 
-    Milestone form is required here because the manuscript carries material
-    that belongs to no verse — an incipit, a gate heading dividing the two
-    chapters, and folio boundaries that fall in mid-verse — which cannot be
-    represented while every verse is a container.
+    Shared by `build_structured_osis` (one book per file) and
+    `build_multibook_osis` (many books, one `osis_text` per file): the body of
+    a book div does not care how many siblings it has.
     """
-    variants = {"hebrew", "hebrew_commented", "translation", "hebrew_consonantal"}
-    if variant not in variants:
-        raise ValueError(f"Unknown OSIS variant: {variant}")
-    translation = variant == "translation"
-    consonantal = variant == "hebrew_consonantal"
-    with_notes = variant in {"hebrew_commented", "translation"}
-    suffix = {
-        "hebrew": "",
-        "hebrew_commented": "_Commented",
-        "hebrew_consonantal": "_Consonantal",
-    }
-    work_id = (
-        profile.translation_work
-        if translation
-        else profile.hebrew_work + suffix[variant]
-    )
-    language = "en" if translation else "he"
-
-    root = etree.Element(_tag("osis"), nsmap={None: OSIS_NS, "xsi": XSI_NS})
-    root.set(f"{{{XSI_NS}}}schemaLocation", SCHEMA_LOCATION)
-    osis_text = etree.SubElement(
-        root,
-        _tag("osisText"),
-        osisIDWork=work_id,
-        osisRefWork="bible",
-    )
-    osis_text.set(XML_LANG, language)
-    _header(osis_text, profile, work_id, language, translation=translation)
-
-    def shape(text: str) -> str:
-        return strip_points(text) if consonantal else text
-
-    for passage in document.passages:
-        if passage.kind != "titlePage":
-            continue
-        text = _passage_text(passage, translation=True)
-        if not text:
-            continue
-        div = etree.SubElement(
-            osis_text, _tag("div"), type="titlePage", canonical="false"
-        )
-        for index, part in enumerate(text.split(" | ")):
-            etree.SubElement(
-                div, _tag("title"), type="main" if index == 0 else "sub"
-            ).text = part
-
     book = etree.SubElement(
         osis_text,
         _tag("div"),
         type="book",
-        osisID=profile.osis_book,
+        osisID=osis_book,
         canonical="true",
     )
     flow = _Flow(book)
@@ -337,7 +305,7 @@ def build_structured_osis(
     for passage in document.passages:
         if passage.kind not in BOOK_TITLE_KINDS:
             continue
-        text = shape(_passage_text(passage, translation=translation))
+        text = _passage_text(passage, translation=translation)
         if not text:
             continue
         div = flow.add("div", type="introduction", canonical="true")
@@ -350,8 +318,7 @@ def build_structured_osis(
         _anchored(
             inner,
             text,
-            _note_anchors(passage.markers, notes, profile.osis_book),
-            source=_passage_text(passage, translation=translation),
+            _note_anchors(passage.markers, notes, osis_book),
         )
 
     titles = {
@@ -364,11 +331,11 @@ def build_structured_osis(
     for record in document.records:
         if record.chapter != chapter:
             if chapter is not None:
-                flow.add("chapter", eID=f"{profile.osis_book}.{chapter}")
+                flow.add("chapter", eID=f"{osis_book}.{chapter}")
             chapter = record.chapter
             passage = titles.get(chapter)
             if passage is not None:
-                text = shape(_passage_text(passage, translation=translation))
+                text = _passage_text(passage, translation=translation)
                 if text:
                     element = flow.add(
                         "title", type="chapter", canonical="true"
@@ -376,12 +343,12 @@ def build_structured_osis(
                     element.text = text
             flow.add(
                 "chapter",
-                sID=f"{profile.osis_book}.{chapter}",
-                osisID=f"{profile.osis_book}.{chapter}",
+                sID=f"{osis_book}.{chapter}",
+                osisID=f"{osis_book}.{chapter}",
                 n=str(chapter),
             )
 
-        osis_id = f"{profile.osis_book}.{record.chapter}.{record.verse}"
+        osis_id = f"{osis_book}.{record.chapter}.{record.verse}"
         attributes = {
             "sID": osis_id,
             "osisID": osis_id,
@@ -404,7 +371,6 @@ def build_structured_osis(
         flow.add("verse", **attributes)
 
         raw = record.english if translation else record.hebrew
-        text = shape(raw)
         markers = record.english_markers if translation else record.hebrew_markers
         anchors = _note_anchors(markers, notes, osis_id)
         if with_notes:
@@ -420,13 +386,102 @@ def build_structured_osis(
                     inner.add("milestone", type="x-ms-verse", n=division.number)
 
                 anchors.append((division.offset, emit_division))
-        _anchored(flow, text, anchors, source=raw)
+        _anchored(flow, raw, anchors)
         flow.add("verse", eID=osis_id)
 
     if chapter is not None:
-        flow.add("chapter", eID=f"{profile.osis_book}.{chapter}")
+        flow.add("chapter", eID=f"{osis_book}.{chapter}")
 
     indent_body(book)
+
+
+def _start_document(
+    profile: BookProfile, variant: str, variants: set[str]
+) -> tuple[etree._Element, etree._Element, bool, bool]:
+    if variant not in variants:
+        raise ValueError(f"Unknown OSIS variant: {variant}")
+    translation = variant == "translation"
+    with_notes = variant in {"hebrew_commented", "translation"}
+    suffix = {
+        "hebrew": "",
+        "hebrew_commented": "_Commented",
+    }
+    work_id = (
+        profile.translation_work
+        if translation
+        else profile.hebrew_work + suffix[variant]
+    )
+    language = "en" if translation else "he"
+
+    root = etree.Element(_tag("osis"), nsmap={None: OSIS_NS, "xsi": XSI_NS})
+    root.set(f"{{{XSI_NS}}}schemaLocation", SCHEMA_LOCATION)
+    osis_text = etree.SubElement(
+        root,
+        _tag("osisText"),
+        osisIDWork=work_id,
+        osisRefWork="bible",
+    )
+    osis_text.set(XML_LANG, language)
+    _header(osis_text, profile, work_id, language, translation=translation)
+    return root, osis_text, translation, with_notes
+
+
+def build_structured_osis(
+    document: Any, profile: BookProfile, variant: str
+) -> bytes:
+    """Build OSIS for a pointed manuscript, using milestoned verses.
+
+    Milestone form is required here because the manuscript carries material
+    that belongs to no verse — an incipit, a gate heading dividing the two
+    chapters, and folio boundaries that fall in mid-verse — which cannot be
+    represented while every verse is a container.
+    """
+    root, osis_text, translation, with_notes = _start_document(
+        profile, variant, {"hebrew", "hebrew_commented", "translation"}
+    )
+
+    for passage in document.passages:
+        if passage.kind != "titlePage":
+            continue
+        text = _passage_text(passage, translation=True)
+        if not text:
+            continue
+        div = etree.SubElement(
+            osis_text, _tag("div"), type="titlePage", canonical="false"
+        )
+        for index, part in enumerate(text.split(" | ")):
+            etree.SubElement(
+                div, _tag("title"), type="main" if index == 0 else "sub"
+            ).text = part
+
+    _write_book(
+        osis_text, profile.osis_book, document,
+        translation=translation, with_notes=with_notes,
+    )
+    return etree.tostring(
+        root, xml_declaration=True, encoding="UTF-8", pretty_print=True
+    )
+
+
+def build_multibook_osis(
+    books: dict[str, Any], profile: BookProfile, variant: str
+) -> bytes:
+    """Build OSIS for a source spanning many books in one file.
+
+    For a whole-Bible or whole-Testament source — a SWORD module, say — 27
+    separate one-book files would scatter a single translation across 27
+    unrelated documents for no reason a reader of that translation would
+    recognise; one `osisText` holding one `div type="book"` per book, in
+    canonical order, is what the source actually is.
+    """
+    root, osis_text, translation, with_notes = _start_document(
+        profile, variant, {"hebrew", "hebrew_commented"}
+    )
+    for osis_book, document in books.items():
+        _write_book(
+            osis_text, osis_book, document,
+            translation=translation, with_notes=with_notes,
+        )
     return etree.tostring(
         root, xml_declaration=True, encoding="UTF-8", pretty_print=True
     )

@@ -413,6 +413,52 @@ private slots:
         QCOMPARE(verseHeading(page, 0), QStringLiteral("Unnumbered"));
     }
 
+    void theLibraryNameFollowsTheOsisId()
+    {
+        QCOMPARE(
+            libraryFileName(QStringLiteral("Rev"), QStringLiteral("Sloane237")),
+            QStringLiteral("Rev_Sloane237_hebrew_commented.osis"));
+        // The same id addressing already uses, not a separate code: a John
+        // transcription is John_.
+        QCOMPARE(
+            libraryFileName(QStringLiteral("John"), QStringLiteral("Ebr530")),
+            QStringLiteral("John_Ebr530_hebrew_commented.osis"));
+    }
+
+    void aManuscriptNameIsMadeFitForAFilename()
+    {
+        // Free text a transcriber typed, and half of what they might type is
+        // punctuation Windows refuses outright.
+        QCOMPARE(
+            libraryFileName(QStringLiteral("Rev"), QStringLiteral("Vat. ebr. 530")),
+            QStringLiteral("Rev_Vat.ebr.530_hebrew_commented.osis"));
+        QCOMPARE(
+            libraryFileName(QStringLiteral("Rev"), QStringLiteral("MS Oo.1/32: A?")),
+            QStringLiteral("Rev_MSOo.132A_hebrew_commented.osis"));
+        // And something has to name it when they typed nothing at all.
+        QCOMPARE(
+            libraryFileName(QStringLiteral("Rev"), QString()),
+            QStringLiteral("Rev_Transcription_hebrew_commented.osis"));
+    }
+
+    void aLibraryNameIsNeverATranslation()
+    {
+        // The suffix, and nothing in the file, is what tells Milah a library
+        // text is a translation rather than a witness — so a manuscript called
+        // "Ebr530_translation" must not become one.
+        const QString name =
+            libraryFileName(QStringLiteral("Rev"), QStringLiteral("Ebr530_translation"));
+        QVERIFY2(!name.endsWith(QStringLiteral("_translation.osis")), qPrintable(name));
+        QVERIFY(name.endsWith(QStringLiteral("_hebrew_commented.osis")));
+    }
+
+    void aBookOutsideTheCanonIsFiledUnderItsOwnId()
+    {
+        QCOMPARE(
+            libraryFileName(QStringLiteral("Tob"), QStringLiteral("Sloane237")),
+            QStringLiteral("Tob_Sloane237_hebrew_commented.osis"));
+    }
+
     void aNoteSurvivesTheArchive()
     {
         TranscriptionDocument document = sampleDocument();

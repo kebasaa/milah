@@ -71,3 +71,19 @@ class VerseRecord:
     @property
     def label(self) -> str:
         return f"{self.chapter}:{self.source_verse or self.verse}"
+
+
+@dataclass
+class VerseDocument:
+    """A source read as plain, already-segmented verse text rather than a PDF.
+
+    Same shape as ``cochin.CochinDocument`` — ``build_structured_osis`` only
+    needs ``records``/``notes``/``anomalies``/``passages`` — kept as its own
+    type here because a SWORD module has nothing else in common with a Cochin
+    PDF extraction.
+    """
+
+    records: list[VerseRecord] = field(default_factory=list)
+    notes: dict[str, str] = field(default_factory=dict)
+    anomalies: list[str] = field(default_factory=list)
+    passages: list[Passage] = field(default_factory=list)

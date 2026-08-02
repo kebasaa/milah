@@ -342,7 +342,7 @@ Launch `milah-portable\Milah.exe`. OSIS files can also be named on the command
 line, which is the quickest way to a populated window:
 
 ```powershell
-.\milah-portable\Milah.exe tools\data\01_osis\JOH_Ebr530_hebrew.osis tools\data\01_osis\JOH_Ebr530_hebrew_consonantal.osis -t tools\data\01_osis\JOH_Ebr530_translation.osis
+.\milah-portable\Milah.exe tools\data\01_osis\JOH_Ebr530_hebrew.osis -t tools\data\01_osis\JOH_Ebr530_translation.osis
 ```
 
 Do not run `Milah.exe` from the build folder unless the Qt runtime DLLs are on

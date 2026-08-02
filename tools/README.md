@@ -54,17 +54,16 @@ Books are `rev`, `jas` and `mat` (Project Truth Ministries Cochin editions),
 ```
 
 Each conversion writes clean Hebrew, annotated Hebrew and annotated English
-OSIS; pointed manuscripts also get a niqqud-stripped consonantal variant. The
-converter parses and validates every document before replacing any existing
-output. Its JSON report lists coverage, empty and alternate verses, note
-counts, excluded markers and source anomalies.
+OSIS. The converter parses and validates every document before replacing any
+existing output. Its JSON report lists coverage, empty and alternate verses,
+note counts, excluded markers and source anomalies.
 
 Output is named `<BOOK>_<Manuscript>_<variant>.osis` — book code first, then the
 manuscript, as in `REV_CochinOo.1.16.2_hebrew_commented.osis` or
 `LUK_Ebr530_translation.osis`. `<BOOK>` is the three-letter code (`REV`, `JAS`,
-`MAT`, `LUK`, `JOH`) and `<variant>` is `hebrew`, `hebrew_commented`,
-`translation` or `hebrew_consonantal`. Every filename derives from
-`BookProfile.stem`, so that field is the single place the convention lives.
+`MAT`, `LUK`, `JOH`) and `<variant>` is `hebrew`, `hebrew_commented` or
+`translation`. Every filename derives from `BookProfile.stem`, so that field is
+the single place the convention lives.
 
 ### Package layout
 
@@ -150,6 +149,8 @@ Every file validates against the upstream `osisCore.2.1.1.xsd`, vendored in
 | `mat` | 646 | Matthew 1:1–19:30; the volume stops there |
 | `sloane_rev` | 33 | Revelation 1:1–2:13 |
 | `ebr530_luke` / `ebr530_john` | 35 / 13 | Luke 1:1–35, John 1:1–13 |
+| `delitzsch` | 7959 | The whole New Testament, Matthew 1:1–Revelation 22:21, one file |
+| `bsi_hnt` | 7959 | The whole New Testament, Matthew 1:1–Revelation 22:21, one file |
 
 Revelation is **405**, arrived at from two corrections in opposite directions.
 `Rev 2:26` (PDF page 54) and `Rev 20:12` (page 329) are in the source but their
@@ -206,6 +207,84 @@ transcription is the authority on wording and order.
 Output is pretty-printed one verse per line. lxml's `pretty_print` refuses to
 reformat mixed content, which is exactly what milestone form produces, so
 `pdf2osis.osis.indent_body` sets the tails by hand.
+
+### Delitzsch Hebrew New Testament (SWORD module)
+
+Not a PDF: `pdf2osis/sword.py` reads a CrossWire SWORD module directly with
+`pysword`, which returns clean, already verse-segmented text — no glyph
+decoding or page-layout detection applies here at all. The module's own
+`Versification` declaration (NRSV) is the source of truth for how many
+chapters and verses each book has.
+
+This is a whole-Testament source — one translation across all 27 NT books —
+so it produces **one file** covering the whole NT, not 27 per-book files:
+`pdf2osis/osis.py`'s `build_multibook_osis` writes one `<div type="book">` per
+book inside a single `osisText`, in canonical order (Matthew … Revelation).
+`build_structured_osis` (every other, single-book profile) shares a
+`_write_book` helper with it; only the wrapping around that shared per-book
+logic differs.
+
+Three verses across the whole NT — 2 Corinthians 13:14, 3 John 1:15,
+Revelation 12:18 — are NRSV versification slots this module's text does not
+fill. They are kept, numbered, empty, with the reason as a note.
+
+There is no accompanying English text at all, so `BookProfile.has_translation
+= False` suppresses the `translation` variant entirely, and the copyright and
+translator credit — normally only on the translation variant, since that is
+usually the only copyrightable modern text — move to the Hebrew variants
+instead, since here they are the only place those facts have anywhere to go.
+
+**Licensing**: the module is Streams in the Negev's 2003 transcription and
+repointing of Delitzsch's 1885 translation, distributed by CrossWire
+"free for use by any non-commercial project" — not public domain. The
+`rights` field in `profiles.DELITZSCH` states this in the OSIS header itself.
+The module zip is downloaded, not committed
+(`tools/data/00_source_files/sword/`), and `tests/test_sword.py` skips if it
+is not present locally.
+
+### Modern Hebrew New Testament (scraped)
+
+*HaBrit HaChadasha* (Bible Society in Israel, 1995, revised 2010) has no
+digital edition, app or API the publisher offers directly — the only place
+its text exists online is a third-party mirror, `nocr.net`, which prints it
+one chapter at a time with no bulk export. `pdf2osis/bsi_hnt.py` therefore
+splits into two steps that never touch the network at the same time:
+
+- `fetch_bsi_nt()` walks all 27 books, chapter by chapter, until a chapter
+  comes back with no Hebrew cell (there is no chapter count published
+  anywhere to check against), and writes the result to a local JSON cache —
+  a politeness delay is applied between requests, since this is a small,
+  non-commercial mirror, not an API meant for bulk access.
+- `extract_bsi_nt()` reads that cache. Conversion, including every test in
+  `tests/test_bsi_hnt.py`, never re-scrapes the site.
+
+Verse numbers are printed inline in each chapter's text ("1:1 … 1:2 …") with
+no other delimiter, so splitting on that pattern is the only way to recover
+individual verses; the split result is checked for strictly sequential verse
+numbers, which is what would break if a verse's own text happened to contain
+something that looked like a reference. The site's own combining-mark order
+for Hebrew niqqud varies verse to verse for visually identical text, so
+`_split_verses` normalises every verse to NFC — un-normalised, two "identical"
+verses can fail `==` while rendering the same.
+
+Structurally this mirrors Delitzsch exactly — one multi-book file via the same
+`build_multibook_osis`, no `translation` variant, the same NRSV-shaped
+versification (7959 verses total, matching Delitzsch's count, confirmed rather
+than assumed). It is fully pointed with niqqud, unlike ordinary modern Hebrew
+prose, though without Delitzsch's cantillation marks. Sixteen verses across
+the NT are printed with no text — thirteen are the well-known verses modern
+NT translations based on the earliest manuscripts omit or restructure (Matt
+17:21, Mark 9:44, Acts 8:37, and others), and Romans 9:12 and 16:24 are
+combined-verse cases where the source prints the reference with nothing
+before the next one. All are kept, numbered, empty, with a note.
+
+**Licensing**: unlike Delitzsch, there is **no license grant at all** — the
+source states only "copyrighted (c) 1995, revised (c) 2010 by The Bible
+Society in Israel," with no reuse or redistribution permission anywhere. The
+`rights` field in `profiles.BSI_HNT` states this verbatim in the OSIS header.
+The cache (`tools/data/00_source_files/bsi_hnt/`) and generated output are for
+local use only — not committed, not redistributed, absent direct permission
+from the publisher.
 
 ### Known issues
 

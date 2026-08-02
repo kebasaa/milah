@@ -556,12 +556,3 @@ def text_spans(page: Any) -> list[dict[str, Any]]:
         for span in page.get_texttrace()
         if span.get("type") == 0 and span.get("chars")
     ]
-
-
-def strip_points(text: str) -> str:
-    """Remove Hebrew vowel points and cantillation, keeping the consonants."""
-    decomposed = unicodedata.normalize("NFD", text)
-    kept = "".join(
-        char for char in decomposed if not "֑" <= char <= "ׇ"
-    )
-    return unicodedata.normalize("NFC", kept)

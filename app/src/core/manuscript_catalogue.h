@@ -33,6 +33,18 @@ struct CatalogueEntry
     /// What the edition covers. Absent from a third of the texts, so never
     /// assume it is there.
     QString covers;
+    /// The `<rights>` line from the OSIS header: who holds the copyright and on
+    /// what terms the text may be used.
+    ///
+    /// Shown before anything is downloaded, because the terms are not uniform
+    /// and not all of them are permissive — some of these translations are
+    /// "All rights reserved" while the transcriptions beside them are CC
+    /// BY-NC-SA. A reader is entitled to know which of the two they are taking
+    /// a copy of, and telling them afterwards is telling them too late.
+    ///
+    /// Empty when the manifest predates the field, in which case the window
+    /// says nothing rather than implying no terms apply.
+    QString rights;
     /// Which way Milah has to load it. The manifest states this rather than the
     /// app guessing, and it is why the library can load a file without asking.
     SourceRole role = SourceRole::Manuscript;

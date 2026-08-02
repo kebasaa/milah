@@ -1,5 +1,6 @@
 #include "core/transcription.h"
 
+#include "core/books.h"
 #include "core/project.h"
 
 #include <QDateTime>
@@ -333,6 +334,28 @@ QString verseHeading(const TranscribedPage &page, int verseIndex)
         return QStringLiteral("%1:%2").arg(chapter).arg(number);
     }
     return QStringLiteral("%1 %2:%3").arg(page.book).arg(chapter).arg(number);
+}
+
+QString libraryFileName(const QString &bookOsisId, const QString &manuscriptName)
+{
+    const QString &book = bookOsisId;
+
+    QString name;
+    name.reserve(manuscriptName.size());
+    for (const QChar character : manuscriptName) {
+        if (character.isLetterOrNumber() || character == QLatin1Char('.')
+            || character == QLatin1Char('-')) {
+            name.append(character);
+        }
+    }
+    if (name.isEmpty()) {
+        // Something has to name it, and a file called "REV__hebrew_commented"
+        // reads as a mistake rather than as an unnamed manuscript.
+        name = QStringLiteral("Transcription");
+    }
+
+    return QStringLiteral("%1_%2_hebrew_commented.osis")
+        .arg(book.isEmpty() ? QStringLiteral("NT") : book, name);
 }
 
 MilahProjectPayload transcriptionPayload(

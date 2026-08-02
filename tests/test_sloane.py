@@ -20,7 +20,6 @@ import pytest
 from lxml import etree
 
 from pdf2osis.converter import convert_pdf
-from pdf2osis.glyphs import strip_points
 from pdf2osis.osis import OSIS_NS, build_structured_osis
 from pdf2osis.profiles import SLOANE_REV
 from pdf2osis.sloane import extract_sloane, gematria
@@ -233,7 +232,6 @@ def test_notes_appear_only_in_the_annotated_variants(outputs):
         for variant, payload in outputs.items()
     }
     assert counts["hebrew"] == 0
-    assert counts["hebrew_consonantal"] == 0
     assert counts["hebrew_commented"] + counts["translation"] == 15
     root = etree.fromstring(outputs["hebrew_commented"])
     note = root.xpath("//osis:note", namespaces=NS)[0]
@@ -242,27 +240,12 @@ def test_notes_appear_only_in_the_annotated_variants(outputs):
     assert note.get("osisRef") and note.get("osisID", "").count("!") == 1
 
 
-def _body_text(payload: bytes) -> str:
-    book = etree.fromstring(payload).xpath(
-        "//osis:div[@type='book']", namespaces=NS
-    )[0]
-    return " ".join(book.itertext())
-
-
-def test_consonantal_variant_drops_every_point(outputs):
-    text = _body_text(outputs["hebrew_consonantal"])
-    assert not [c for c in text if "֑" <= c <= "ׇ"]
-    assert strip_points(_body_text(outputs["hebrew"])) == text
-
-
 def test_conversion_is_deterministic(tmp_path):
     first = convert_pdf(PDF, SLOANE_REV, tmp_path)
     payloads = {p: p.read_bytes() for p in first.output_paths.values()}
     convert_pdf(PDF, SLOANE_REV, tmp_path)
     assert {p: p.read_bytes() for p in first.output_paths.values()} == payloads
-    assert set(first.output_paths) == {
-        "hebrew", "hebrew_commented", "translation", "hebrew_consonantal",
-    }
+    assert set(first.output_paths) == {"hebrew", "hebrew_commented", "translation"}
 
 
 def test_output_is_pretty_printed_one_verse_per_line(outputs):

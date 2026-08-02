@@ -709,6 +709,16 @@ void MainWindow::createTranscriptionActions()
         m_transcriptionController,
         &TranscriptionController::exportOsis);
 
+    m_addToLibraryAction = new QAction(QStringLiteral("Add to my library"), this);
+    m_addToLibraryAction->setToolTip(QStringLiteral(
+        "Files this transcription with the manuscripts the Textual criticism "
+        "tab collates, one book to a file, so it can be read against them."));
+    connect(
+        m_addToLibraryAction,
+        &QAction::triggered,
+        m_transcriptionController,
+        &TranscriptionController::addToLibrary);
+
     m_closeTranscriptionAction =
         new QAction(QStringLiteral("Close Transcription Project"), this);
     m_closeTranscriptionAction->setShortcut(QKeySequence(QStringLiteral("Ctrl+W")));
@@ -816,6 +826,7 @@ void MainWindow::buildMenuBar()
     m_transcriptionFileMenu->addAction(m_saveTranscriptionAction);
     m_transcriptionFileMenu->addSeparator();
     m_transcriptionFileMenu->addAction(m_exportOsisAction);
+    m_transcriptionFileMenu->addAction(m_addToLibraryAction);
     m_transcriptionFileMenu->addAction(m_closeTranscriptionAction);
     m_transcriptionFileMenu->addSeparator();
     // The same object the edition's File menu offers, so Quit means one thing:
@@ -1028,6 +1039,7 @@ void MainWindow::updateTranscriptionActions()
     m_openTranscriptionAction->setEnabled(transcribing);
     m_saveTranscriptionAction->setEnabled(transcribing && open);
     m_exportOsisAction->setEnabled(transcribing && open);
+    m_addToLibraryAction->setEnabled(transcribing && open);
     m_closeTranscriptionAction->setEnabled(transcribing && open);
     m_magnifyAction->setEnabled(transcribing && open);
 

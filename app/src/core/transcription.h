@@ -161,6 +161,18 @@ QList<TranscribedVerse> parseTranscribedText(const QString &text);
 /// "Rev 4:1", then "4:1", then "Verse 1", and "Unnumbered" before that.
 QString verseHeading(const TranscribedPage &page, int verseIndex);
 
+/// The name a transcription of one book takes in the manuscript library.
+///
+/// `<OSIS id>_<Manuscript>_hebrew_commented.osis` — Rev_Sloane237_hebrew_
+/// commented.osis. The same id every other part of Milah addresses the book
+/// by, canonical or not. The manuscript's name is stripped to letters,
+/// digits, dots and dashes, because it is a transcriber's free text and half
+/// of what they might type is punctuation Windows refuses in a filename.
+///
+/// Never ends `_translation`: that suffix, and nothing in the file, is what
+/// tells Milah a library text is a translation rather than a witness.
+QString libraryFileName(const QString &bookOsisId, const QString &manuscriptName);
+
 /// True while nothing has been read off any folio of this transcription.
 ///
 /// Asked before leaving a folio writes the file. A transcriber walking a codex

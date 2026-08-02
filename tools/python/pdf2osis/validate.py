@@ -102,7 +102,7 @@ def validate_records(
                 f"{profile.osis_book} {record.label} has Latin contamination "
                 "in clean Hebrew"
             )
-        if not record.english:
+        if profile.has_translation and not record.english:
             errors.append(f"{profile.osis_book} {record.label} has no translation")
         combined = record.hebrew + " " + record.english
         for phrase in FORBIDDEN_TEXT:
@@ -119,11 +119,71 @@ def validate_records(
     return errors
 
 
+def validate_multibook_records(
+    books: dict[str, object], profile: BookProfile
+) -> list[str]:
+    """Record-level checks for a source spanning many books in one file.
+
+    Chapter numbers reset per book, so the single-book checks in
+    `validate_records` do not apply as written; this checks the same
+    properties — total coverage, no stray Latin in clean Hebrew, no verse ID
+    collisions — scoped per book instead.
+    """
+    errors: list[str] = []
+    if tuple(books) != profile.expected_book_order:
+        errors.append(
+            f"book order is {list(books)}, expected "
+            f"{list(profile.expected_book_order)}"
+        )
+    total = sum(len(document.records) for document in books.values())
+    if total != profile.expected_verses:
+        errors.append(f"expected {profile.expected_verses} verses, found {total}")
+    all_ids = [
+        f"{osis_book}.{record.chapter}.{record.verse}"
+        for osis_book, document in books.items()
+        for record in document.records
+    ]
+    duplicates = [key for key, count in Counter(all_ids).items() if count > 1]
+    if duplicates:
+        errors.append("duplicate verse IDs: " + ", ".join(duplicates))
+    first_book = next(iter(books.values()), None)
+    first_text = next(
+        (record.hebrew for record in (first_book.records if first_book else ()) if record.hebrew),
+        "",
+    )
+    if not first_text.startswith(profile.expected_hebrew_prefix):
+        errors.append(
+            "Hebrew RTL reconstruction failed: first text starts with "
+            f"{first_text[:40]!r}"
+        )
+    for osis_book, document in books.items():
+        for record in document.records:
+            if record.empty:
+                continue
+            if not record.hebrew:
+                errors.append(f"{osis_book} {record.label} has no Hebrew")
+            if re.search(r"[A-Za-z]", record.hebrew):
+                errors.append(
+                    f"{osis_book} {record.label} has Latin contamination "
+                    "in clean Hebrew"
+                )
+    return errors
+
+
 def validate_osis(
     payload: bytes,
     profile: BookProfile,
     expected_ids: list[str],
+    *,
+    expected_books: list[str] | None = None,
 ) -> ValidationResult:
+    """Validate one generated OSIS document.
+
+    ``expected_books`` defaults to the profile's single book; a multi-book
+    source (:func:`pdf2osis.osis.build_multibook_osis`) passes every book it
+    wrote, in the same order, since a book div's presence and order matter as
+    much as any one verse's.
+    """
     parser = etree.XMLParser(resolve_entities=False, no_network=True)
     root = etree.fromstring(payload, parser)
     schema = etree.XMLSchema(etree.parse(str(STRICT_SCHEMA)))
@@ -147,13 +207,11 @@ def validate_osis(
         raise ValueError(f"osisIDWork {work_id!r} is not declared")
     if ref_work not in declared:
         raise ValueError(f"osisRefWork {ref_work!r} is not declared")
-    book = root.xpath(
-        "//osis:div[@type='book' and @osisID=$book]",
-        namespaces=namespace,
-        book=profile.osis_book,
+    books = root.xpath(
+        "//osis:div[@type='book']/@osisID", namespaces=namespace
     )
-    if len(book) != 1:
-        raise ValueError("expected exactly one book div")
+    if books != (expected_books or [profile.osis_book]):
+        raise ValueError(f"book divs {books} do not match expectations")
     verses = root.xpath("//osis:verse", namespaces=namespace)
     # In milestone form a verse is two elements; only the opening one carries
     # osisID. Check that every start is closed, in order.

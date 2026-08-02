@@ -258,6 +258,7 @@ SourceDocument parseOsis(const QString &rawOsis, const ParseOptions &options)
             if ((local == QLatin1String("title")
                  || local == QLatin1String("language")
                  || local == QLatin1String("scope")
+                 || local == QLatin1String("rights")
                  || local == QLatin1String("identifier"))
                 && elementStack.contains(QLatin1String("header"))) {
                 metadataField = local;
@@ -460,6 +461,12 @@ SourceDocument parseOsis(const QString &rawOsis, const ParseOptions &options)
                     document.metadata.language = value;
                 } else if (local == QLatin1String("scope") && !value.isEmpty()) {
                     document.metadata.scope = value;
+                } else if (local == QLatin1String("rights") && !value.isEmpty()
+                           && document.metadata.rights.isEmpty()) {
+                    // First only. The header carries a second <work> for the
+                    // versification system, and its terms — if it ever grows
+                    // any — are not the terms of the text being loaded.
+                    document.metadata.rights = value;
                 }
                 metadataField.clear();
                 metadataText.clear();

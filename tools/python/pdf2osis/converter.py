@@ -1,16 +1,26 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
+from functools import partial
 import os
 from pathlib import Path
 import tempfile
 
 from .cochin import extract_cochin
-from .osis import build_structured_osis
+from .models import VerseDocument
+from .osis import build_multibook_osis, build_structured_osis
 from .profiles import BookProfile
+from .bsi_hnt import extract_bsi_nt
 from .ebr530 import extract_ebr530
 from .sloane import extract_sloane
-from .validate import validate_osis, validate_records, validate_sloane_records
+from .sword import extract_sword_nt
+from .validate import (
+    validate_multibook_records,
+    validate_osis,
+    validate_records,
+    validate_sloane_records,
+)
 
 
 class ConversionError(RuntimeError):
@@ -43,26 +53,20 @@ def convert_pdf(
     source = Path(input_path).resolve()
     destination = Path(output_dir).resolve()
     if not source.is_file():
-        raise ConversionError(f"Input PDF not found: {source}")
+        raise ConversionError(f"Input file not found: {source}")
     destination.mkdir(parents=True, exist_ok=True)
 
     document = None
     try:
         if book_profile.extractor == "sloane":
             document = extract_sloane(source, book_profile)
-            records = document.records
-            definitions = document.notes
-            anomalies = document.anomalies
         elif book_profile.extractor == "ebr530":
             document = extract_ebr530(source, book_profile)
-            records = document.records
-            definitions = document.notes
-            anomalies = document.anomalies
         else:
             document = extract_cochin(source, book_profile)
-            records = document.records
-            definitions = document.notes
-            anomalies = document.anomalies
+        records = document.records
+        definitions = document.notes
+        anomalies = document.anomalies
     except (ValueError, KeyError) as exc:
         raise ConversionError(str(exc)) from exc
     errors = (
@@ -145,3 +149,114 @@ def convert_pdf(
         reference_comparison=None,
         anomalies=tuple(anomalies),
     )
+
+
+def _convert_multibook(
+    input_path: str | Path,
+    book_profile: BookProfile,
+    output_dir: str | Path,
+    *,
+    extract: Callable[[Path, BookProfile], dict[str, VerseDocument]],
+) -> ConversionReport:
+    """Convert a whole-Testament source to one multi-book OSIS file.
+
+    Parallel to `convert_pdf` rather than a branch inside it: a whole-Testament
+    source is a dict of per-book documents, not the single document every PDF
+    extractor returns, so building on the same document shape would mean
+    threading that distinction through validation and reporting too. Shared by
+    `convert_sword_nt` and `convert_bsi_nt`, which differ only in how the
+    source file becomes that dict.
+    """
+    source = Path(input_path).resolve()
+    destination = Path(output_dir).resolve()
+    if not source.is_file():
+        raise ConversionError(f"Input file not found: {source}")
+    destination.mkdir(parents=True, exist_ok=True)
+
+    try:
+        books = extract(source, book_profile)
+    except (ValueError, KeyError) as exc:
+        raise ConversionError(str(exc)) from exc
+    errors = validate_multibook_records(books, book_profile)
+    if errors:
+        raise ConversionError("Record validation failed:\n- " + "\n- ".join(errors))
+
+    expected_ids = [
+        f"{osis_book}.{record.chapter}.{record.verse}"
+        for osis_book, document in books.items()
+        for record in document.records
+    ]
+    payloads: dict[str, bytes] = {}
+    emitted_notes: dict[str, int] = {}
+    for variant in book_profile.output_names():
+        payload = build_multibook_osis(books, book_profile, variant)
+        try:
+            validation = validate_osis(
+                payload,
+                book_profile,
+                expected_ids,
+                expected_books=list(book_profile.expected_book_order),
+            )
+        except (ValueError, TypeError) as exc:
+            raise ConversionError(
+                f"{variant} OSIS validation failed: {exc}"
+            ) from exc
+        payloads[variant] = payload
+        emitted_notes[variant] = validation.notes
+
+    output_paths = {
+        variant: destination / filename
+        for variant, filename in book_profile.output_names().items()
+    }
+    temporary_paths: dict[str, Path] = {}
+    try:
+        for variant, payload in payloads.items():
+            handle, temporary_name = tempfile.mkstemp(
+                prefix=f".{output_paths[variant].name}.",
+                suffix=".tmp",
+                dir=destination,
+            )
+            temporary = Path(temporary_name)
+            temporary_paths[variant] = temporary
+            with os.fdopen(handle, "wb") as stream:
+                stream.write(payload)
+                stream.flush()
+                os.fsync(stream.fileno())
+        for variant, temporary in temporary_paths.items():
+            os.replace(temporary, output_paths[variant])
+    finally:
+        for temporary in temporary_paths.values():
+            if temporary.exists():
+                temporary.unlink()
+
+    all_records = [
+        record for document in books.values() for record in document.records
+    ]
+    return ConversionReport(
+        book=book_profile.key,
+        input_path=source,
+        output_paths=output_paths,
+        verses=len(all_records),
+        chapters=sum(
+            len({record.chapter for record in document.records})
+            for document in books.values()
+        ),
+        empty_verses=tuple(
+            f"{osis_book} {record.label}"
+            for osis_book, document in books.items()
+            for record in document.records
+            if record.empty
+        ),
+        alternate_verses=0,
+        note_definitions=0,
+        emitted_notes=emitted_notes,
+        transcription_interlinear_disagreements=0,
+        excluded_markers=(),
+        contamination_failures=(),
+        reference_comparison=None,
+        anomalies=(),
+    )
+
+
+convert_sword_nt = partial(_convert_multibook, extract=extract_sword_nt)
+convert_bsi_nt = partial(_convert_multibook, extract=extract_bsi_nt)
