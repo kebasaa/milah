@@ -40,13 +40,22 @@ ManuscriptImageView::ManuscriptImageView(QWidget *parent)
     setFocusPolicy(Qt::NoFocus);
 }
 
-void ManuscriptImageView::setImageData(const QByteArray &bytes, const QString &name)
+void ManuscriptImageView::setImageData(
+    const QByteArray &bytes,
+    const QString &name,
+    const QString &unavailable)
 {
     m_name = name;
     m_failure.clear();
     m_loupeVisible = false;
 
     if (bytes.isEmpty()) {
+        // A folio that was meant to be here and is not says so. Empty is
+        // otherwise indistinguishable from no document, and paintEvent's
+        // no-document text — "File ▸ Open Image starts a transcription" — is
+        // exactly the wrong thing to read while sitting on folio 12r of an open
+        // manuscript.
+        m_failure = unavailable;
         m_image = QImage();
         setMinimumHeight(0);
         updateGeometry();

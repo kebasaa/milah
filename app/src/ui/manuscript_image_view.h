@@ -26,7 +26,16 @@ public:
     /// Shows the decoded bytes of a folio. Empty bytes clear the view; bytes
     /// nothing installed can decode leave a notice rather than a blank page,
     /// because a scan that silently fails to appear reads as a broken program.
-    void setImageData(const QByteArray &bytes, const QString &name);
+    ///
+    /// `unavailable` says why there are no bytes, for a folio that was meant to
+    /// arrive and did not. Without it this view cannot tell a scan whose folio
+    /// failed to fetch from no document at all — they are both an empty
+    /// QByteArray — and it used to answer a library's 404 by inviting the
+    /// transcriber to open the file they already had open.
+    void setImageData(
+        const QByteArray &bytes,
+        const QString &name,
+        const QString &unavailable = QString());
     void clear();
 
     bool hasImage() const { return !m_image.isNull(); }
