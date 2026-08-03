@@ -21,6 +21,9 @@ The build stages these files next to the binaries, and
 interlinear row goes blank, the spelling check switches off rather than
 flagging every word, and the status bar says which directories were searched.
 
+The generators below live in a sibling repository, `hebrew_manuscripts`,
+checked out beside this one (`../hebrew_manuscripts` relative to this repo's
+root) — the commands assume that layout and are run from this repo's root.
 
 ## hebrew_lexicon.json
 
@@ -28,7 +31,7 @@ The Strong's numbers shown under the Combined row, and the word list the
 spelling checks consult. Generated — do not edit by hand:
 
 ```bash
-python tools/python/tools/build_lexicon.py \
+python ../hebrew_manuscripts/tools/python/tools/build_lexicon.py \
     --strongs <downloads>/strongs-hebrew-dictionary.js \
     --wlc     <downloads>/wlc \
     --tbesh   <downloads>/tbesh.txt \
@@ -75,7 +78,9 @@ hand, and note it reads the **already-built lexicon** rather than any download,
 so it runs in under a second:
 
 ```bash
-python tools/python/tools/build_roots.py
+python ../hebrew_manuscripts/tools/python/tools/build_roots.py \
+    --lexicon app/data/hebrew_lexicon.json \
+    --output  app/data/hebrew_roots.json
 ```
 
 Kept out of `hebrew_lexicon.json` for two reasons: that file is six megabytes on
@@ -180,7 +185,7 @@ Generated — but plain text, so words may be **appended by hand**; blank lines
 and `#` comments are ignored:
 
 ```bash
-python tools/python/tools/build_wordlist.py --out app/data/rabbinic.words.txt
+python ../hebrew_manuscripts/tools/python/tools/build_wordlist.py --out app/data/rabbinic.words.txt
 ```
 
 Any file named `*.words.txt` in a data directory is read and merged, so your

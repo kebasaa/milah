@@ -12,10 +12,6 @@ window holds two tabs that share little beyond the window itself:
 Everything runs locally. The only part of Milah that reaches the network is
 the manuscript download dialog, and only when you press Download.
 
-The repository also holds a PDF-to-OSIS converter under
-[`tools/`](tools/README.md). Milah reads that corpus but does not depend on the
-converter, and neither needs the other to be built.
-
 This file is the manual: what every menu, field and shortcut does, in the
 order you use them. If something in the running application does not match
 what is written here, the application is right and this file has drifted —
@@ -54,8 +50,7 @@ translations** (**Ctrl+T**) does the same for a modern-language translation to
 align against a manuscript. **File ▸ Download manuscripts…** fetches
 manuscripts published online into the library, so they need no separate file
 to keep track of. Either dialog can also Browse for a file directly, which is
-how the [`tools/data/01_osis`](tools/README.md) corpus, or any other OSIS
-file, gets opened.
+how any other OSIS file gets opened.
 
 **File ▸ Open project** (**Ctrl+O**) and **File ▸ Save project** (**Ctrl+S**)
 load and write a `.milah` project — see [Project format](#project-format) —
@@ -294,8 +289,8 @@ Downloaded manuscripts live in a library, so opening one does not mean
 remembering where on disk it sits. Milah looks in `$MILAH_MANUSCRIPT_DIR`, then
 a folder under the application data directory, then a `manuscripts` folder
 beside the executable — which lets a portable copy ship texts that need no
-download at all. Browsing for a file still works, and is how the
-[`tools/data/01_osis`](tools/README.md) corpus is opened.
+download at all. Browsing for a file still works too, for any OSIS file kept
+elsewhere.
 
 Words you accept can carry your own definitions, which the marker shows as
 `·D` and which travel with you across projects rather than living in one.
@@ -342,7 +337,7 @@ Launch `milah-portable\Milah.exe`. OSIS files can also be named on the command
 line, which is the quickest way to a populated window:
 
 ```powershell
-.\milah-portable\Milah.exe tools\data\01_osis\John_Ebr530_hebrew.osis -t tools\data\01_osis\John_Ebr530_translation.osis
+.\milah-portable\Milah.exe path\to\manuscript.osis -t path\to\translation.osis
 ```
 
 Do not run `Milah.exe` from the build folder unless the Qt runtime DLLs are on
@@ -365,9 +360,9 @@ spelling suggestions, the grapheme diff, acronyms and the `.milah` round trip.
 
 The comparison logic lives in `app/src/core/` and is built as a `MilahCore`
 static library, so the tests exercise it without a display. `apparatus_test`
-and `alignment_test` additionally read `tools/data/01_osis/`, checking the
-editor against the converter's real output, and skip that part when the corpus
-is not beside the build.
+and `alignment_test` additionally read a `tools/data/01_osis/` corpus if one
+happens to be beside the build, checking the editor against real generated
+OSIS files, and skip that part when it is not there.
 
 Sample OSIS documents live in `app/tests/test_data.cpp` rather than beside the
 tests: moc mis-parses raw string literals, and a test file containing one is
@@ -392,9 +387,6 @@ lexicon, the root index, the abbreviation table, the phrase rules and the
 rabbinic word list. What each holds, where it came from and under what licence
 is in [`app/data/README.md`](app/data/README.md) — which carries the
 attribution CC-BY requires, and which travels with every build.
-
-The generators that produce them are Python and live under
-[`tools/python/tools/`](tools/README.md).
 
 ## Licence
 
