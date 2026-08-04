@@ -267,8 +267,8 @@ private slots:
     {
         // comparisonKey is the join key for the shipped lexicon indexes, the
         // rabbinic word list and the phrase rules, and it is mirrored in
-        // tools/python/tools/build_lexicon.py. Anyone tempted to fold there instead
-        // trips here rather than in production.
+        // hebrew_manuscripts/tools/python/tools/build_lexicon.py. Anyone tempted
+        // to fold there instead trips here rather than in production.
         QCOMPARE(
             comparisonKey(QString::fromUtf8("מלאך")), QString::fromUtf8("מלאך"));
         QCOMPARE(comparisonKey(QString::fromUtf8("בן")), QString::fromUtf8("בן"));

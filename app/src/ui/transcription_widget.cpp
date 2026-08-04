@@ -88,8 +88,13 @@ void TranscriptionWidget::showCurrentPage()
     if (page->imageEntry == m_shownEntry) {
         return;
     }
-    m_shownEntry = page->imageEntry;
-    m_image->setImageData(m_controller->currentImageBytes(), page->imageName);
+    const QByteArray bytes = m_controller->currentImageBytes();
+    m_image->setImageData(bytes, page->imageName, m_controller->imageFailure());
+    // Remembered only once something was actually shown. A folio that failed to
+    // arrive has nothing to decode and nothing to scroll, so the guard above
+    // buys nothing for it — and recording it as shown would keep the notice on
+    // screen after a later attempt succeeded.
+    m_shownEntry = bytes.isEmpty() ? QString() : page->imageEntry;
     // A new folio starts at the top of itself, not wherever the last one was
     // being read.
     m_imageArea->verticalScrollBar()->setValue(0);

@@ -29,8 +29,8 @@ int lastLetterIndex(const QString &word);
 /// Deliberately NOT `comparisonKey()` itself. That one is the join key for the
 /// shipped lexicon indexes, rabbinic.words.txt, the phrase rules and the user
 /// dictionary, and it is mirrored character-for-character in
-/// tools/python/tools/build_lexicon.py; folding there would silently miss every
-/// lookup. Nothing may use this as an index key.
+/// hebrew_manuscripts/tools/python/tools/build_lexicon.py; folding there would
+/// silently miss every lookup. Nothing may use this as an index key.
 ///
 /// Folding matters because a scribe writes the same word differently depending
 /// on where it falls: Cochin's מלאך and Sloane's הַמַּלְאָכוֹ differ in their kaf

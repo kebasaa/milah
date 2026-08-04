@@ -45,6 +45,10 @@ public:
     int currentPageIndex() const { return m_currentPage; }
     /// The image itself, decoded. Empty when no folio is open.
     QByteArray currentImageBytes() const;
+    /// Why the folio on screen has no picture, empty when it has one. What the
+    /// image pane shows in place of the picture, so that a library being down
+    /// reads as a library being down rather than as an empty window.
+    QString imageFailure() const { return m_imageFailure; }
 
     /// Where the previous and next arrows would go, empty at the ends of the
     /// folder. Named so the arrows can say in a tooltip which folio they mean.
@@ -235,7 +239,13 @@ private:
     /// Synchronous: a folio is one picture and the transcriber is waiting for
     /// it, and everything else in this class assumes the page it is on is the
     /// page on screen.
-    void ensureImageFetched();
+    ///
+    /// False when the folio could not be had — and then the caller must leave
+    /// the message alone. Every caller used to announce its own success
+    /// immediately afterwards, in the same block, with no repaint in between,
+    /// so "Could not fetch 12r: …" was written and overwritten before anyone
+    /// could read it. Nothing to fetch is not a failure and answers true.
+    bool ensureImageFetched();
     /// Lets go of a folio's image on the way off it, unless it was worked on.
     ///
     /// This is what keeps a transcription of six folios out of a codex from
@@ -284,6 +294,12 @@ private:
     /// with nothing typed asks for nothing and writes nothing.
     QString m_filePath;
     bool m_dirty = false;
+
+    /// Why the current folio has no image. Set by ensureImageFetched and read
+    /// by the window, because a status message does not survive the next thing
+    /// that happens and this has to still be there when the transcriber looks
+    /// up from the page.
+    QString m_imageFailure;
 
     /// Made only when a folio has to be fetched, so a session that never opens
     /// a scan never builds one.

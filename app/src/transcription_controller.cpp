@@ -491,11 +491,12 @@ void TranscriptionController::goToPage(int index)
 
     m_currentPage = index;
     ensureTypingRoom();
-    ensureImageFetched();
 
-    const TranscribedPage &page = m_document.pages.at(m_currentPage);
-    setMessage(QStringLiteral("Transcribing %1.")
-                   .arg(page.imageLabel.isEmpty() ? page.imageName : page.imageLabel));
+    if (ensureImageFetched()) {
+        const TranscribedPage &page = m_document.pages.at(m_currentPage);
+        setMessage(QStringLiteral("Transcribing %1.")
+                       .arg(page.imageLabel.isEmpty() ? page.imageName : page.imageLabel));
+    }
     emit pageChanged();
     emit versesChanged();
 }
@@ -540,11 +541,14 @@ QByteArray TranscriptionController::releaseImageIfUnread(int pageIndex)
     return m_images.take(page.imageEntry);
 }
 
-void TranscriptionController::ensureImageFetched()
+bool TranscriptionController::ensureImageFetched()
 {
+    m_imageFailure.clear();
+
     TranscribedPage *page = mutablePage();
     if (!page || page->imageUrl.isEmpty() || m_images.contains(page->imageEntry)) {
-        return;
+        // Nothing to fetch, or it is already held. Neither is a failure.
+        return true;
     }
 
     if (!m_network) {
@@ -574,18 +578,22 @@ void TranscriptionController::ensureImageFetched()
     reply->deleteLater();
 
     if (reply->error() != QNetworkReply::NoError) {
+        m_imageFailure = QStringLiteral("%1 could not be fetched.\n%2")
+                             .arg(folio, reply->errorString());
         setMessage(QStringLiteral("Could not fetch %1: %2")
                        .arg(folio, reply->errorString()));
-        return;
+        return false;
     }
 
     const QByteArray bytes = reply->read(ScanImageLimit);
     if (bytes.isEmpty()) {
-        setMessage(QStringLiteral("%1 arrived empty.").arg(folio));
-        return;
+        m_imageFailure = QStringLiteral("%1 arrived empty.").arg(folio);
+        setMessage(m_imageFailure);
+        return false;
     }
     m_images.insert(page->imageEntry, bytes);
     setMessage(QStringLiteral("Transcribing %1.").arg(folio));
+    return true;
 }
 
 void TranscriptionController::openOnlineScan()
@@ -644,7 +652,7 @@ void TranscriptionController::openOnlineScan()
 
     m_currentPage = m_document.pages.isEmpty() ? -1 : 0;
     ensureTypingRoom();
-    ensureImageFetched();
+    const bool fetched = ensureImageFetched();
 
     // Cleared rather than simply left alone. A scan just opened is one nobody
     // has read anything off yet — but confirmDiscard() returns true on Discard
@@ -652,10 +660,15 @@ void TranscriptionController::openOnlineScan()
     // replaced wholesale just above, so its mark would otherwise follow the new
     // scan in and offer to save a manuscript nobody has touched.
     setDirty(false);
-    setMessage(QStringLiteral("%1 — %2 folios. %3")
-                   .arg(scan.displayTitle())
-                   .arg(scan.pages.size())
-                   .arg(scan.attribution));
+    // Only when there is something to celebrate. A scan whose first folio did
+    // not arrive says so instead: the credit line will still be there once the
+    // transcriber has a picture to credit.
+    if (fetched) {
+        setMessage(QStringLiteral("%1 — %2 folios. %3")
+                       .arg(scan.displayTitle())
+                       .arg(scan.pages.size())
+                       .arg(scan.attribution));
+    }
     emit documentChanged();
     emit pageChanged();
     emit versesChanged();
@@ -758,7 +771,7 @@ void TranscriptionController::openTranscription()
     // A folio of a scan that was never worked on was not saved with the file,
     // so it is fetched again — which is the bargain that keeps a transcription
     // of six folios from weighing what a codex weighs.
-    ensureImageFetched();
+    const bool fetched = ensureImageFetched();
     m_undoStack.clear();
     m_redoStack.clear();
     m_selectedVerse = -1;
@@ -778,7 +791,12 @@ void TranscriptionController::openTranscription()
     QSettings().setValue(
         QStringLiteral("paths/lastDirectory"), QFileInfo(path).absolutePath());
     setDirty(false);
-    setMessage(QStringLiteral("Opened %1.").arg(QFileInfo(path).fileName()));
+    // The file did open, whatever became of the folio — but "Opened …" over the
+    // top of "could not be fetched" would be the one of the two the transcriber
+    // cannot act on.
+    if (fetched) {
+        setMessage(QStringLiteral("Opened %1.").arg(QFileInfo(path).fileName()));
+    }
     emit documentChanged();
     emit pageChanged();
     emit versesChanged();
