@@ -1,7 +1,12 @@
+![C++](https://img.shields.io/badge/c++-%2300599C.svg?style=for-the-badge&logo=c%2B%2B&logoColor=white)
+![Qt](https://img.shields.io/badge/Qt-%23217346.svg?style=for-the-badge&logo=Qt&logoColor=white)
+
+[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
+
 # Milah
 
-Milah is an offline desktop editor for Hebrew New Testament manuscripts. One
-window holds two tabs that share little beyond the window itself:
+Milah is an offline desktop editor for Hebrew manuscripts. One window holds two
+tabs that share little beyond the window itself:
 
 - **Textual criticism** — load OSIS witnesses, align their readings word for
   word, and build a reviewable Combined edition with Strong's numbers and an
@@ -10,14 +15,12 @@ window holds two tabs that share little beyond the window itself:
   it, and type out what it says, with glosses suggested as you go.
 
 Everything runs locally. The only part of Milah that reaches the network is
-the manuscript download dialog, and only when you press Download.
+the manuscript download dialog and the dialog that pulls in manuscript scans
+from online sources, and only when you press Download.
 
-This file is the manual: what every menu, field and shortcut does, in the
-order you use them. If something in the running application does not match
-what is written here, the application is right and this file has drifted —
-say so.
+## Manual
 
-## Getting started
+### Getting started
 
 1. Launch `milah-portable\Milah.exe`.
 2. Press **Ctrl+M** and load two or more manuscripts of the same passage —
@@ -31,7 +34,7 @@ The rest of this file covers both tabs in full before returning to exporting,
 since the exports differ by tab and are easier to read once you know what
 produced them.
 
-## The two tabs
+### The two tabs
 
 The menu bar's top-right corner carries a small tab strip: **Textual
 criticism** (**Ctrl+1**) and **Transcription** (**Ctrl+2**). Switching tabs
@@ -40,9 +43,9 @@ tab remembers whether you had closed its dock. The two tabs do not share
 unsaved work: leaving one with something unsaved asks before it is discarded,
 independently of the other.
 
-## Textual criticism
+### Textual criticism
 
-### Loading manuscripts and translations
+#### Loading manuscripts and translations
 
 **File ▸ Load manuscripts** (**Ctrl+M**) opens your manuscript library — see
 [The library](#the-library-and-your-dictionary) below. **File ▸ Load
@@ -58,7 +61,7 @@ which remembers every manuscript, translation, edit and note together.
 **File ▸ Close project** (**Ctrl+W**) clears the window, asking first if
 anything would be lost.
 
-### Book and chapter
+#### Book and chapter
 
 The toolbar's **Book** and **Chapter** combos list every book and chapter any
 loaded manuscript reaches — not just the ones every witness shares. An entry
@@ -67,7 +70,7 @@ least one does not; hovering an italic chapter names which manuscripts are
 missing it. The **←** and **→** toolbar buttons (**Alt+←** / **Alt+→**) step
 through chapters one at a time.
 
-### The reference
+#### The reference
 
 A verse is compared by marking every witness's differences against one of
 them, its *reference*. Milah answers this two ways at once:
@@ -84,7 +87,7 @@ them, its *reference*. Milah answers this two ways at once:
 A witness silent for a verse is never used as its reference, so a verse only
 one manuscript covers still produces an edition rather than a blank row.
 
-### Reading a verse
+#### Reading a verse
 
 Each verse is a card with one row per loaded manuscript, a row for its
 acronym, and the **Combined** row beneath them. Corresponding words share a
@@ -94,7 +97,7 @@ Toggling **Strong's** on the toolbar adds a row of Strong's numbers under
 Combined; when a translation is loaded and aligned, an **Interlinear** row
 appears beneath that.
 
-### Editing the Combined row
+#### Editing the Combined row
 
 Right-clicking a Combined word opens a menu built from what that word allows:
 
@@ -114,7 +117,7 @@ previous word** and **Merge with next word** (**Ctrl+Shift+S** for Split)
 while the caret is in a Combined word, and **Edit ▸ Define word in my
 dictionary**.
 
-### The Strong's row
+#### The Strong's row
 
 Each word under Combined is marked once Strong's is switched on:
 
@@ -126,7 +129,7 @@ Each word under Combined is marked once Strong's is switched on:
 | `—` | Nothing in the shipped data knows this word. |
 | `·D` | You have defined this word yourself, in your dictionary. |
 
-### Translations and the Interlinear row
+#### Translations and the Interlinear row
 
 Loading a translation (**Ctrl+T**) aligns it word-by-word against a
 manuscript, filling the Interlinear row under the Combined words that
@@ -144,7 +147,7 @@ words onto one Hebrew word with a dash (*to be* becomes `to-be`). Parentheses
 and other punctuation stay attached to the word they surround rather than
 becoming words of their own.
 
-### Notes
+#### Notes
 
 Right-click **Add/edit note** on a Combined word, or select it and use the
 Notes panel under Review filters, to write your own remark. A manuscript's own
@@ -152,14 +155,14 @@ notes and comments — carried over from its OSIS source — appear in the same
 panel, grouped by witness, whenever a word that has one is selected; such
 words are marked with a small red `*` in their table cell so you know to look.
 
-### Review filters
+#### Review filters
 
 The right-hand dock's **Review filters** group narrows which words are
 highlighted for a second look: **Consensus ties** (the witnesses split with no
 majority), **Manually edited**, **Missing readings** and **Uncertain
 translation**.
 
-### Regenerate
+#### Regenerate
 
 **Regenerate** (toolbar, or **F5**) rebuilds the Combined row for the current
 chapter from the loaded manuscripts and the current reference, discarding
@@ -168,7 +171,7 @@ what would be lost — manual edits, notes, or interlinear wording you typed —
 and only when there is something to lose; a chapter regenerated with nothing
 on it yet opens with no warning at all.
 
-### Menus and toolbar at a glance
+#### Menus and toolbar at a glance
 
 **File:** Open project, Save project, Close project │ Download manuscripts…,
 Load manuscripts, Load translations │ Export Combined │ Save my dictionary
@@ -178,9 +181,9 @@ word │ Define word in my dictionary.
 **Toolbar:** Book, Chapter, ← →, Reference, Strong's, Regenerate.
 **Right-hand dock:** Loaded manuscripts, Translations, Review filters, Notes.
 
-## Transcription
+### Transcription
 
-### Opening a folio
+#### Opening a folio
 
 **File ▸ Open Image** opens a photograph of a folio; **←** and **→** on the
 transcription toolbar (**Alt+←** / **Alt+→**) step to the neighbouring images
@@ -191,13 +194,13 @@ first save asks where; every one after that does not. **File ▸ Close
 Transcription Project** (**Ctrl+W**) clears the window, asking first if
 anything is unsaved.
 
-### The loupe
+#### The loupe
 
 Toggling **Magnify** on the toolbar moves a magnifier with the pointer over
 the folio; the mouse wheel changes how much it enlarges. It is off by default,
 so it is not in the way of reading a page whole.
 
-### Book and chapter
+#### Book and chapter
 
 Type the book's name into the **Book** field — a dropdown completer suggests
 canonical names as you type, and filling it in with a canonical name also
@@ -208,7 +211,7 @@ can say what it should be called. **Chapter** sets which chapter the folio
 opens in; where a chapter begins partway down the page, right-click that
 verse's own number instead — see below.
 
-### Typing the text
+#### Typing the text
 
 The word grid below the folio has one editable row for the Hebrew and one for
 its English gloss, laid out in the same aligned bands the textual-criticism
@@ -227,25 +230,25 @@ from that verse on becomes the next chapter — and **Delete this verse**.
 **Edit ▸ Move verse to new chapter** repeats the first for whichever verse has
 the caret.
 
-### The metadata dock
+#### The metadata dock
 
 The right-hand dock records what the folio is, as against what it says, all
 optional: **Manuscript**, **Transcriber**, **Origin**, **Library**,
 **Shelfmark**, **Date**, **Language**, **Notes**, then **Save details**.
 
-### Exporting
+#### Exporting
 
 **File ▸ Export to OSIS** (**Ctrl+E**) writes the transcription out — see
 [Exports](#exports) below.
 
-### Menus and toolbar at a glance
+#### Menus and toolbar at a glance
 
 **File:** Open Image, Open Transcription Project, Save Transcription project │
 Export to OSIS, Close Transcription Project │ Quit.
 **Edit:** Undo, Redo │ Move verse to new chapter │ Define word in my dictionary.
 **Toolbar:** Book, " as " acronym, Chapter, ← →, Magnify.
 
-## Exports
+### Exports
 
 **Textual criticism — File ▸ Export Combined** (**Ctrl+E**) asks for one file
 path and writes from it:
@@ -262,7 +265,7 @@ The status bar names exactly which files were written.
 text as a single OSIS file, addressed by the book id and chapter the toolbar
 holds.
 
-## Keyboard shortcuts
+### Keyboard shortcuts
 
 | Shortcut | Textual criticism | Transcription |
 |---|---|---|
@@ -283,7 +286,7 @@ holds.
 Ctrl+S, Ctrl+W and Ctrl+E carry different actions in each tab on purpose — at
 most one of the pair is ever enabled, so the shortcut is never ambiguous.
 
-## The library and your dictionary
+### The library and your dictionary
 
 Downloaded manuscripts live in a library, so opening one does not mean
 remembering where on disk it sits. Milah looks in `$MILAH_MANUSCRIPT_DIR`, then
@@ -297,7 +300,7 @@ Words you accept can carry your own definitions, which the marker shows as
 **File ▸ Save my dictionary as…** and **Load a dictionary…** back it up and
 restore it.
 
-## Requirements
+### Requirements
 
 - Windows 10 or 11.
 - Qt 6.6 or newer with Core, Gui, Widgets and Network, built for MinGW.
@@ -307,7 +310,7 @@ restore it.
 ZLIB and QuaZip are built automatically by the build script; nothing else is
 needed.
 
-## Build
+### Build
 
 From the repository root:
 
@@ -338,7 +341,7 @@ cmake -S app -B build/milah -G Ninja -DCMAKE_PREFIX_PATH="<qt-kit>;<quazip>;<zli
 cmake --build build/milah
 ```
 
-## Running
+### Running
 
 Launch `milah-portable\Milah.exe`. OSIS files can also be named on the command
 line, which is the quickest way to a populated window:
@@ -354,7 +357,7 @@ Do not run `Milah.exe` from the build folder unless the Qt runtime DLLs are on
 — the interlinear marker row goes blank and the spelling checks stand down. The
 status bar says which directories were searched when that happens.
 
-## Tests
+### Tests
 
 ```powershell
 .\build_milah_windows.ps1 -Tests
@@ -366,22 +369,23 @@ transcription, the manuscript catalogue, word markers, the lexicon, the
 spelling suggestions, the grapheme diff, acronyms and the `.milah` round trip.
 
 The comparison logic lives in `app/src/core/` and is built as a `MilahCore`
-static library, so the tests exercise it without a display. `apparatus_test`
-and `alignment_test` additionally read a `tools/data/01_osis/` corpus if one
-happens to be beside the build, checking the editor against real generated
-OSIS files, and skip that part when it is not there.
+static library, so the tests exercise it without a display.
 
 Sample OSIS documents live in `app/tests/test_data.cpp` rather than beside the
 tests: moc mis-parses raw string literals, and a test file containing one is
 silently reported as having no relevant classes.
 
-## Project format
+### Project format
 
 A `.milah` file is a versioned ZIP archive holding `manifest.json`, the source
 OSIS files, the Combined state, the per-chapter and per-verse references,
 divided words, notes, interlinear wording, translation associations and
 alignment corrections, and a current Combined OSIS snapshot. Paths inside
 archives are validated before reading or writing.
+
+A `.trscrpt` file is a ZIP archive holding images of scanned manuscripts, 
+and the typed transcription, comments and metadata fields. These can be loaded
+and saved between sessions until the user is ready to export to OSIS.
 
 Source manuscript and translation text is immutable. Only the Combined text,
 the interlinear, your notes and the alignment metadata can be changed.
