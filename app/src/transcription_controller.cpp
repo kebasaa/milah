@@ -5,6 +5,7 @@
 #include "core/lexicon.h"
 #include "core/manuscript_catalogue.h"
 #include "core/project.h"
+#include "core/recent_files.h"
 #include "core/serialize.h"
 #include "core/suggestions.h"
 #include "project_storage.h"
@@ -694,6 +695,9 @@ bool TranscriptionController::writeTo(const QString &path)
     m_filePath = path;
     QSettings().setValue(
         QStringLiteral("paths/lastDirectory"), QFileInfo(path).absolutePath());
+    // The one place a transcription is written, so the one place its whereabouts
+    // has to be recorded.
+    rememberRecentFile(QLatin1String(RecentTranscriptionsKey), path);
     setDirty(false);
     setMessage(QStringLiteral("Saved %1.").arg(QFileInfo(path).fileName()));
     emit documentChanged();
@@ -746,12 +750,29 @@ void TranscriptionController::openTranscription()
         return;
     }
 
+    loadTranscriptionFrom(path);
+}
+
+void TranscriptionController::openRecentTranscription(const QString &path)
+{
+    if (!confirmDiscard()) {
+        return;
+    }
+    if (!loadTranscriptionFrom(path)) {
+        // It was offered and it did not open. Leaving it on the menu would be
+        // offering it again.
+        forgetRecentFile(QLatin1String(RecentTranscriptionsKey), path);
+    }
+}
+
+bool TranscriptionController::loadTranscriptionFrom(const QString &path)
+{
     QString error;
     const QJsonObject read =
         ProjectStorage::loadFromPath(path, &error, ProjectStorage::ImageEntryLimit);
     if (read.isEmpty()) {
         QMessageBox::warning(m_dialogParent, QStringLiteral("Milah"), error);
-        return;
+        return false;
     }
 
     const MilahProjectPayload payload = payloadFromJson(read);
@@ -760,7 +781,7 @@ void TranscriptionController::openTranscription()
         document = restoreTranscription(payload);
     } catch (const ProjectError &failure) {
         QMessageBox::warning(m_dialogParent, QStringLiteral("Milah"), failure.message());
-        return;
+        return false;
     }
 
     m_document = document;
@@ -790,6 +811,7 @@ void TranscriptionController::openTranscription()
 
     QSettings().setValue(
         QStringLiteral("paths/lastDirectory"), QFileInfo(path).absolutePath());
+    rememberRecentFile(QLatin1String(RecentTranscriptionsKey), path);
     setDirty(false);
     // The file did open, whatever became of the folio — but "Opened …" over the
     // top of "could not be fetched" would be the one of the two the transcriber
@@ -802,6 +824,7 @@ void TranscriptionController::openTranscription()
     emit versesChanged();
     emit selectionChanged();
     emit historyChanged();
+    return true;
 }
 
 void TranscriptionController::closeTranscription()

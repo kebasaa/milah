@@ -156,6 +156,10 @@ public slots:
     /// Offers the published manuscripts for download into the local library.
     void downloadManuscripts();
     void openProject();
+    /// Opens a project the reader chose from the Open Recent menu rather than
+    /// from a dialog. Asks about unsaved work exactly as openProject does, and
+    /// takes the file back out of the recent list if it will not open.
+    void openRecentProject(const QString &path);
     /// Writes the project out. Returns true only when a file was actually
     /// written: the save dialog can be cancelled, and a caller about to throw
     /// the edition away has to be able to tell that apart from a save.
@@ -320,6 +324,14 @@ private:
     bool hasNotes(const QStringList &verseIds) const;
     /// Whether they have typed interlinear wording in any of them.
     bool hasInterlinearEdits(const QStringList &verseIds) const;
+
+    /// Reads a project out of `path` and makes it the edition on screen. False
+    /// when it could not be read, having said why.
+    ///
+    /// Does not ask about unsaved work: both public callers do that before they
+    /// get here, so the question is asked once, and asked before a file dialog
+    /// rather than after the reader has already chosen a file.
+    bool loadProjectFrom(const QString &path);
 
     /// The folder last used in a load/open dialog, remembered across runs via
     /// QSettings. Empty until the user opens something.
