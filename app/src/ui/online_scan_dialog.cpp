@@ -59,34 +59,34 @@ QString extentOf(const ScanEntry &entry)
     return QStringLiteral("%1 (%2)").arg(count, range);
 }
 
-/// What to head a manuscript's books with.
+/// Everything a row of the tree says about a scan beyond its name: where it was
+/// written, what of, whose it is and on what terms.
 ///
-/// The shelfmark, which is what a reader files a manuscript under and what the
-/// books beneath share. A bare IIIF manifest may state none, so there are two
-/// fallbacks: the repository at least says whose it is, and the title always
-/// says something.
-QString manuscriptHeading(const ScanEntry &entry)
+/// The terms are not decoration. The images stay on the library's own server
+/// under the library's own licence, and a transcriber is entitled to know what
+/// they are before opening anything.
+QString detailOf(const ScanEntry &entry)
 {
-    if (!entry.shelfmark.isEmpty()) {
-        return entry.shelfmark;
+    QStringList detail;
+    if (!entry.unavailable.isEmpty()) {
+        detail.append(entry.unavailable);
     }
-    if (!entry.repository.isEmpty()) {
-        return entry.repository;
+    if (!entry.origin.isEmpty()) {
+        detail.append(QStringLiteral("Written in %1.").arg(entry.origin));
     }
-    return entry.title;
-}
-
-/// What says two entries are of one manuscript.
-///
-/// The address they were read from, because that is the one thing a library
-/// gives every entry and gives the same for every part of one codex. The
-/// shelfmark would do where there is one, and there is not always one.
-QString manuscriptKey(const ScanEntry &entry)
-{
-    if (!entry.source.isEmpty()) {
-        return entry.source;
+    if (!entry.material.isEmpty()) {
+        detail.append(QStringLiteral("%1.").arg(entry.material));
     }
-    return manuscriptHeading(entry);
+    if (!entry.provenance.isEmpty()) {
+        detail.append(entry.provenance);
+    }
+    if (!entry.attribution.isEmpty()) {
+        detail.append(entry.attribution);
+    }
+    if (!entry.licence.isEmpty()) {
+        detail.append(entry.licence);
+    }
+    return detail.join(QStringLiteral("\n"));
 }
 
 QString manuscriptCount(int manuscripts)
@@ -339,77 +339,76 @@ void OnlineScanDialog::showCatalogue()
     // the twenty-eight here — and twenty-seven rows each reading "MS Oo.1.32" is
     // a list nobody can find Romans in.
     //
-    // Insertion order, not sorted: the manifest is written in the order a reader
-    // would want to be offered these, books in the order the codex binds them,
-    // and re-sorting here would scatter Philemon among the gospels alphabetically.
-    QHash<QString, QTreeWidgetItem *> manuscripts;
+    // The manuscripts are ordered by name and the books under them are not. A
+    // manifest is written in the order links were added to it, which is an
+    // accident of how it was made and no help to anybody looking for the
+    // Bodleian; the order a codex binds its books is not an accident, and
+    // alphabetising those would scatter Philemon among the gospels.
+    const QList<ScanManuscript> manuscripts = scanManuscripts(m_catalogue.entries());
+    bool digitisedSectionClosed = false;
 
-    for (const ScanEntry &entry : m_catalogue.entries()) {
-        const QString key = manuscriptKey(entry);
-        QTreeWidgetItem *manuscript = manuscripts.value(key);
-        if (!manuscript) {
-            manuscript = new QTreeWidgetItem(m_tree);
-            manuscript->setText(0, manuscriptHeading(entry));
-            // Whose it is and when it was written belong to the manuscript, not
-            // to each of its books, and printing them on every row would say the
-            // same thing twenty-six times.
-            manuscript->setText(1, entry.repository);
-            manuscript->setText(2, entry.date);
-            manuscript->setExpanded(true);
-            // A manuscript is not a thing to open; the books under it are. It
-            // carries no id, so updateOpenButton() would refuse it anyway — but
-            // leaving it selectable would let a reader highlight a row and find
-            // the Open button dead with nothing to say why.
-            manuscript->setFlags(manuscript->flags() & ~Qt::ItemIsSelectable);
-            manuscripts.insert(key, manuscript);
+    for (const ScanManuscript &manuscript : manuscripts) {
+        if (!manuscript.available && !digitisedSectionClosed) {
+            // The list is about to start at A again. Without something saying
+            // why, a reader scanning down the names reads that as the ordering
+            // being broken — the rows below are greyed, but grey is not what
+            // somebody looking for a shelfmark is reading.
+            auto *section = new QTreeWidgetItem(m_tree);
+            section->setText(0, QStringLiteral("Not yet digitised"));
+            section->setFirstColumnSpanned(true);
+            section->setDisabled(true);
+            section->setFlags(section->flags() & ~Qt::ItemIsSelectable);
+            digitisedSectionClosed = true;
         }
 
-        auto *row = new QTreeWidgetItem(manuscript);
-        // The title alone: the shelfmark is on the heading just above it, and
-        // displayTitle() would print it again on every book.
-        row->setText(0, entry.title);
-        row->setText(3, extentOf(entry));
-        row->setData(0, Qt::UserRole, entry.id);
+        auto *heading = new QTreeWidgetItem(m_tree);
+        heading->setText(0, manuscript.name);
+        // Whose it is and when it was written belong to the manuscript, not to
+        // each of its books, and printing them on every row would say the same
+        // thing twenty-six times.
+        heading->setText(1, manuscript.repository);
+        heading->setText(2, manuscript.date);
+        heading->setExpanded(true);
+        // A manuscript is not a thing to open; the books under it are. It
+        // carries no id, so updateOpenButton() would refuse it anyway — but
+        // leaving it selectable would let a reader highlight a row and find the
+        // Open button dead with nothing to say why.
+        heading->setFlags(heading->flags() & ~Qt::ItemIsSelectable);
 
-        if (!entry.unavailable.isEmpty()) {
-            // Shown, not hidden: a transcriber should be able to see that this
-            // manuscript exists without already knowing to look for it. But
-            // there is nothing behind it, so it is disabled the same way a
-            // manuscript heading is — no selection, and updateOpenButton()
-            // then never finds it chosen, which is what keeps the Open button
-            // dead without a second mechanism to keep in step with the first.
-            row->setDisabled(true);
-            row->setFlags(row->flags() & ~Qt::ItemIsSelectable);
-        }
-
-        // The terms are not decoration: the images stay on the library's own
-        // server under the library's own licence, and a transcriber is entitled
-        // to know what they are before opening anything.
-        QStringList detail;
-        if (!entry.unavailable.isEmpty()) {
-            detail.append(entry.unavailable);
-        }
-        if (!entry.origin.isEmpty()) {
-            detail.append(QStringLiteral("Written in %1.").arg(entry.origin));
-        }
-        if (!entry.material.isEmpty()) {
-            detail.append(QStringLiteral("%1.").arg(entry.material));
-        }
-        if (!entry.provenance.isEmpty()) {
-            detail.append(entry.provenance);
-        }
-        if (!entry.attribution.isEmpty()) {
-            detail.append(entry.attribution);
-        }
-        if (!entry.licence.isEmpty()) {
-            detail.append(entry.licence);
-        }
-        const QString tooltip = detail.join(QStringLiteral("\n"));
+        // Once, from the manuscript's own first entry. Set from inside the loop
+        // below it would end up describing whichever book happened to be listed
+        // last — which, now that a manuscript's unavailable parts sort to the
+        // bottom of it, would be a heading explaining why some other part of it
+        // is missing.
+        const QString heldTerms = detailOf(manuscript.entries.constFirst());
         for (int column = 0; column < m_tree->columnCount(); ++column) {
-            row->setToolTip(column, tooltip);
-            // The heading is the only place the manuscript's own details are
-            // shown, so it carries them too.
-            manuscript->setToolTip(column, tooltip);
+            heading->setToolTip(column, heldTerms);
+        }
+
+        for (const ScanEntry &entry : manuscript.entries) {
+            auto *row = new QTreeWidgetItem(heading);
+            // The title alone: the shelfmark is on the heading just above it,
+            // and displayTitle() would print it again on every book.
+            row->setText(0, entry.title);
+            row->setText(3, extentOf(entry));
+            row->setData(0, Qt::UserRole, entry.id);
+
+            if (!entry.unavailable.isEmpty()) {
+                // Shown, not hidden: a transcriber should be able to see that
+                // this manuscript exists without already knowing to look for
+                // it. But there is nothing behind it, so it is disabled the
+                // same way a manuscript heading is — no selection, and
+                // updateOpenButton() then never finds it chosen, which is what
+                // keeps the Open button dead without a second mechanism to keep
+                // in step with the first.
+                row->setDisabled(true);
+                row->setFlags(row->flags() & ~Qt::ItemIsSelectable);
+            }
+
+            const QString tooltip = detailOf(entry);
+            for (int column = 0; column < m_tree->columnCount(); ++column) {
+                row->setToolTip(column, tooltip);
+            }
         }
     }
 
@@ -430,7 +429,7 @@ void OnlineScanDialog::showCatalogue()
     report(QStringLiteral("%1, %2 to choose from. Opening one fetches folios as "
                           "you reach them; nothing is downloaded now.%3")
                .arg(
-                   manuscriptCount(manuscripts.size()),
+                   manuscriptCount(static_cast<int>(manuscripts.size())),
                    scanCount(m_catalogue.entries().size()),
                    unavailableNote(unavailable)));
     updateOpenButton();
