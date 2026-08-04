@@ -1398,7 +1398,8 @@ void TranscriptionController::insertVerse(int afterVerse, const QString &number)
     emit versesChanged();
 }
 
-void TranscriptionController::startVerse(int verse, int column, const QString &number)
+void TranscriptionController::startVerse(
+    int verse, int column, const QString &number, const QString &firstWord)
 {
     if (!isValid(verse, column)) {
         return;
@@ -1409,6 +1410,14 @@ void TranscriptionController::startVerse(int verse, int column, const QString &n
 
     TranscribedVerse opened;
     opened.number = number;
+    if (!firstWord.isEmpty()) {
+        // What stood after the number in the cell it was typed in. It opens the
+        // new verse, ahead of the words that followed on the line.
+        TranscribedWord carried;
+        carried.hebrew = firstWord;
+        carried.english = suggestedGloss(firstWord);
+        opened.words.append(carried);
+    }
     // Everything after the number goes with it. A number typed between spaces
     // is a boundary wherever it falls, and the words beyond it are the new
     // verse's — leaving them behind would put the back half of one verse under
@@ -1452,22 +1461,39 @@ void TranscriptionController::pasteAt(int verse, int column, const QString &text
     }
     words.remove(column, words.size() - column);
 
-    // The first of the pasted verses joins the one being typed in — text cut
-    // out of the middle of a chapter opens mid-verse and has no number to give.
-    for (const TranscribedWord &word : pasted.constFirst().words) {
-        TranscribedWord read = word;
-        read.english = suggestedGloss(read.hebrew);
-        words.append(read);
-    }
-    if (!pasted.constFirst().number.isEmpty()) {
-        // Unless it did open with one, and this verse had none of its own.
-        if (page->verses[verse].number.isEmpty()) {
-            page->verses[verse].number = pasted.constFirst().number;
+    // Whether the number the paste opens with, if it opens with one, can be
+    // this verse's own: only where the verse has none and nothing has been read
+    // off it. Anywhere else that number belongs to a verse of its own — which
+    // is what the same digits typed by hand would have opened, and what this
+    // used to drop on the floor instead.
+    const bool opensWithNumber = !pasted.constFirst().number.isEmpty();
+    bool adoptable = page->verses.at(verse).number.isEmpty();
+    if (adoptable) {
+        for (const TranscribedWord &word : page->verses.at(verse).words) {
+            if (!word.hebrew.isEmpty()) {
+                adoptable = false;
+                break;
+            }
         }
     }
 
+    // The first of the pasted verses joins the one being typed in — text cut
+    // out of the middle of a chapter opens mid-verse and has no number to give.
+    int firstToOpen = 0;
+    if (!opensWithNumber || adoptable) {
+        for (const TranscribedWord &word : pasted.constFirst().words) {
+            TranscribedWord read = word;
+            read.english = suggestedGloss(read.hebrew);
+            words.append(read);
+        }
+        if (opensWithNumber) {
+            page->verses[verse].number = pasted.constFirst().number;
+        }
+        firstToOpen = 1;
+    }
+
     int landedIn = verse;
-    for (int index = 1; index < pasted.size(); ++index) {
+    for (int index = firstToOpen; index < pasted.size(); ++index) {
         TranscribedVerse opened = pasted.at(index);
         for (TranscribedWord &word : opened.words) {
             word.english = suggestedGloss(word.hebrew);

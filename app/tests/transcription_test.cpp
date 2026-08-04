@@ -489,6 +489,53 @@ private slots:
         QVERIFY(!looksLikeVerseNumber(QString::fromUtf8("בְּרֵאשִׁית")));
     }
 
+    void zeroIsThePreambleAndNothingElseIs()
+    {
+        QVERIFY(isPreamble(QStringLiteral("0")));
+        // Written out longer, and divided the way any verse may be.
+        QVERIFY(isPreamble(QStringLiteral("00")));
+        QVERIFY(isPreamble(QStringLiteral("0a")));
+        QVERIFY(isPreamble(QStringLiteral(" 0 ")));
+
+        QVERIFY(!isPreamble(QStringLiteral("1")));
+        // The one that would go wrong if this looked for a zero anywhere in it.
+        QVERIFY(!isPreamble(QStringLiteral("10")));
+        QVERIFY(!isPreamble(QStringLiteral("100")));
+        QVERIFY(!isPreamble(QString()));
+        QVERIFY(!isPreamble(QStringLiteral("a")));
+    }
+
+    void aPreambleIsHeadedForWhatItIs()
+    {
+        TranscribedPage page = samplePage();
+        page.verses[0].number = QStringLiteral("0");
+        // Not "Gen 4:0", which says nothing to a transcriber who has not been
+        // told the convention.
+        QCOMPARE(verseHeading(page, 0), QStringLiteral("Gen 4 preamble"));
+
+        page.book.clear();
+        QCOMPARE(verseHeading(page, 0), QStringLiteral("4 preamble"));
+    }
+
+    void aPreambleStillHasAnIdInside()
+    {
+        // It is written out as a div rather than a verse, but everything inside
+        // Milah keys it by an id all the same: its notes hang off this, and the
+        // export sorts by it.
+        TranscribedPage page = samplePage();
+        page.verses[0].number = QStringLiteral("0");
+        QCOMPARE(transcribedVerseId(page, 0), QStringLiteral("Gen.4.0"));
+    }
+
+    void aPastedZeroIsAVerseNumberLikeAnyOther()
+    {
+        const QList<TranscribedVerse> verses =
+            parseTranscribedText(QString::fromUtf8("0 אֱלֹהִים 1 אֵת"));
+        QCOMPARE(verses.size(), 2);
+        QCOMPARE(verses.at(0).number, QStringLiteral("0"));
+        QCOMPARE(verses.at(1).number, QStringLiteral("1"));
+    }
+
     void aDocumentSurvivesTheArchive()
     {
         QTemporaryDir home;

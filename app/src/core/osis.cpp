@@ -131,6 +131,9 @@ SourceDocument parseOsis(const QString &rawOsis, const ParseOptions &options)
 
     QStringList elementStack;
     QStringList divTypes;
+    /// The nesting level of an open `div type="introduction"`, or 0 when none
+    /// is open. What says which `</div>` ends the preamble it holds.
+    int introductionDepth = 0;
     std::optional<PendingVerse> currentVerse;
     std::optional<PendingTitle> currentTitle;
     std::optional<QString> currentBook;
@@ -278,6 +281,25 @@ SourceDocument parseOsis(const QString &rawOsis, const ParseOptions &options)
                     if (!osisId.isEmpty()) {
                         currentBook = osisId;
                     }
+                }
+                // Matter standing before verse 1 — an incipit, a
+                // superscription, the scribe's heading to a chapter. OSIS has
+                // no verse to put it in, so Milah writes it as this and reads
+                // it back as the chapter's verse 0, which is what a transcriber
+                // typed and what everything inside Milah keys it by.
+                const QString introduces =
+                    attributeValue(attributes, QLatin1String("osisRef"));
+                if (divType == QLatin1String("introduction") && !introduces.isEmpty()
+                    && !currentVerse) {
+                    PendingVerse verse;
+                    verse.reference =
+                        parseReference(introduces + QStringLiteral(".0"));
+                    verse.label = verse.reference.verse;
+                    // Closed by its own end tag rather than by a milestone.
+                    verse.milestone = false;
+                    currentVerse = verse;
+                    // Which nesting level ends it, so a div inside it does not.
+                    introductionDepth = int(divTypes.size());
                 }
             }
 
@@ -479,6 +501,10 @@ SourceDocument parseOsis(const QString &rawOsis, const ParseOptions &options)
                 finishTitle();
             }
             if (local == QLatin1String("div") && !divTypes.isEmpty()) {
+                if (introductionDepth > 0 && int(divTypes.size()) == introductionDepth) {
+                    finishVerse();
+                    introductionDepth = 0;
+                }
                 divTypes.removeLast();
             }
             if (!elementStack.isEmpty()) {

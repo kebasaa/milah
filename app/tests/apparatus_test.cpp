@@ -396,6 +396,92 @@ private slots:
         QVERIFY(xml.contains(QStringLiteral("<scope>REV</scope>")));
     }
 
+    void aPreambleIsNotWrittenAsAVerse()
+    {
+        // Matter standing before verse 1. OSIS has an element for it, and
+        // numbering it 0 would address a verse no versification has.
+        CombinedDraft preamble;
+        preamble.reference.id = QStringLiteral("Rev.4.0");
+        preamble.reference.book = QStringLiteral("Rev");
+        preamble.reference.chapter = 4;
+        preamble.reference.verse = QStringLiteral("0");
+        ConsensusColumn incipit;
+        incipit.text = QStringLiteral("incipit");
+        preamble.columns.append(incipit);
+
+        CombinedDraft first;
+        first.reference.id = QStringLiteral("Rev.4.1");
+        first.reference.book = QStringLiteral("Rev");
+        first.reference.chapter = 4;
+        first.reference.verse = QStringLiteral("1");
+        ConsensusColumn opening;
+        opening.text = QStringLiteral("alpha");
+        first.columns.append(opening);
+
+        const QString xml = serializeCombinedOsis(
+            {{preamble.reference.id, preamble}, {first.reference.id, first}});
+
+        QVERIFY(xml.contains(
+            QStringLiteral("<div type=\"introduction\" osisRef=\"Rev.4\">incipit</div>")));
+        QVERIFY(!xml.contains(QStringLiteral("osisID=\"Rev.4.0\"")));
+        // And it stands before verse 1, which is the whole of what a preamble
+        // is. The drafts sort it there; this is the check that they still do.
+        QVERIFY(
+            xml.indexOf(QStringLiteral("type=\"introduction\""))
+            < xml.indexOf(QStringLiteral("osisID=\"Rev.4.1\"")));
+        // Inside the chapter it introduces, not before it.
+        QVERIFY(
+            xml.indexOf(QStringLiteral("<chapter sID=\"Rev.4\""))
+            < xml.indexOf(QStringLiteral("type=\"introduction\"")));
+    }
+
+    void aNoteOnAPreamblePointsAtTheChapter()
+    {
+        // Its notes are held under Rev.4.0 like any other verse's, but that
+        // verse is not in the file — so a note pointing at it would point at
+        // nothing.
+        CombinedDraft preamble;
+        preamble.reference.id = QStringLiteral("Rev.4.0");
+        preamble.reference.book = QStringLiteral("Rev");
+        preamble.reference.chapter = 4;
+        preamble.reference.verse = QStringLiteral("0");
+        ConsensusColumn incipit;
+        incipit.text = QStringLiteral("incipit");
+        preamble.columns.append(incipit);
+
+        CombinedApparatus apparatus;
+        SourceNote note;
+        note.number = QStringLiteral("1");
+        note.text = QStringLiteral("In a later hand.");
+        note.charOffset = 0;
+        apparatus.notes[preamble.reference.id].append(note);
+
+        const QString xml = serializeCombinedOsis(
+            {{preamble.reference.id, preamble}}, WorkMetadata(), apparatus);
+        QVERIFY(xml.contains(QStringLiteral("osisRef=\"Rev.4\"")));
+        QVERIFY(!xml.contains(QStringLiteral("osisRef=\"Rev.4.0\"")));
+        QVERIFY(xml.contains(QStringLiteral("In a later hand.")));
+    }
+
+    void aChapterWithNoPreambleIsWrittenExactlyAsItWas()
+    {
+        // The guard on everything above: an ordinary edition must not have
+        // moved by a character.
+        CombinedDraft draft;
+        draft.reference.id = QStringLiteral("Rev.1.1");
+        draft.reference.book = QStringLiteral("Rev");
+        draft.reference.chapter = 1;
+        draft.reference.verse = QStringLiteral("1");
+        ConsensusColumn column;
+        column.text = QStringLiteral("alpha");
+        draft.columns.append(column);
+
+        const QString xml = serializeCombinedOsis({{draft.reference.id, draft}});
+        QVERIFY(!xml.contains(QStringLiteral("introduction")));
+        QVERIFY(xml.contains(
+            QStringLiteral("<verse sID=\"Rev.1.1\" osisID=\"Rev.1.1\" n=\"1\"/>alpha")));
+    }
+
     void aWitnessIsNotLabelledAnEdition()
     {
         // What the manuscript library's own files say, and what tells a reader

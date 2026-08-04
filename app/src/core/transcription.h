@@ -138,6 +138,19 @@ QString transcribedVerseId(const TranscribedPage &page, int verseIndex);
 /// with the letter a manuscript splits a verse with.
 bool looksLikeVerseNumber(const QString &text);
 
+/// True when this verse number means the matter standing before verse 1 — an
+/// incipit, a superscription, the scribe's heading to a chapter.
+///
+/// Written as verse 0, which is what a transcriber types and what a
+/// versification carrying such matter calls it. "00" counts, and so does "0a":
+/// a preamble a manuscript divides is still a preamble.
+///
+/// A preamble keeps the id Book.Chapter.0 inside Milah — that is what keys its
+/// notes and what the export sorts by. It differs only in what is written out:
+/// OSIS has an element for matter standing before the verses, and this is not
+/// a verse. See serializeOsis.
+bool isPreamble(const QString &verseNumber);
+
 /// True while nothing has been read off this folio: no word typed, and no verse
 /// numbered. What the workspace asks before it offers to say where to start.
 ///

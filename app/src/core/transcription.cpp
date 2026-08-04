@@ -218,6 +218,22 @@ bool looksLikeVerseNumber(const QString &text)
     return pattern.match(text.trimmed()).hasMatch();
 }
 
+bool isPreamble(const QString &verseNumber)
+{
+    if (!looksLikeVerseNumber(verseNumber)) {
+        return false;
+    }
+    // Every digit a zero, so "0" and "00" both count — and a trailing letter is
+    // allowed through the same way it is for any other number, because a
+    // preamble a manuscript divides into 0a and 0b is still a preamble.
+    for (const QChar character : verseNumber.trimmed()) {
+        if (character.isDigit() && character != QLatin1Char('0')) {
+            return false;
+        }
+    }
+    return true;
+}
+
 bool isUntouched(const TranscribedPage &page)
 {
     for (const TranscribedVerse &verse : page.verses) {
@@ -328,6 +344,13 @@ QString verseHeading(const TranscribedPage &page, int verseIndex)
     }
 
     const int chapter = chapterOfVerse(page, verseIndex);
+    if (isPreamble(number)) {
+        // Named for what it is rather than as "4:0", which says nothing to a
+        // transcriber who has not been told the convention.
+        return page.book.isEmpty()
+            ? QStringLiteral("%1 preamble").arg(chapter)
+            : QStringLiteral("%1 %2 preamble").arg(page.book).arg(chapter);
+    }
     if (page.book.isEmpty()) {
         // The chapter is known from the folio even when the book is not, and
         // half a reference is worth more than none while transcribing.

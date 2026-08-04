@@ -1,4 +1,5 @@
 #include "core/osis.h"
+#include "core/serialize.h"
 #include "core/tokenize.h"
 #include "test_data.h"
 
@@ -181,6 +182,50 @@ private slots:
                 qPrintable(error.message()));
         }
         QVERIFY2(threw, "parseOsis accepted a document declaring an external entity");
+    }
+    void aPreambleSurvivesBeingWrittenAndReadAgain()
+    {
+        // The test that would have caught shipping a writer with no reader.
+        // Milah writes matter standing before verse 1 as an introduction div
+        // rather than as a verse; text outside a verse used to be dropped on
+        // the way back in, so a preamble would have vanished from every file
+        // Add to my library wrote.
+        CombinedDraft preamble;
+        preamble.reference.id = QStringLiteral("Rev.4.0");
+        preamble.reference.book = QStringLiteral("Rev");
+        preamble.reference.chapter = 4;
+        preamble.reference.verse = QStringLiteral("0");
+        ConsensusColumn incipit;
+        incipit.text = QString::fromUtf8("חזון");
+        preamble.columns.append(incipit);
+
+        CombinedDraft first;
+        first.reference.id = QStringLiteral("Rev.4.1");
+        first.reference.book = QStringLiteral("Rev");
+        first.reference.chapter = 4;
+        first.reference.verse = QStringLiteral("1");
+        ConsensusColumn opening;
+        opening.text = QString::fromUtf8("שלום");
+        first.columns.append(opening);
+
+        const QString written = serializeCombinedOsis(
+            {{preamble.reference.id, preamble}, {first.reference.id, first}});
+
+        const SourceDocument read = parseOsis(
+            written, options(QStringLiteral("w"), QStringLiteral("w.osis")));
+
+        QVERIFY2(
+            read.hasVerse(QStringLiteral("Rev.4.0")),
+            "the preamble did not survive the round trip");
+        QCOMPARE(
+            read.verse(QStringLiteral("Rev.4.0"))->text.trimmed(),
+            QString::fromUtf8("חזון"));
+        // And the verse after it is still its own verse, not swallowed by the
+        // div that ended before it.
+        QVERIFY(read.hasVerse(QStringLiteral("Rev.4.1")));
+        QCOMPARE(
+            read.verse(QStringLiteral("Rev.4.1"))->text.trimmed(),
+            QString::fromUtf8("שלום"));
     }
 };
 

@@ -5,7 +5,7 @@ cmake_minimum_required(VERSION 3.24)
 # Windows VERSIONINFO resource. It is unrelated to the `.milah` project file
 # format version, which is pinned to 1 in src/core/project.cpp and gates
 # whether a saved project can be opened at all.
-project(Milah VERSION 1.1.0 LANGUAGES CXX)
+project(Milah VERSION 1.1.1 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
