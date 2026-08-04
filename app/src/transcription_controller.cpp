@@ -5,7 +5,9 @@
 #include "core/lexicon.h"
 #include "core/manuscript_catalogue.h"
 #include "core/project.h"
+#include "core/recent_files.h"
 #include "core/serialize.h"
+#include "core/transcription_docx.h"
 #include "core/suggestions.h"
 #include "project_storage.h"
 #include "ui/network_fetch.h"
@@ -694,6 +696,9 @@ bool TranscriptionController::writeTo(const QString &path)
     m_filePath = path;
     QSettings().setValue(
         QStringLiteral("paths/lastDirectory"), QFileInfo(path).absolutePath());
+    // The one place a transcription is written, so the one place its whereabouts
+    // has to be recorded.
+    rememberRecentFile(QLatin1String(RecentTranscriptionsKey), path);
     setDirty(false);
     setMessage(QStringLiteral("Saved %1.").arg(QFileInfo(path).fileName()));
     emit documentChanged();
@@ -746,12 +751,29 @@ void TranscriptionController::openTranscription()
         return;
     }
 
+    loadTranscriptionFrom(path);
+}
+
+void TranscriptionController::openRecentTranscription(const QString &path)
+{
+    if (!confirmDiscard()) {
+        return;
+    }
+    if (!loadTranscriptionFrom(path)) {
+        // It was offered and it did not open. Leaving it on the menu would be
+        // offering it again.
+        forgetRecentFile(QLatin1String(RecentTranscriptionsKey), path);
+    }
+}
+
+bool TranscriptionController::loadTranscriptionFrom(const QString &path)
+{
     QString error;
     const QJsonObject read =
         ProjectStorage::loadFromPath(path, &error, ProjectStorage::ImageEntryLimit);
     if (read.isEmpty()) {
         QMessageBox::warning(m_dialogParent, QStringLiteral("Milah"), error);
-        return;
+        return false;
     }
 
     const MilahProjectPayload payload = payloadFromJson(read);
@@ -760,7 +782,7 @@ void TranscriptionController::openTranscription()
         document = restoreTranscription(payload);
     } catch (const ProjectError &failure) {
         QMessageBox::warning(m_dialogParent, QStringLiteral("Milah"), failure.message());
-        return;
+        return false;
     }
 
     m_document = document;
@@ -790,6 +812,7 @@ void TranscriptionController::openTranscription()
 
     QSettings().setValue(
         QStringLiteral("paths/lastDirectory"), QFileInfo(path).absolutePath());
+    rememberRecentFile(QLatin1String(RecentTranscriptionsKey), path);
     setDirty(false);
     // The file did open, whatever became of the folio — but "Opened …" over the
     // top of "could not be fetched" would be the one of the two the transcriber
@@ -802,6 +825,7 @@ void TranscriptionController::openTranscription()
     emit versesChanged();
     emit selectionChanged();
     emit historyChanged();
+    return true;
 }
 
 void TranscriptionController::closeTranscription()
@@ -1037,6 +1061,74 @@ void TranscriptionController::exportOsis()
                    .arg(work.drafts.size())
                    .arg(written.join(QStringLiteral(", ")))
                    .arg(unaddressedNotice(work)));
+}
+
+void TranscriptionController::exportWord()
+{
+    if (!hasDocument()) {
+        setMessage(QStringLiteral("There is nothing to export yet."));
+        return;
+    }
+
+    const DocxDocument reading = readingWordDocument(m_document);
+    if (reading.paragraphs.isEmpty()) {
+        QMessageBox::warning(
+            m_dialogParent,
+            QStringLiteral("Milah"),
+            QStringLiteral("Nothing has been read off this manuscript yet, so "
+                           "there is nothing to put in a document."));
+        return;
+    }
+
+    const QString name = m_document.metadata.manuscriptName.isEmpty()
+        ? QStringLiteral("Transcription")
+        : m_document.metadata.manuscriptName;
+    const QString suggested = QStringLiteral("%1.docx").arg(name);
+    const QString directory =
+        QSettings().value(QStringLiteral("paths/lastDirectory")).toString();
+    QString path = QFileDialog::getSaveFileName(
+        m_dialogParent,
+        QStringLiteral("Export the transcription as Word documents"),
+        directory.isEmpty() ? suggested : QDir(directory).filePath(suggested),
+        QStringLiteral("Word documents (*.docx);;All files (*)"));
+    if (path.isEmpty()) {
+        return;
+    }
+    if (!path.endsWith(QStringLiteral(".docx"), Qt::CaseInsensitive)) {
+        path += QStringLiteral(".docx");
+    }
+
+    // Two documents from the one command, the way Export to OSIS writes its
+    // three: the reading text under the name that was chosen, and the
+    // interlinear beside it.
+    const QFileInfo chosen(path);
+    const QString interlinearPath = QStringLiteral("%1/%2-interlinear.docx")
+                                        .arg(chosen.absolutePath(), chosen.completeBaseName());
+
+    QString error;
+    if (!writeDocx(path, reading, &error)) {
+        QMessageBox::warning(m_dialogParent, QStringLiteral("Milah"), error);
+        setMessage(error);
+        return;
+    }
+    if (!writeDocx(interlinearPath, interlinearWordDocument(m_document), &error)) {
+        QMessageBox::warning(m_dialogParent, QStringLiteral("Milah"), error);
+        setMessage(error);
+        return;
+    }
+
+    QSettings().setValue(QStringLiteral("paths/lastDirectory"), chosen.absolutePath());
+
+    const int unnamed = unnamedVerseCount(m_document);
+    const QString notice = unnamed == 0
+        ? QString()
+        : QStringLiteral(" %1 %2 no book, chapter and number between them, and "
+                         "are headed by as much as is known.")
+              .arg(unnamed)
+              .arg(unnamed == 1 ? QStringLiteral("verse has")
+                                : QStringLiteral("verses have"));
+    setMessage(QStringLiteral("Exported %1 and %2.%3")
+                   .arg(chosen.fileName(), QFileInfo(interlinearPath).fileName(), notice));
 }
 
 void TranscriptionController::addToLibrary()

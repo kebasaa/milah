@@ -89,6 +89,10 @@ public slots:
     /// transcription is of one manuscript.
     void openOnlineScan();
     void openTranscription();
+    /// Opens a transcription the reader chose from the Open Recent menu rather
+    /// than from a dialog. Asks about unsaved work exactly as openTranscription
+    /// does, and takes the file back out of the recent list if it will not open.
+    void openRecentTranscription(const QString &path);
     /// Writes the transcription, asking where only the first time. True when a
     /// file was actually written — a cancelled dialog is a false, which is what
     /// lets leaving a folio be refused rather than silently losing the text.
@@ -96,6 +100,14 @@ public slots:
     /// Writes the transcription as OSIS where the transcriber chooses: the text
     /// alone, the text with their notes, and the text with the glosses.
     void exportOsis();
+    /// Writes the transcription as two Word documents: the manuscript as a text
+    /// to read, and the same verse by verse with the English underneath.
+    ///
+    /// More forgiving than the OSIS export, deliberately. OSIS addresses a verse
+    /// by book, chapter and number and can carry no verse that lacks one; a page
+    /// of Hebrew nobody has finished identifying is still worth reading, so this
+    /// prints it and says how many came out unnamed.
+    void exportWord();
     /// Files the transcription in the manuscript library, one book to a file,
     /// where the Textual criticism tab looks for witnesses to collate.
     void addToLibrary();
@@ -260,6 +272,13 @@ private:
     /// Loads an image into the document as a new page, or moves to the page it
     /// already has for that file.
     void showImage(const QString &imagePath);
+    /// Reads a transcription out of `path` and puts it on screen. False when it
+    /// could not be read, having said why.
+    ///
+    /// Does not ask about unsaved work: both public callers do that before they
+    /// get here, so the question is asked once, and asked before a file dialog
+    /// rather than after the reader has already chosen a file.
+    bool loadTranscriptionFrom(const QString &path);
     /// Writes the transcription to `m_filePath`, or asks where first. False when
     /// nothing was written — cancelled, or the write failed — and then the
     /// navigation that called it does not happen.

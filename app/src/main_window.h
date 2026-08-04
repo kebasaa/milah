@@ -3,6 +3,8 @@
 #include <QHash>
 #include <QMainWindow>
 
+#include <functional>
+
 class QAction;
 class QComboBox;
 class QDockWidget;
@@ -55,6 +57,17 @@ private:
     void createActions();
     void createTranscriptionActions();
     void buildMenuBar();
+    /// Fills `menu` with the files remembered under `key`, each entry calling
+    /// `open` with its path.
+    ///
+    /// Called from the menu's own aboutToShow, which is the whole of the refresh
+    /// story: a save, an open, a mode switch and a cleared list all reach the
+    /// menu because it is rebuilt the moment before it is seen, and nothing
+    /// anywhere has to remember to say so.
+    void fillRecentMenu(
+        QMenu *menu,
+        const QString &key,
+        const std::function<void(const QString &)> &open);
     void buildToolBar();
     void buildTranscriptionToolBar();
     /// The two tabs, in the menu bar's right-hand corner.
@@ -165,6 +178,11 @@ private:
     QMenu *m_transcriptionEditMenu = nullptr;
     QMenu *m_aboutMenu = nullptr;
 
+    /// The two Open Recent submenus, one per tab. Filled the moment before they
+    /// are shown rather than kept up to date — see fillRecentMenu.
+    QMenu *m_openRecentMenu = nullptr;
+    QMenu *m_openRecentTranscriptionMenu = nullptr;
+
     QComboBox *m_bookCombo = nullptr;
     QComboBox *m_chapterCombo = nullptr;
     QComboBox *m_priorityCombo = nullptr;
@@ -200,6 +218,7 @@ private:
     QAction *m_openTranscriptionAction = nullptr;
     QAction *m_saveTranscriptionAction = nullptr;
     QAction *m_exportOsisAction = nullptr;
+    QAction *m_exportWordAction = nullptr;
     QAction *m_addToLibraryAction = nullptr;
     QAction *m_closeTranscriptionAction = nullptr;
     QAction *m_transcriptionUndoAction = nullptr;

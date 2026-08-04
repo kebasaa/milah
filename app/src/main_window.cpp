@@ -2,6 +2,7 @@
 
 #include "app_controller.h"
 #include "core/books.h"
+#include "core/recent_files.h"
 #include "core/tokenize.h"
 #include "core/transcription.h"
 #include "transcription_controller.h"
@@ -19,7 +20,9 @@
 #include <QApplication>
 #include <QComboBox>
 #include <QCompleter>
+#include <QDir>
 #include <QDockWidget>
+#include <QFileInfo>
 #include <QIntValidator>
 #include <QKeySequence>
 #include <QLabel>
@@ -709,6 +712,17 @@ void MainWindow::createTranscriptionActions()
         m_transcriptionController,
         &TranscriptionController::exportOsis);
 
+    m_exportWordAction = new QAction(QStringLiteral("Export to Word…"), this);
+    m_exportWordAction->setToolTip(QStringLiteral(
+        "Writes two Word documents: the manuscript as a text to read, with the "
+        "notes as footnotes, and the same verse by verse with the English "
+        "underneath."));
+    connect(
+        m_exportWordAction,
+        &QAction::triggered,
+        m_transcriptionController,
+        &TranscriptionController::exportWord);
+
     m_addToLibraryAction = new QAction(QStringLiteral("Add to my library"), this);
     m_addToLibraryAction->setToolTip(QStringLiteral(
         "Files this transcription with the manuscripts the Textual criticism "
@@ -794,6 +808,21 @@ void MainWindow::buildMenuBar()
     // cannot drift apart.
     m_editionFileMenu = new QMenu(QStringLiteral("&File"), this);
     m_editionFileMenu->addAction(m_openAction);
+    m_openRecentMenu = m_editionFileMenu->addMenu(QStringLiteral("Open &Recent"));
+    connect(m_openRecentMenu, &QMenu::aboutToShow, this, [this] {
+        fillRecentMenu(
+            m_openRecentMenu, QLatin1String(RecentProjectsKey), [this](const QString &path) {
+                m_controller->openRecentProject(path);
+            });
+    });
+    // Whether there is anything to offer is settled as the File menu opens
+    // rather than by the update*Actions family: those run on a mode switch, and
+    // the first project ever saved would otherwise leave this greyed out until
+    // the reader happened to change tabs.
+    connect(m_editionFileMenu, &QMenu::aboutToShow, this, [this] {
+        m_openRecentMenu->menuAction()->setEnabled(
+            !recentFiles(QLatin1String(RecentProjectsKey)).isEmpty());
+    });
     m_editionFileMenu->addAction(m_saveAction);
     m_editionFileMenu->addAction(m_closeAction);
     m_editionFileMenu->addSeparator();
@@ -823,9 +852,24 @@ void MainWindow::buildMenuBar()
     m_transcriptionFileMenu->addAction(m_openImageAction);
     m_transcriptionFileMenu->addAction(m_openScanAction);
     m_transcriptionFileMenu->addAction(m_openTranscriptionAction);
+    m_openRecentTranscriptionMenu =
+        m_transcriptionFileMenu->addMenu(QStringLiteral("Open &Recent"));
+    connect(m_openRecentTranscriptionMenu, &QMenu::aboutToShow, this, [this] {
+        fillRecentMenu(
+            m_openRecentTranscriptionMenu,
+            QLatin1String(RecentTranscriptionsKey),
+            [this](const QString &path) {
+                m_transcriptionController->openRecentTranscription(path);
+            });
+    });
+    connect(m_transcriptionFileMenu, &QMenu::aboutToShow, this, [this] {
+        m_openRecentTranscriptionMenu->menuAction()->setEnabled(
+            !recentFiles(QLatin1String(RecentTranscriptionsKey)).isEmpty());
+    });
     m_transcriptionFileMenu->addAction(m_saveTranscriptionAction);
     m_transcriptionFileMenu->addSeparator();
     m_transcriptionFileMenu->addAction(m_exportOsisAction);
+    m_transcriptionFileMenu->addAction(m_exportWordAction);
     m_transcriptionFileMenu->addAction(m_addToLibraryAction);
     m_transcriptionFileMenu->addAction(m_closeTranscriptionAction);
     m_transcriptionFileMenu->addSeparator();
@@ -850,6 +894,50 @@ void MainWindow::buildMenuBar()
     menuBar()->addMenu(m_aboutMenu);
 
     updateSelectionActions();
+}
+
+void MainWindow::fillRecentMenu(
+    QMenu *menu, const QString &key, const std::function<void(const QString &)> &open)
+{
+    menu->clear();
+
+    const QStringList paths = recentFiles(key);
+    // A file's own name is what a reader recognises; the folder only where two
+    // of them read alike. Both come from one place so the menu and the reason
+    // for it stay together.
+    const QStringList labels = recentFileLabels(paths);
+
+    // The path is worth showing and too long to be a label, so it goes on the
+    // tooltip — which a QMenu does not show unless asked.
+    menu->setToolTipsVisible(true);
+
+    for (int index = 0; index < paths.size(); ++index) {
+        const QString &path = paths.at(index);
+        // Numbered, so the list can be walked by keyboard while it is open. A
+        // real shortcut would be wrong: a shortcut is armed by its action
+        // whether or not its menu is in the bar, so five of them would open
+        // editions from inside the transcription tab.
+        auto *entry = menu->addAction(
+            QStringLiteral("&%1  %2").arg(index + 1).arg(labels.value(index)));
+        const QString native = QDir::toNativeSeparators(path);
+
+        if (QFileInfo::exists(path)) {
+            entry->setToolTip(native);
+            connect(entry, &QAction::triggered, this, [open, path] { open(path); });
+            continue;
+        }
+        // Still listed, and plainly not available. A transcription on a drive
+        // that is not plugged in has not been abandoned — hiding it would say it
+        // had, and offering it would waste a click on a file that cannot open.
+        entry->setEnabled(false);
+        entry->setToolTip(QStringLiteral("Not there at the moment: %1").arg(native));
+    }
+
+    if (!paths.isEmpty()) {
+        menu->addSeparator();
+        auto *forget = menu->addAction(QStringLiteral("&Clear list"));
+        connect(forget, &QAction::triggered, this, [key] { clearRecentFiles(key); });
+    }
 }
 
 void MainWindow::buildModeTabs()
@@ -1039,6 +1127,7 @@ void MainWindow::updateTranscriptionActions()
     m_openTranscriptionAction->setEnabled(transcribing);
     m_saveTranscriptionAction->setEnabled(transcribing && open);
     m_exportOsisAction->setEnabled(transcribing && open);
+    m_exportWordAction->setEnabled(transcribing && open);
     m_addToLibraryAction->setEnabled(transcribing && open);
     m_closeTranscriptionAction->setEnabled(transcribing && open);
     m_magnifyAction->setEnabled(transcribing && open);

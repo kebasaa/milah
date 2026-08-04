@@ -5,6 +5,7 @@
 #include "core/lexicon.h"
 #include "core/osis.h"
 #include "core/project.h"
+#include "core/recent_files.h"
 #include "core/serialize.h"
 #include "core/tokenize.h"
 #include "project_storage.h"
@@ -1168,17 +1169,37 @@ void AppController::openProject()
     const QString path = QFileDialog::getOpenFileName(
         m_dialogParent,
         QStringLiteral("Open Milah project"),
-        {},
+        lastDirectory(),
         QStringLiteral("Milah projects (*.milah)"));
     if (path.isEmpty()) {
         return;
     }
 
+    rememberDirectory(path);
+    loadProjectFrom(path);
+}
+
+void AppController::openRecentProject(const QString &path)
+{
+    if (!confirmDiscard()) {
+        return;
+    }
+    if (!loadProjectFrom(path)) {
+        // It was offered and it did not open. Leaving it on the menu would be
+        // offering it again.
+        forgetRecentFile(QLatin1String(RecentProjectsKey), path);
+        return;
+    }
+    rememberDirectory(path);
+}
+
+bool AppController::loadProjectFrom(const QString &path)
+{
     QString error;
     const QJsonObject json = ProjectStorage::loadFromPath(path, &error);
     if (!error.isEmpty()) {
         setMessage(error);
-        return;
+        return false;
     }
 
     try {
@@ -1196,10 +1217,10 @@ void AppController::openProject()
         m_location = state.location;
     } catch (const ProjectError &projectError) {
         setMessage(projectError.message());
-        return;
+        return false;
     } catch (const OsisError &osisError) {
         setMessage(osisError.message());
-        return;
+        return false;
     }
 
     rebuildLocations();
@@ -1207,9 +1228,11 @@ void AppController::openProject()
     m_undoStack.clear();
     m_redoStack.clear();
     setDirty(false);
+    rememberRecentFile(QLatin1String(RecentProjectsKey), path);
     setMessage(QStringLiteral("Milah project opened."));
     emit historyChanged();
     emit sourcesChanged();
+    return true;
 }
 
 bool AppController::saveProject()
@@ -1251,6 +1274,11 @@ bool AppController::saveProject()
     }
 
     setDirty(false);
+    // Saving counts as much as opening. This class keeps no path of its own, so
+    // every save is a Save As — which makes this the only way a project's
+    // whereabouts is learned other than the open dialog.
+    rememberRecentFile(QLatin1String(RecentProjectsKey), path);
+    rememberDirectory(path);
     setMessage(QStringLiteral("Milah project saved."));
     return true;
 }
