@@ -164,6 +164,49 @@ private slots:
         QVERIFY(raised);
     }
 
+    void aPreambleOpensTheChapterWithNoMarker()
+    {
+        // It stands before verse 1 and is not verse 0, and a raised ⁰ in front
+        // of the ¹ reads as a mistake.
+        TranscribedPage page;
+        page.book = QStringLiteral("Rev");
+        page.firstChapter = 4;
+        page.verses.append(verse(QStringLiteral("0"), {word(QStringLiteral("incipit"))}));
+        page.verses.append(verse(QStringLiteral("1"), {word(QStringLiteral("alpha"))}));
+
+        TranscriptionDocument transcription;
+        transcription.pages.append(page);
+
+        const DocxDocument reading = readingWordDocument(transcription);
+        QStringList raised;
+        for (const DocxParagraph &paragraph : reading.paragraphs) {
+            for (const DocxRun &run : paragraph.runs) {
+                if (run.superscript) {
+                    raised.append(run.text.trimmed());
+                }
+            }
+        }
+        // Verse 1's marker, and only that one.
+        QCOMPARE(raised, QStringList({QStringLiteral("1")}));
+        // The preamble's own text is still there, ahead of it.
+        const QString text = textOf(reading);
+        QVERIFY(text.contains(QStringLiteral("incipit")));
+        QVERIFY(text.indexOf(QStringLiteral("incipit")) < text.indexOf(QStringLiteral("alpha")));
+    }
+
+    void thePreambleIsNamedInTheInterlinear()
+    {
+        TranscribedPage page;
+        page.book = QStringLiteral("Rev");
+        page.firstChapter = 4;
+        page.verses.append(verse(QStringLiteral("0"), {word(QStringLiteral("incipit"))}));
+
+        TranscriptionDocument transcription;
+        transcription.pages.append(page);
+        QVERIFY(textOf(interlinearWordDocument(transcription))
+                    .contains(QStringLiteral("Rev 4 preamble")));
+    }
+
     void aVerseNobodyHasNumberedIsStillPrinted()
     {
         // Unlike the OSIS export, which cannot address it and refuses it. A

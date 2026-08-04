@@ -152,7 +152,12 @@ public slots:
     ///
     /// A number typed between spaces is a verse boundary wherever it falls, so
     /// whatever followed it on the line belongs to the new verse.
-    void startVerse(int verse, int column, const QString &number);
+    ///
+    /// `firstWord` is what stood after the number in the cell it was typed in —
+    /// the case of a number put in front of a word already there. Empty when
+    /// the number was the whole of the cell.
+    void startVerse(
+        int verse, int column, const QString &number, const QString &firstWord = QString());
     /// Replaces the word at `column` with everything `text` divides into,
     /// keeping the words after it on the line.
     void pasteAt(int verse, int column, const QString &text);

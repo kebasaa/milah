@@ -209,7 +209,11 @@ DocxDocument readingWordDocument(const TranscriptionDocument &transcription)
                 gap.hebrew = true;
                 running.runs.append(gap);
             }
-            if (!verse.number.isEmpty()) {
+            // A preamble opens the chapter with no marker of its own. It stands
+            // before verse 1 and is not verse 0, and a raised ⁰ in front of the
+            // ¹ reads as a mistake — which is how a printed Bible sets a
+            // superscription too.
+            if (!verse.number.isEmpty() && !isPreamble(verse.number)) {
                 running.runs.append(verseNumberRun(verse.number));
             }
             appendVerseRuns(verse, document, running.runs);

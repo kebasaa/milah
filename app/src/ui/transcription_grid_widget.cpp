@@ -477,21 +477,36 @@ bool TranscriptionGridWidget::handleSpace(QLineEdit *field, int verse, int colum
         return true;
     }
 
+    // What was typed before the caret, and whatever is left of the cell after
+    // it. Read from before the caret rather than from the whole cell, because
+    // a number put in front of a word already standing there gives "5מלה" —
+    // which is not a verse number, and the space would merely have divided it
+    // into two words with the number left among them as an ordinary one.
+    QString number = text.left(caret).trimmed();
+    QString remainder = text.mid(caret);
+    if (!looksLikeVerseNumber(number)) {
+        // Failing that, the whole cell, as before — so a caret parked in the
+        // middle of "12" still opens verse 12 rather than verse 1 and a word
+        // "2".
+        number = looksLikeVerseNumber(text) ? text.trimmed() : QString();
+        remainder.clear();
+    }
+
     // Wherever it is typed, not only at the end of the verse: a number between
     // spaces is a verse boundary, and one typed further back used to become an
     // ordinary word without a word of complaint.
-    if (looksLikeVerseNumber(text)) {
-        const QString number = text.trimmed();
+    if (!number.isEmpty()) {
         // A verse with no number yet takes this one: the first thing typed on
         // a folio is nearly always the number the folio opens at.
         if (page->verses.at(verse).number.isEmpty() && wordCount == 1) {
-            m_controller->setWord(verse, column, QString());
+            m_controller->setWord(verse, column, remainder);
             m_controller->setVerseNumber(verse, number);
             focusWord(verse, column);
         } else {
-            // One operation: the digits go, the words after them follow into
-            // the new verse, and the whole thing is one thing to undo.
-            m_controller->startVerse(verse, column, number);
+            // One operation: the digits go, what followed them in this cell
+            // opens the new verse, the words after it follow along, and the
+            // whole thing is one thing to undo.
+            m_controller->startVerse(verse, column, number, remainder);
             focusWord(verse + 1, 0);
         }
         return true;

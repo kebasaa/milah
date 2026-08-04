@@ -2,6 +2,7 @@
 
 #include "core/alignment.h"
 #include "core/books.h"
+#include "core/transcription.h"
 
 #include <QMultiHash>
 
@@ -40,8 +41,15 @@ QString noteMarkup(const SourceNote &note, const QString &verseId)
         .arg(escapeXml(note.number), escapeXml(verseId), escapeXml(note.text));
 }
 
+/// `verseId` is what the notes are keyed by; `anchorRef` is what they point at.
+///
+/// The same string for every verse, and not for a preamble: a preamble's notes
+/// are held under Book.Chapter.0 like any other verse's, but that verse is not
+/// in the file — it is written as a div introducing the chapter — so a note
+/// pointing at it would point at nothing. See serializeOsis.
 QString verseBody(
     const QString &verseId,
+    const QString &anchorRef,
     const QString &text,
     const CombinedApparatus &apparatus)
 {
@@ -52,7 +60,7 @@ QString verseBody(
         for (const SourceNote &note : notes.value()) {
             Anchor anchor;
             anchor.offset = note.charOffset;
-            anchor.markup = noteMarkup(note, verseId);
+            anchor.markup = noteMarkup(note, anchorRef);
             anchors.append(anchor);
         }
     }
@@ -100,6 +108,7 @@ QString titleMarkup(const SourceTitle &title)
 /// verse as running text.
 QString interlinearBody(
     const QString &verseId,
+    const QString &anchorRef,
     const CombinedDraft &draft,
     const QMap<int, QString> &glosses,
     const CombinedApparatus &apparatus)
@@ -134,7 +143,7 @@ QString interlinearBody(
         // in the order they appear.
         const QList<SourceNote> here = anchored.values(index);
         for (auto note = here.crbegin(); note != here.crend(); ++note) {
-            marked += noteMarkup(*note, verseId);
+            marked += noteMarkup(*note, anchorRef);
         }
 
         const QString gloss = glosses.value(index);
@@ -257,20 +266,35 @@ QString serializeOsis(
                         .arg(currentChapter);
         }
 
+        // What the chapter this belongs to is called, which a preamble points
+        // at in place of a verse of its own.
+        const QString chapterRef =
+            QStringLiteral("%1.%2").arg(escapeXml(currentBook)).arg(currentChapter);
+        const bool preamble = isPreamble(reference.verse);
+        const QString anchorRef = preamble ? chapterRef : escapeXml(reference.id);
+
+        const QString written = glosses
+            ? interlinearBody(
+                  reference.id, anchorRef, draft, glosses->value(reference.id), apparatus)
+            : verseBody(reference.id, anchorRef, combinedText(draft), apparatus);
+
+        if (preamble) {
+            // Matter standing before verse 1 — an incipit, a superscription,
+            // the scribe's heading. OSIS has an element for it, and it is not a
+            // verse: numbering it 0 would address a verse no versification has.
+            // The drafts are sorted with 0 first within its chapter, so this is
+            // already in the right place.
+            body += QStringLiteral("        <div type=\"introduction\" osisRef=\"%1\">%2"
+                                   "</div>\n")
+                        .arg(chapterRef, written);
+            continue;
+        }
+
         // Milestone form, so that titles and folio boundaries can sit between
         // or inside verses without nesting inside them.
         body += QStringLiteral("        <verse sID=\"%1\" osisID=\"%1\" n=\"%2\"/>%3"
                                "<verse eID=\"%1\"/>\n")
-                    .arg(
-                        escapeXml(reference.id),
-                        escapeXml(reference.verse),
-                        glosses
-                            ? interlinearBody(
-                                  reference.id,
-                                  draft,
-                                  glosses->value(reference.id),
-                                  apparatus)
-                            : verseBody(reference.id, combinedText(draft), apparatus));
+                    .arg(escapeXml(reference.id), escapeXml(reference.verse), written);
     }
 
     closeChapter();
