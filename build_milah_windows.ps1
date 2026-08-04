@@ -8,6 +8,10 @@
     builds Milah, optionally runs the test suite, and assembles a portable
     folder with windeployqt.
 
+    Qt is looked for under C:\Qt first and then %USERPROFILE%\Qt, which is where
+    the online installer puts a system-wide and a per-user installation
+    respectively. -QtRoot pins the search to one directory instead.
+
     Nothing needs to be on PATH beforehand.
 
 .EXAMPLE
@@ -22,7 +26,8 @@ param(
     [string]$Configuration = 'Release',
 
     [string]$QtBin,
-    [string]$QtRoot = 'C:\Qt',
+    # Empty means "search the usual places": see Get-QtRootCandidates.
+    [string]$QtRoot,
     [string]$MinGwBin,
     [string]$CMake,
     [string]$Ninja,
@@ -189,11 +194,24 @@ function Test-QtBin {
     return $true
 }
 
+function Get-QtRootCandidates {
+    param([string]$RequestedRoot)
+
+    # An explicit -QtRoot means that directory and no other: someone naming a
+    # root wants the kit in it, not whichever one happens to be found first.
+    if (-not [string]::IsNullOrWhiteSpace($RequestedRoot)) {
+        return @($RequestedRoot)
+    }
+
+    # The system-wide installation leads, with the per-user directory behind it:
+    # where a machine has both, C:\Qt is the shared one to build against.
+    return @('C:\Qt', (Join-Path $HOME 'Qt'))
+}
+
 function Resolve-QtBin {
     param(
         [string]$RequestedQtBin,
-        [string]$Root,
-        [switch]$UseUserProfileFallback
+        [string[]]$Roots
     )
 
     if (-not [string]::IsNullOrWhiteSpace($RequestedQtBin)) {
@@ -208,12 +226,7 @@ function Resolve-QtBin {
         }
     }
 
-    $candidateRoots = @($Root)
-    if ($UseUserProfileFallback) {
-        $candidateRoots += (Join-Path $HOME 'Qt')
-    }
-
-    foreach ($candidateRoot in $candidateRoots) {
+    foreach ($candidateRoot in $Roots) {
         if ([string]::IsNullOrWhiteSpace($candidateRoot) -or
             -not (Test-Path -LiteralPath $candidateRoot -PathType Container)) {
             continue
@@ -250,7 +263,7 @@ function Resolve-QtBin {
         }
     }
 
-    throw "No Qt MinGW kit with qmake.exe and windeployqt.exe was found under: $($candidateRoots -join ', '). Pass -QtBin, for example -QtBin `"$HOME\Qt\6.11.1\mingw_64\bin`"."
+    throw "No Qt MinGW kit with qmake.exe and windeployqt.exe was found under: $($Roots -join ', '). Pass -QtBin, for example -QtBin `"$HOME\Qt\6.11.1\mingw_64\bin`"."
 }
 
 function Test-MinGwBin {
@@ -272,7 +285,7 @@ function Test-MinGwBin {
 function Resolve-MinGwBin {
     param(
         [string]$RequestedMinGwBin,
-        [string]$QtRootPath
+        [string[]]$QtRootPaths
     )
 
     if (-not [string]::IsNullOrWhiteSpace($RequestedMinGwBin)) {
@@ -283,37 +296,43 @@ function Resolve-MinGwBin {
         return $resolved
     }
 
-    $toolsRoot = Join-Path $QtRootPath 'Tools'
-    if (-not (Test-Path -LiteralPath $toolsRoot -PathType Container)) {
-        throw "MinGW bin directory was not provided and the Qt Tools directory was not found: $toolsRoot. Pass -MinGwBin, for example -MinGwBin `"$HOME\Qt\Tools\mingw1310_64\bin`"."
-    }
+    # Every candidate root is tried, not just the one the kit came from: Qt and
+    # its Tools directory are installed separately and need not share a root.
+    $searched = @()
+    foreach ($qtRootPath in $QtRootPaths) {
+        $toolsRoot = Join-Path $qtRootPath 'Tools'
+        $searched += $toolsRoot
+        if (-not (Test-Path -LiteralPath $toolsRoot -PathType Container)) {
+            continue
+        }
 
-    $selected = Get-ChildItem -LiteralPath $toolsRoot -Directory -Filter 'mingw*_64' -ErrorAction SilentlyContinue |
-        ForEach-Object {
-            $binDir = Join-Path $_.FullName 'bin'
-            if (Test-MinGwBin $binDir) {
-                $versionText = '0'
-                if ($_.Name -match 'mingw(\d+)') { $versionText = $Matches[1] }
-                [PSCustomObject]@{
-                    Bin = (Resolve-Path -LiteralPath $binDir).ProviderPath
-                    Version = [int64]$versionText
+        $selected = Get-ChildItem -LiteralPath $toolsRoot -Directory -Filter 'mingw*_64' -ErrorAction SilentlyContinue |
+            ForEach-Object {
+                $binDir = Join-Path $_.FullName 'bin'
+                if (Test-MinGwBin $binDir) {
+                    $versionText = '0'
+                    if ($_.Name -match 'mingw(\d+)') { $versionText = $Matches[1] }
+                    [PSCustomObject]@{
+                        Bin = (Resolve-Path -LiteralPath $binDir).ProviderPath
+                        Version = [int64]$versionText
+                    }
                 }
-            }
-        } |
-        Sort-Object -Property @{ Expression = 'Version'; Descending = $true } |
-        Select-Object -First 1
+            } |
+            Sort-Object -Property @{ Expression = 'Version'; Descending = $true } |
+            Select-Object -First 1
 
-    if (-not $selected) {
-        throw "No Qt-bundled MinGW toolchain was found under $toolsRoot. Pass -MinGwBin, for example -MinGwBin `"$HOME\Qt\Tools\mingw1310_64\bin`"."
+        if ($selected) {
+            return $selected.Bin
+        }
     }
 
-    return $selected.Bin
+    throw "No Qt-bundled MinGW toolchain was found under: $($searched -join ', '). Pass -MinGwBin, for example -MinGwBin `"$HOME\Qt\Tools\mingw1310_64\bin`"."
 }
 
 function Resolve-BundledTool {
     param(
         [string]$RequestedPath,
-        [string]$QtRootPath,
+        [string[]]$QtRootPaths,
         [string[]]$RelativeCandidates,
         [string]$CommandName,
         [string]$Description
@@ -323,10 +342,14 @@ function Resolve-BundledTool {
         return Resolve-RequiredPath $RequestedPath $Description
     }
 
-    foreach ($relative in $RelativeCandidates) {
-        $candidate = Join-Path $QtRootPath $relative
-        if (Test-Path -LiteralPath $candidate -PathType Leaf) {
-            return (Resolve-Path -LiteralPath $candidate).ProviderPath
+    # Root order first, then the alternatives within a root, so a per-user
+    # installation wins over a system-wide one even when both carry the tool.
+    foreach ($qtRootPath in $QtRootPaths) {
+        foreach ($relative in $RelativeCandidates) {
+            $candidate = Join-Path $qtRootPath $relative
+            if (Test-Path -LiteralPath $candidate -PathType Leaf) {
+                return (Resolve-Path -LiteralPath $candidate).ProviderPath
+            }
         }
     }
 
@@ -335,7 +358,7 @@ function Resolve-BundledTool {
         return $command.Source
     }
 
-    throw "$Description was not found in the Qt installation or on PATH. Install it, or pass the matching parameter explicitly."
+    throw "$Description was not found under $($QtRootPaths -join ', ') or on PATH. Install it, or pass the matching parameter explicitly."
 }
 
 function Get-FileSha256 {
@@ -788,23 +811,30 @@ Resolve-RequiredPath (Join-Path $ResolvedAppSourceDir 'CMakeLists.txt') 'Milah C
 Write-Step 'Resolving toolchain'
 
 $OriginalPath = $env:PATH
-$QtRootWasProvided = $PSBoundParameters.ContainsKey('QtRoot')
-$QtInfo = Resolve-QtBin -RequestedQtBin $QtBin -Root $QtRoot -UseUserProfileFallback:(-not $QtRootWasProvided)
+$QtRootCandidates = Get-QtRootCandidates -RequestedRoot $QtRoot
+$QtInfo = Resolve-QtBin -RequestedQtBin $QtBin -Roots $QtRootCandidates
 $QtBin = $QtInfo.Bin
 $ResolvedQtRoot = $QtInfo.Root
 $QtPrefixPath = (Resolve-Path -LiteralPath (Join-Path $QtBin '..')).ProviderPath
-$MinGwBin = Resolve-MinGwBin -RequestedMinGwBin $MinGwBin -QtRootPath $ResolvedQtRoot
+
+# The root the kit came from leads, with the remaining candidates behind it, so
+# a toolchain installed under a different root is still found.
+$ToolSearchRoots = @($ResolvedQtRoot) + ($QtRootCandidates | Where-Object {
+    -not (Test-CMakePathEquals -Actual $_ -Expected $ResolvedQtRoot)
+})
+
+$MinGwBin = Resolve-MinGwBin -RequestedMinGwBin $MinGwBin -QtRootPaths $ToolSearchRoots
 
 $CMakeCommand = Resolve-BundledTool `
     -RequestedPath $CMake `
-    -QtRootPath $ResolvedQtRoot `
+    -QtRootPaths $ToolSearchRoots `
     -RelativeCandidates @('Tools\CMake_64\bin\cmake.exe', 'Tools\CMake\bin\cmake.exe') `
     -CommandName 'cmake' `
     -Description 'cmake executable'
 
 $NinjaCommand = Resolve-BundledTool `
     -RequestedPath $Ninja `
-    -QtRootPath $ResolvedQtRoot `
+    -QtRootPaths $ToolSearchRoots `
     -RelativeCandidates @('Tools\Ninja\ninja.exe') `
     -CommandName 'ninja' `
     -Description 'ninja executable'

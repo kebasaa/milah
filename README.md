@@ -315,10 +315,17 @@ From the repository root:
 .\build_milah_windows.ps1
 ```
 
-The script discovers Qt, MinGW, CMake and Ninja — checking `C:\Qt` and
-`%USERPROFILE%\Qt` — builds the ZLIB and QuaZip dependencies under `build\deps\`,
-builds Milah, and assembles a self-contained `milah-portable\` folder with
-`windeployqt`. Nothing needs to be on `PATH` beforehand.
+The script discovers Qt, MinGW, CMake and Ninja by itself, builds the ZLIB and
+QuaZip dependencies under `build\deps\`, builds Milah, and assembles a
+self-contained `milah-portable\` folder with `windeployqt`. Nothing needs to be
+on `PATH` beforehand.
+
+Qt is looked for under `C:\Qt` first and then `%USERPROFILE%\Qt` — the
+system-wide and the per-user location the online installer offers — taking the
+newest 64-bit Qt 6 MinGW kit it finds. The MinGW toolchain, CMake and Ninja come from
+the `Tools\` directory of whichever root supplied that kit, falling back to the
+other root and finally to `PATH`, so an installation split across the two still
+builds. `-QtRoot` pins the search to a single directory instead.
 
 Useful switches: `-Configuration Debug`, `-Tests`, `-Clean`, `-SkipPortable`,
 `-KeepBuildArtifacts`, `-NoDownload`. Paths can be forced with `-QtBin`,
