@@ -100,6 +100,14 @@ public slots:
     /// Writes the transcription as OSIS where the transcriber chooses: the text
     /// alone, the text with their notes, and the text with the glosses.
     void exportOsis();
+    /// Writes the transcription as two Word documents: the manuscript as a text
+    /// to read, and the same verse by verse with the English underneath.
+    ///
+    /// More forgiving than the OSIS export, deliberately. OSIS addresses a verse
+    /// by book, chapter and number and can carry no verse that lacks one; a page
+    /// of Hebrew nobody has finished identifying is still worth reading, so this
+    /// prints it and says how many came out unnamed.
+    void exportWord();
     /// Files the transcription in the manuscript library, one book to a file,
     /// where the Textual criticism tab looks for witnesses to collate.
     void addToLibrary();

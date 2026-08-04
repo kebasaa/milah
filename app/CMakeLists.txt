@@ -72,6 +72,10 @@ add_library(MilahCore STATIC
     src/core/transcription.h
     src/core/recent_files.cpp
     src/core/recent_files.h
+    src/core/docx.cpp
+    src/core/docx.h
+    src/core/transcription_docx.cpp
+    src/core/transcription_docx.h
     src/project_storage.cpp
     src/project_storage.h
 )
@@ -239,7 +243,7 @@ if(MILAH_BUILD_TESTS)
     foreach(test_name
             project_storage osis consensus apparatus diff acronym lexicon suggestions
             coverage alignment catalogue word_marker transcription books
-            scan_catalogue recent_files)
+            scan_catalogue recent_files docx transcription_docx)
         # Plain add_executable, not qt_add_executable: the latter finalises the
         # target as a Windows GUI application, and a GUI-subsystem binary
         # discards the stdout QTest reports through, leaving a failing test

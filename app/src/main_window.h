@@ -218,6 +218,7 @@ private:
     QAction *m_openTranscriptionAction = nullptr;
     QAction *m_saveTranscriptionAction = nullptr;
     QAction *m_exportOsisAction = nullptr;
+    QAction *m_exportWordAction = nullptr;
     QAction *m_addToLibraryAction = nullptr;
     QAction *m_closeTranscriptionAction = nullptr;
     QAction *m_transcriptionUndoAction = nullptr;

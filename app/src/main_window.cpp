@@ -712,6 +712,17 @@ void MainWindow::createTranscriptionActions()
         m_transcriptionController,
         &TranscriptionController::exportOsis);
 
+    m_exportWordAction = new QAction(QStringLiteral("Export to Word…"), this);
+    m_exportWordAction->setToolTip(QStringLiteral(
+        "Writes two Word documents: the manuscript as a text to read, with the "
+        "notes as footnotes, and the same verse by verse with the English "
+        "underneath."));
+    connect(
+        m_exportWordAction,
+        &QAction::triggered,
+        m_transcriptionController,
+        &TranscriptionController::exportWord);
+
     m_addToLibraryAction = new QAction(QStringLiteral("Add to my library"), this);
     m_addToLibraryAction->setToolTip(QStringLiteral(
         "Files this transcription with the manuscripts the Textual criticism "
@@ -858,6 +869,7 @@ void MainWindow::buildMenuBar()
     m_transcriptionFileMenu->addAction(m_saveTranscriptionAction);
     m_transcriptionFileMenu->addSeparator();
     m_transcriptionFileMenu->addAction(m_exportOsisAction);
+    m_transcriptionFileMenu->addAction(m_exportWordAction);
     m_transcriptionFileMenu->addAction(m_addToLibraryAction);
     m_transcriptionFileMenu->addAction(m_closeTranscriptionAction);
     m_transcriptionFileMenu->addSeparator();
@@ -1115,6 +1127,7 @@ void MainWindow::updateTranscriptionActions()
     m_openTranscriptionAction->setEnabled(transcribing);
     m_saveTranscriptionAction->setEnabled(transcribing && open);
     m_exportOsisAction->setEnabled(transcribing && open);
+    m_exportWordAction->setEnabled(transcribing && open);
     m_addToLibraryAction->setEnabled(transcribing && open);
     m_closeTranscriptionAction->setEnabled(transcribing && open);
     m_magnifyAction->setEnabled(transcribing && open);
