@@ -104,4 +104,51 @@ private:
     QList<ScanEntry> m_entries;
 };
 
+/// One manuscript and the scans offered of it.
+struct ScanManuscript
+{
+    /// What heads it, and what it is alphabetised by.
+    QString name;
+    /// Whose it is and when it was written. Taken from the first entry, because
+    /// they belong to the manuscript rather than to each of its books, and
+    /// printing them on every book would say one thing twenty-six times.
+    QString repository;
+    QString date;
+    /// False when nothing under this heading can be opened at all.
+    ///
+    /// A manuscript with one book photographed and one not is available: there
+    /// is something to read. Only one with nothing behind any of its entries
+    /// belongs below the fold.
+    bool available = false;
+    /// In the order the manifest gave them, which is the order the codex binds
+    /// them — and deliberately not sorted. Alphabetising books gives
+    /// "1 Corinthians, 1 John, 1 Thessalonians" and scatters Philemon among the
+    /// gospels.
+    QList<ScanEntry> entries;
+};
+
+/// What says two entries are of one manuscript.
+///
+/// The address they were read from, because that is the one thing a library
+/// gives every entry and gives the same for every part of one codex. The
+/// shelfmark would do where there is one, and there is not always one.
+QString scanManuscriptKey(const ScanEntry &entry);
+
+/// What to head a manuscript with, and what it sorts by.
+///
+/// The shelfmark, which is what a reader files a manuscript under and what the
+/// books beneath share. A bare IIIF manifest may state none, so there are two
+/// fallbacks: the repository at least says whose it is, and the title always
+/// says something.
+QString scanManuscriptName(const ScanEntry &entry);
+
+/// The catalogue as the picker shows it: the manuscripts with something to open
+/// first and by name, then the ones with nothing, also by name.
+///
+/// Ordered here rather than in the manifest, because a manifest is written in
+/// the order links were added to it and a reader should not have to know that.
+/// Names are compared as a reader reads them — case ignored, and digits by
+/// value, so MS Oo.1.16 precedes MS Oo.1.32 and MS 2 precedes MS 10.
+QList<ScanManuscript> scanManuscripts(const QList<ScanEntry> &entries);
+
 } // namespace milah

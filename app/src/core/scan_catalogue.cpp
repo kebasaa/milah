@@ -1,7 +1,11 @@
 #include "core/scan_catalogue.h"
 
+#include <QCollator>
+#include <QHash>
 #include <QJsonArray>
 #include <QJsonObject>
+
+#include <algorithm>
 
 namespace milah {
 namespace {
@@ -89,6 +93,69 @@ ScanCatalogue ScanCatalogue::fromJson(const QJsonObject &document)
     }
 
     return catalogue;
+}
+
+QString scanManuscriptName(const ScanEntry &entry)
+{
+    if (!entry.shelfmark.isEmpty()) {
+        return entry.shelfmark;
+    }
+    if (!entry.repository.isEmpty()) {
+        return entry.repository;
+    }
+    return entry.title;
+}
+
+QString scanManuscriptKey(const ScanEntry &entry)
+{
+    if (!entry.source.isEmpty()) {
+        return entry.source;
+    }
+    return scanManuscriptName(entry);
+}
+
+QList<ScanManuscript> scanManuscripts(const QList<ScanEntry> &entries)
+{
+    QList<ScanManuscript> manuscripts;
+    QHash<QString, int> byKey;
+
+    for (const ScanEntry &entry : entries) {
+        const QString key = scanManuscriptKey(entry);
+        const auto found = byKey.constFind(key);
+        if (found == byKey.constEnd()) {
+            ScanManuscript manuscript;
+            manuscript.name = scanManuscriptName(entry);
+            manuscript.repository = entry.repository;
+            manuscript.date = entry.date;
+            byKey.insert(key, static_cast<int>(manuscripts.size()));
+            manuscripts.append(manuscript);
+        }
+        ScanManuscript &manuscript = manuscripts[byKey.value(key)];
+        // One openable part is enough. A codex half photographed is a codex a
+        // transcriber can start on.
+        manuscript.available = manuscript.available || entry.unavailable.isEmpty();
+        manuscript.entries.append(entry);
+    }
+
+    // As a reader reads them: case ignored, and digits by their value rather
+    // than their characters, so MS Oo.1.16 comes before MS Oo.1.32.
+    QCollator collator;
+    collator.setCaseSensitivity(Qt::CaseInsensitive);
+    collator.setNumericMode(true);
+
+    // Stable, so two manuscripts a library gave the same name keep the order the
+    // manifest gave them rather than swapping about between runs.
+    std::stable_sort(
+        manuscripts.begin(),
+        manuscripts.end(),
+        [&collator](const ScanManuscript &left, const ScanManuscript &right) {
+            if (left.available != right.available) {
+                return left.available;
+            }
+            return collator.compare(left.name, right.name) < 0;
+        });
+
+    return manuscripts;
 }
 
 } // namespace milah

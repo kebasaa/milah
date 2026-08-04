@@ -30,6 +30,41 @@ ScanCatalogue catalogueFrom(const QByteArray &json)
     return ScanCatalogue::fromJson(QJsonDocument::fromJson(addresses(json)).object());
 }
 
+/// A scan of `shelfmark` with one folio behind it. Built rather than parsed:
+/// the ordering tests are about which manuscript comes before which, and a
+/// manifest in between would only be something else to read.
+///
+/// `source` is the shelfmark rather than an address, because it is only ever
+/// compared with itself — and a real one would bring back the moc hazard above.
+ScanEntry scan(const QString &shelfmark)
+{
+    ScanEntry entry;
+    entry.id = shelfmark;
+    entry.title = QStringLiteral("A Hebrew New Testament");
+    entry.shelfmark = shelfmark;
+    entry.source = shelfmark;
+    entry.pages.append(ScanPage{1, QStringLiteral("1r"), QStringLiteral("image")});
+    return entry;
+}
+
+/// A manuscript known to exist and never photographed.
+ScanEntry missing(const QString &shelfmark)
+{
+    ScanEntry entry = scan(shelfmark);
+    entry.pages.clear();
+    entry.unavailable = QStringLiteral("No scan has been published.");
+    return entry;
+}
+
+QStringList names(const QList<ScanManuscript> &manuscripts)
+{
+    QStringList out;
+    for (const ScanManuscript &manuscript : manuscripts) {
+        out.append(manuscript.name);
+    }
+    return out;
+}
+
 /// Shaped exactly like the published manifest, cut to two folios.
 QByteArray sampleManifest()
 {
@@ -291,6 +326,152 @@ private slots:
         const ScanCatalogue catalogue = catalogueFrom(R"JSON({"scans":[
          {"id":"x","title":"A codex","pages":[{"n":1,"image":"IMG/a"}]}]})JSON");
         QVERIFY(catalogue.entries().constFirst().unavailable.isEmpty());
+    }
+
+    // ----------------------------------------------------------------------
+    // The order the picker shows them in. Built from entries rather than from
+    // JSON, so what is being ordered is stated rather than parsed out.
+    // ----------------------------------------------------------------------
+
+    void theManuscriptsComeOutByNameWhateverOrderTheManifestGaveThem()
+    {
+        // The whole point: a manifest is written in the order links were added
+        // to it, which is no help to anybody looking for the Bodleian.
+        const QList<ScanManuscript> shown = scanManuscripts(
+            {scan(QStringLiteral("Sloane MS 237")),
+             scan(QStringLiteral("MS Oo.1.32")),
+             scan(QStringLiteral("Bodleian, Pococke 280"))});
+
+        QCOMPARE(names(shown),
+                 QStringList({QStringLiteral("Bodleian, Pococke 280"),
+                              QStringLiteral("MS Oo.1.32"),
+                              QStringLiteral("Sloane MS 237")}));
+    }
+
+    void everythingUnavailableFollowsEverythingAvailable()
+    {
+        // Even when the manifest lists an unavailable one first, and even when
+        // its name would otherwise sort it to the top.
+        const QList<ScanManuscript> shown = scanManuscripts(
+            {missing(QStringLiteral("Add MS 26964")),
+             scan(QStringLiteral("Sloane MS 237")),
+             missing(QStringLiteral("MS. 2426")),
+             scan(QStringLiteral("Gaster Hebrew MS 1616"))});
+
+        QCOMPARE(names(shown),
+                 QStringList({QStringLiteral("Gaster Hebrew MS 1616"),
+                              QStringLiteral("Sloane MS 237"),
+                              QStringLiteral("Add MS 26964"),
+                              QStringLiteral("MS. 2426")}));
+        QVERIFY(shown.at(1).available);
+        QVERIFY(!shown.at(2).available);
+    }
+
+    void theBooksOfACodexKeepTheOrderTheCodexBindsThem()
+    {
+        // The test that would have caught alphabetising these. Sorted, Matthew
+        // would follow Mark and Philemon would land among the gospels.
+        ScanEntry matthew = scan(QStringLiteral("MS Oo.1.32"));
+        matthew.title = QStringLiteral("Matthew");
+        ScanEntry mark = scan(QStringLiteral("MS Oo.1.32"));
+        mark.title = QStringLiteral("Mark");
+        ScanEntry luke = scan(QStringLiteral("MS Oo.1.32"));
+        luke.title = QStringLiteral("Luke");
+
+        const QList<ScanManuscript> shown = scanManuscripts({matthew, mark, luke});
+        QCOMPARE(shown.size(), 1);
+        QCOMPARE(shown.constFirst().entries.size(), 3);
+        QCOMPARE(shown.constFirst().entries.at(0).title, QStringLiteral("Matthew"));
+        QCOMPARE(shown.constFirst().entries.at(1).title, QStringLiteral("Mark"));
+        QCOMPARE(shown.constFirst().entries.at(2).title, QStringLiteral("Luke"));
+    }
+
+    void digitsSortByTheirValueAndCaseIsIgnored()
+    {
+        // Compared as a reader reads them. By character, "MS Oo.1.32" would
+        // come before "MS Oo.1.16" is false but "MS 10" before "MS 2" is not.
+        const QList<ScanManuscript> shown = scanManuscripts(
+            {scan(QStringLiteral("MS 10")),
+             scan(QStringLiteral("ms 2")),
+             scan(QStringLiteral("MS Oo.1.32")),
+             scan(QStringLiteral("MS Oo.1.16"))});
+
+        QCOMPARE(names(shown),
+                 QStringList({QStringLiteral("ms 2"),
+                              QStringLiteral("MS 10"),
+                              QStringLiteral("MS Oo.1.16"),
+                              QStringLiteral("MS Oo.1.32")}));
+    }
+
+    void aCodexHalfPhotographedIsStillAvailable()
+    {
+        // One openable part is enough: there is something to start on, so it
+        // belongs above the fold rather than below it, and it appears once.
+        ScanEntry john = scan(QStringLiteral("Vat. ebr. 530"));
+        john.title = QStringLiteral("John");
+        ScanEntry luke = missing(QStringLiteral("Vat. ebr. 530"));
+        luke.title = QStringLiteral("Luke");
+        luke.source = john.source;
+
+        const QList<ScanManuscript> shown =
+            scanManuscripts({john, luke, missing(QStringLiteral("Add MS 26964"))});
+
+        QCOMPARE(shown.size(), 2);
+        QCOMPARE(shown.constFirst().name, QStringLiteral("Vat. ebr. 530"));
+        QVERIFY(shown.constFirst().available);
+        QCOMPARE(shown.constFirst().entries.size(), 2);
+        QVERIFY(!shown.constLast().available);
+    }
+
+    void twoManuscriptsOfOneNameKeepTheOrderTheyWereGivenIn()
+    {
+        // A stable sort, so a catalogue does not reshuffle itself between runs
+        // over two entries it has no way to tell apart.
+        ScanEntry first = scan(QStringLiteral("MS 1"));
+        first.id = QStringLiteral("first");
+        first.source = QStringLiteral("one");
+        ScanEntry second = scan(QStringLiteral("MS 1"));
+        second.id = QStringLiteral("second");
+        second.source = QStringLiteral("two");
+
+        const QList<ScanManuscript> shown = scanManuscripts({first, second});
+        QCOMPARE(shown.size(), 2);
+        QCOMPARE(shown.at(0).entries.constFirst().id, QStringLiteral("first"));
+        QCOMPARE(shown.at(1).entries.constFirst().id, QStringLiteral("second"));
+    }
+
+    void aManuscriptIsNamedByAsMuchAsTheLibraryGave()
+    {
+        ScanEntry noShelfmark;
+        noShelfmark.id = QStringLiteral("a");
+        noShelfmark.title = QStringLiteral("A Hebrew gospel");
+        noShelfmark.repository = QStringLiteral("Bibliothèque nationale");
+        QCOMPARE(scanManuscriptName(noShelfmark), QStringLiteral("Bibliothèque nationale"));
+
+        ScanEntry bare;
+        bare.id = QStringLiteral("b");
+        bare.title = QStringLiteral("A Hebrew gospel");
+        QCOMPARE(scanManuscriptName(bare), QStringLiteral("A Hebrew gospel"));
+    }
+
+    void entriesOfOneAddressAreOneManuscriptEvenWhenTheyAreNotAdjacent()
+    {
+        // The manifest may interleave them, and a manuscript listed twice is a
+        // manuscript a reader thinks they have already looked at.
+        ScanEntry firstBook = scan(QStringLiteral("MS Oo.1.32"));
+        ScanEntry other = scan(QStringLiteral("Sloane MS 237"));
+        ScanEntry secondBook = scan(QStringLiteral("MS Oo.1.32"));
+
+        const QList<ScanManuscript> shown =
+            scanManuscripts({firstBook, other, secondBook});
+        QCOMPARE(shown.size(), 2);
+        QCOMPARE(shown.constFirst().name, QStringLiteral("MS Oo.1.32"));
+        QCOMPARE(shown.constFirst().entries.size(), 2);
+    }
+
+    void anEmptyCatalogueYieldsNothing()
+    {
+        QVERIFY(scanManuscripts({}).isEmpty());
     }
 };
 
