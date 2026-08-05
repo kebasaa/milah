@@ -498,10 +498,13 @@ private slots:
 
         WorkMetadata metadata;
         metadata.workType = QStringLiteral("x-manuscript");
-        metadata.descriptions.insert(QStringLiteral("x-folios"), QStringLiteral("1r–4v"));
         metadata.descriptions.insert(
-            QStringLiteral("x-translated-from"), QStringLiteral("Translated from the Greek"));
-        metadata.descriptions.insert(QStringLiteral("x-material"), QString());
+            QStringLiteral("x-folios"), WorkDescription{QStringLiteral("1r–4v"), {}});
+        metadata.descriptions.insert(
+            QStringLiteral("x-translated-from"),
+            WorkDescription{QStringLiteral("Translated from the Greek"), {}});
+        metadata.descriptions.insert(
+            QStringLiteral("x-material"), WorkDescription{QString(), {}});
 
         const QString xml =
             serializeCombinedOsis({{draft.reference.id, draft}}, metadata);
@@ -529,7 +532,8 @@ private slots:
 
         WorkMetadata metadata;
         metadata.descriptions.insert(
-            QStringLiteral("x-exemplar"), QStringLiteral("Copied from Oo.1.32"));
+            QStringLiteral("x-exemplar"),
+            WorkDescription{QStringLiteral("Copied from Oo.1.32"), {}});
 
         const QString xml =
             serializeCombinedOsis({{draft.reference.id, draft}}, metadata);

@@ -216,12 +216,18 @@ QString serializeOsis(
     for (auto item = metadata.descriptions.constBegin();
          item != metadata.descriptions.constEnd();
          ++item) {
-        if (item.value().isEmpty()) {
+        if (item.value().text.isEmpty()) {
             continue;
         }
+        // The verdict, where there is one. Written as an attribute rather than
+        // folded into the prose so that a reader of the file can tell "Greek"
+        // from "Greek, probably" without parsing English.
+        const QString subType = item.value().subType.isEmpty()
+            ? QString()
+            : QStringLiteral(" subType=\"%1\"").arg(escapeXml(item.value().subType));
         descriptions +=
-            QStringLiteral("        <description type=\"%1\">%2</description>\n")
-                .arg(escapeXml(item.key()), escapeXml(item.value()));
+            QStringLiteral("        <description type=\"%1\"%2>%3</description>\n")
+                .arg(escapeXml(item.key()), subType, escapeXml(item.value().text));
     }
 
     // The published library labels its manuscripts one way and its editions

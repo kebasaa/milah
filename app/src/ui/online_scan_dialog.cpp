@@ -148,11 +148,28 @@ OnlineScanDialog::OnlineScanDialog(QWidget *parent)
         QStringLiteral("Date"),
         QStringLiteral("Extent"),
     });
-    m_tree->header()->setStretchLastSection(false);
-    m_tree->header()->setSectionResizeMode(0, QHeaderView::Stretch);
-    m_tree->header()->setSectionResizeMode(1, QHeaderView::ResizeToContents);
-    m_tree->header()->setSectionResizeMode(2, QHeaderView::ResizeToContents);
-    m_tree->header()->setSectionResizeMode(3, QHeaderView::ResizeToContents);
+    // The manuscript's own name takes the slack, and the three beside it are
+    // held to a width rather than given whatever they ask for.
+    //
+    // They used to size to their contents, which sounds accommodating and is
+    // the opposite: "Biblioteca Apostolica Vaticana", "between 1500 and 1699"
+    // and "24 folios (22r–33v)" together took most of the window, and the one
+    // column a reader is actually looking down — the name of the manuscript —
+    // got whatever was left. Interactive keeps them where they are put and
+    // leaves the edges draggable, so a reader who wants the full name of an
+    // institution can still have it.
+    QHeaderView *header = m_tree->header();
+    header->setStretchLastSection(false);
+    header->setSectionResizeMode(0, QHeaderView::Stretch);
+    header->setSectionResizeMode(1, QHeaderView::Interactive);
+    header->setSectionResizeMode(2, QHeaderView::Interactive);
+    header->setSectionResizeMode(3, QHeaderView::Interactive);
+    header->resizeSection(1, 200);
+    header->resizeSection(2, 130);
+    header->resizeSection(3, 150);
+    // So that dragging an edge all the way over cannot squeeze the stretching
+    // column down to nothing.
+    header->setMinimumSectionSize(90);
     connect(
         m_tree,
         &QTreeWidget::itemSelectionChanged,
@@ -194,7 +211,9 @@ OnlineScanDialog::OnlineScanDialog(QWidget *parent)
     layout->addWidget(m_status);
     layout->addWidget(buttons);
 
-    resize(820, 460);
+    // Wide enough that the manuscript column opens with room for a shelfmark
+    // and the book beneath it, rather than for an ellipsis.
+    resize(980, 520);
 
     m_network = new QNetworkAccessManager(this);
     fetchCatalogue();

@@ -57,6 +57,23 @@ struct ScanEntry
     /// offered whole and book by book at once, and then several entries share a
     /// shelfmark and differ only here.
     QString folios;
+    // What is said about the text rather than about the object. No library
+    // record carries these — whether a Hebrew text renders a Greek one, and
+    // whether it copies an older book, are arguments rather than catalogue
+    // entries — so they are written by hand in the published link list and
+    // travel with the scan. Offered when a scan is opened, so a transcription
+    // begins already knowing what somebody has established about it.
+
+    /// What the Hebrew renders, where it renders anything: "Translated from
+    /// the Greek".
+    QString translatedFrom;
+    /// How firmly that is held — one of TranslationCertainty, or empty where
+    /// nobody has recorded an answer, which is not the same as saying it is an
+    /// original composition.
+    QString translationCertainty;
+    /// The older manuscript this one copies, where it is known to copy one.
+    QString exemplar;
+
     /// The viewer page a reader would open to see this themselves. Also what
     /// says that two entries are of one manuscript, which is how the picker
     /// knows to gather them under it.

@@ -48,6 +48,9 @@ QJsonObject metadataToJson(const TranscriptionMetadata &metadata)
     put(json, QStringLiteral("material"), metadata.material);
     put(json, QStringLiteral("provenance"), metadata.provenance);
     put(json, QStringLiteral("translatedFrom"), metadata.translatedFrom);
+    put(json,
+        QStringLiteral("translatedFromCertainty"),
+        metadata.translatedFromCertainty);
     put(json, QStringLiteral("exemplar"), metadata.exemplar);
     put(json, QStringLiteral("language"), metadata.language);
     put(json, QStringLiteral("notes"), metadata.notes);
@@ -75,6 +78,8 @@ TranscriptionMetadata metadataFromJson(const QJsonObject &json)
     metadata.material = json.value(QStringLiteral("material")).toString();
     metadata.provenance = json.value(QStringLiteral("provenance")).toString();
     metadata.translatedFrom = json.value(QStringLiteral("translatedFrom")).toString();
+    metadata.translatedFromCertainty =
+        json.value(QStringLiteral("translatedFromCertainty")).toString();
     metadata.exemplar = json.value(QStringLiteral("exemplar")).toString();
     metadata.language = json.value(QStringLiteral("language")).toString();
     metadata.notes = json.value(QStringLiteral("notes")).toString();

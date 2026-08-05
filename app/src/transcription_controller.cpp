@@ -886,13 +886,23 @@ WorkMetadata TranscriptionController::workMetadata() const
     // them, so a transcription added to the library describes itself in the
     // download window without any of this being written out a second time.
     // Empty ones are dropped by the writer, so unanswered stays unwritten.
-    work.descriptions.insert(QStringLiteral("x-folios"), m_document.metadata.folios);
-    work.descriptions.insert(QStringLiteral("x-material"), m_document.metadata.material);
     work.descriptions.insert(
-        QStringLiteral("x-provenance"), m_document.metadata.provenance);
+        QStringLiteral("x-folios"), WorkDescription{m_document.metadata.folios, {}});
     work.descriptions.insert(
-        QStringLiteral("x-translated-from"), m_document.metadata.translatedFrom);
-    work.descriptions.insert(QStringLiteral("x-exemplar"), m_document.metadata.exemplar);
+        QStringLiteral("x-material"), WorkDescription{m_document.metadata.material, {}});
+    work.descriptions.insert(
+        QStringLiteral("x-provenance"),
+        WorkDescription{m_document.metadata.provenance, {}});
+    // The only one of these carrying a verdict as well as an answer: what the
+    // Hebrew renders is a different question from whether that is settled, and
+    // for several of these manuscripts the second is the whole argument.
+    work.descriptions.insert(
+        QStringLiteral("x-translated-from"),
+        WorkDescription{
+            m_document.metadata.translatedFrom,
+            translationSubType(m_document.metadata.translatedFromCertainty)});
+    work.descriptions.insert(
+        QStringLiteral("x-exemplar"), WorkDescription{m_document.metadata.exemplar, {}});
 
     return work;
 }

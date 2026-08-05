@@ -51,10 +51,17 @@ struct CatalogueEntry
     /// What the Hebrew was rendered out of, where it is a rendering at all:
     /// "Translated from the Greek".
     ///
-    /// Empty covers two different things — an independent Hebrew composition,
-    /// and a question nobody has settled — and it is honest about neither, so
-    /// the window says "—" rather than "No".
+    /// Empty means nobody has recorded an answer. What the answer is, and how
+    /// firmly it is held, are two separate questions — see translationCertainty.
     QString translatedFrom;
+    /// How well the answer above is established. One of `TranslationCertainty`,
+    /// or empty where nothing has been recorded at all.
+    ///
+    /// Kept apart from the prose because a column printing "Greek" flat would
+    /// state as a fact what, for several of these manuscripts, is the very thing
+    /// under argument. An explicit "original" is also what finally lets a Hebrew
+    /// composition say it is one, rather than looking like a blank.
+    QString translationCertainty;
     /// The older manuscript this one copies, where it is known to copy one:
     /// "Copied from Cambridge MS Oo.1.32".
     QString exemplar;
@@ -104,6 +111,37 @@ struct CatalogueEntry
     /// carrying no lead at all is left alone rather than mangled.
     QString displayTitle() const;
 };
+
+/// What a catalogue may say about whether a Hebrew text renders another.
+///
+/// Two questions crossed: is it a rendering, and is that settled. Written out
+/// as strings rather than an enum because they cross the manifest, the OSIS
+/// headers and the archive as strings, and one spelling in one place is what
+/// keeps the three agreeing.
+namespace TranslationCertainty {
+inline constexpr char Certain[] = "certain";
+inline constexpr char Uncertain[] = "uncertain";
+/// Not a rendering at all: an original Hebrew composition.
+inline constexpr char Original[] = "original";
+inline constexpr char OriginalUncertain[] = "original-uncertain";
+} // namespace TranslationCertainty
+
+/// The `subType` a certainty is written as in an OSIS header, or empty for one
+/// nobody has recorded. The `x-` prefix is the schema's rule for a value it does
+/// not itself define.
+QString translationSubType(const QString &certainty);
+
+/// The certainty an OSIS `subType` means, with its `x-` taken off. Empty for an
+/// absent or unrecognised one, which are the same thing to a reader.
+QString translationCertaintyOf(const QString &subType);
+
+/// What the Translated from column shows: "Greek", "Greek?", "Original",
+/// "Original?", or "—" where nothing has been recorded.
+///
+/// The prose is cut to its answer — "Translated from the Greek" is what a header
+/// says and "Greek" is what fits beside six other columns — and a question mark
+/// is what marks the unsettled ones. The whole sentence stays on the tooltip.
+QString translationColumn(const CatalogueEntry &entry);
 
 /// The checksum of a file as the manifest measures it: over the LF form of its
 /// contents, which is what GitHub serves and therefore what was downloaded.

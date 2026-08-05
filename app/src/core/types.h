@@ -20,6 +20,22 @@ enum class SourceRole {
 QString sourceRoleToString(SourceRole role);
 SourceRole sourceRoleFromString(const QString &value);
 
+/// One `<description>` of a work: what it says, and how firmly.
+struct WorkDescription
+{
+    QString text;
+    /// The `subType` attribute in full — "x-certain". Empty writes none.
+    ///
+    /// Where a verdict goes. OSIS has no `certainty` attribute — checked
+    /// against the schema — but `<description>` accepts `subType` through
+    /// globalWithoutType, and this file already reads `subType="x-alt-…"` off a
+    /// verse. Two different things are being said about a manuscript at once —
+    /// what its Hebrew renders, and whether that is settled — and a catalogue
+    /// that printed the first without the second would state a disputed reading
+    /// as a fact.
+    QString subType;
+};
+
 struct WorkMetadata
 {
     QString workId;
@@ -56,7 +72,7 @@ struct WorkMetadata
     /// apart. The keys are the ones the published repository's manifest
     /// generator reads, so a transcription filed in the library describes
     /// itself there without anything being typed twice.
-    QMap<QString, QString> descriptions;
+    QMap<QString, WorkDescription> descriptions;
 };
 
 struct SourceNote

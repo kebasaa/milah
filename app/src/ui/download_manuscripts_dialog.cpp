@@ -414,7 +414,9 @@ void DownloadManuscriptsDialog::showCatalogue()
         // headed Age for a manuscript written between 1500 and 1699 would be
         // worse than answering nothing.
         row->setText(ColumnAge, orDash(m_catalogue.manuscriptAge(entry)));
-        row->setText(ColumnTranslatedFrom, briefly(entry.translatedFrom));
+        // Its own function rather than briefly(), because this column answers
+        // two questions at once and the second is a verdict rather than prose.
+        row->setText(ColumnTranslatedFrom, translationColumn(entry));
         row->setText(ColumnExemplar, briefly(entry.exemplar));
         row->setText(ColumnSize,
                      updatable      ? QStringLiteral("update available")
@@ -434,9 +436,17 @@ void DownloadManuscriptsDialog::showCatalogue()
         if (!entry.date.isEmpty()) {
             detail.append(QStringLiteral("Written: %1").arg(entry.date));
         }
-        // In full, because the columns show only as much of them as fits.
-        if (!entry.translatedFrom.isEmpty()) {
-            detail.append(entry.translatedFrom);
+        // In full, because the columns show only as much of them as fits — and
+        // with the verdict spelled out, since a bare "?" in a column is not an
+        // explanation of anything.
+        if (!entry.translatedFrom.isEmpty() || !entry.translationCertainty.isEmpty()) {
+            QString said = entry.translatedFrom.isEmpty()
+                ? QStringLiteral("Not a translation")
+                : entry.translatedFrom;
+            if (entry.translationCertainty.endsWith(QLatin1String("uncertain"))) {
+                said += QStringLiteral(" — not established");
+            }
+            detail.append(said);
         }
         if (!entry.exemplar.isEmpty()) {
             detail.append(entry.exemplar);

@@ -55,6 +55,11 @@ ScanCatalogue ScanCatalogue::fromJson(const QJsonObject &document)
         entry.licence = text(record, "licence");
         entry.book = text(record, "book");
         entry.folios = text(record, "folios");
+        entry.translatedFrom = text(record, "translatedFrom");
+        // Lowercased so a manifest written either way matches the vocabulary
+        // everything else compares against.
+        entry.translationCertainty = text(record, "translationCertainty").toLower();
+        entry.exemplar = text(record, "exemplar");
         entry.source = text(record, "source");
         entry.unavailable = text(record, "unavailable");
         if (entry.title.isEmpty()) {

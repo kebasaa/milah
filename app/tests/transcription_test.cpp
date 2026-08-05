@@ -550,6 +550,7 @@ private slots:
         original.metadata.material = QStringLiteral("Parchment");
         original.metadata.provenance = QStringLiteral("From the Sloane bequest.");
         original.metadata.translatedFrom = QStringLiteral("Translated from the Greek");
+        original.metadata.translatedFromCertainty = QStringLiteral("uncertain");
         original.metadata.exemplar = QStringLiteral("Copied from Cambridge MS Oo.1.32");
 
         QString error;
@@ -569,6 +570,11 @@ private slots:
         QCOMPARE(restored.metadata.material, original.metadata.material);
         QCOMPARE(restored.metadata.provenance, original.metadata.provenance);
         QCOMPARE(restored.metadata.translatedFrom, original.metadata.translatedFrom);
+        // The verdict travels with the answer. Losing it would turn "probably
+        // Greek" back into "Greek" on the next open.
+        QCOMPARE(
+            restored.metadata.translatedFromCertainty,
+            original.metadata.translatedFromCertainty);
         QCOMPARE(restored.metadata.exemplar, original.metadata.exemplar);
     }
 

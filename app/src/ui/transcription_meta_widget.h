@@ -2,6 +2,7 @@
 
 #include <QWidget>
 
+class QComboBox;
 class QLineEdit;
 class QPlainTextEdit;
 class QPushButton;
@@ -53,6 +54,7 @@ private:
     QLineEdit *m_material = nullptr;
     QLineEdit *m_provenance = nullptr;
     QLineEdit *m_translatedFrom = nullptr;
+    QComboBox *m_translatedFromCertainty = nullptr;
     QLineEdit *m_exemplar = nullptr;
     QLineEdit *m_language = nullptr;
     QPlainTextEdit *m_notes = nullptr;

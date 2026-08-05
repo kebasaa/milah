@@ -135,6 +135,93 @@ private slots:
         QCOMPARE(witness.exemplar, QStringLiteral("Copied from Cambridge MS Oo.1.32"));
     }
 
+    void theTranslationColumnSaysWhetherItIsSettled()
+    {
+        // The whole feature. A column that printed "Greek" flat would state as
+        // a fact what, for several of these manuscripts, is the argument.
+        CatalogueEntry entry;
+        entry.translatedFrom = QStringLiteral("Translated from the Greek");
+
+        entry.translationCertainty = QLatin1String(TranslationCertainty::Certain);
+        QCOMPARE(translationColumn(entry), QStringLiteral("Greek"));
+
+        entry.translationCertainty = QLatin1String(TranslationCertainty::Uncertain);
+        QCOMPARE(translationColumn(entry), QStringLiteral("Greek?"));
+
+        entry.translationCertainty = QLatin1String(TranslationCertainty::Original);
+        QCOMPARE(translationColumn(entry), QStringLiteral("Original"));
+
+        entry.translationCertainty =
+            QLatin1String(TranslationCertainty::OriginalUncertain);
+        QCOMPARE(translationColumn(entry), QStringLiteral("Original?"));
+    }
+
+    void anUnrecordedAnswerClaimsNothing()
+    {
+        // Not "original", and not "Greek". Nobody has said, and a blank cell
+        // used to mean that and "an original Hebrew text" at the same time.
+        CatalogueEntry entry;
+        QCOMPARE(translationColumn(entry), QStringLiteral("—"));
+
+        // Even where the prose is there: without a verdict it is not an answer
+        // the catalogue is prepared to stand behind.
+        entry.translatedFrom = QStringLiteral("Translated from the Greek");
+        QCOMPARE(translationColumn(entry), QStringLiteral("—"));
+    }
+
+    void theColumnKeepsTheAnswerRatherThanTheQuestion()
+    {
+        // "Translated from the" is the same on every one of them; the language
+        // is what a reader is looking down the column for.
+        CatalogueEntry entry;
+        entry.translationCertainty = QLatin1String(TranslationCertainty::Certain);
+
+        entry.translatedFrom = QStringLiteral("Translated from the Latin Vulgate.");
+        QCOMPARE(translationColumn(entry), QStringLiteral("Latin Vulgate"));
+
+        entry.translatedFrom = QStringLiteral("A translation of the Peshitta");
+        QCOMPARE(translationColumn(entry), QStringLiteral("Peshitta"));
+
+        // A verdict with nothing named still says that it is one.
+        entry.translatedFrom.clear();
+        QCOMPARE(translationColumn(entry), QStringLiteral("Yes"));
+    }
+
+    void aSubTypeCrossesToACertaintyAndBack()
+    {
+        QCOMPARE(
+            translationSubType(QLatin1String(TranslationCertainty::Certain)),
+            QStringLiteral("x-certain"));
+        QCOMPARE(
+            translationCertaintyOf(QStringLiteral("x-original-uncertain")),
+            QLatin1String(TranslationCertainty::OriginalUncertain));
+        // Nothing recorded stays nothing, in both directions.
+        QVERIFY(translationSubType(QString()).isEmpty());
+        QVERIFY(translationCertaintyOf(QString()).isEmpty());
+        // The x- prefix is the schema's rule for a value it does not define, so
+        // an attribute without it is not this vocabulary.
+        QVERIFY(translationCertaintyOf(QStringLiteral("certain")).isEmpty());
+        // And a verdict from a later version reads as one nobody recorded,
+        // which is what it means to this one.
+        QVERIFY(translationCertaintyOf(QStringLiteral("x-disputed")).isEmpty());
+    }
+
+    void theCertaintyIsReadFromTheManifest()
+    {
+        const ManuscriptCatalogue catalogue = catalogueFrom(
+            R"JSON({"manuscripts":[
+              {"file":"a.osis","title":"A","role":"manuscript",
+               "translatedFrom":"Translated from the Greek",
+               "translationCertainty":"Uncertain"}]})JSON");
+        // Lowercased on the way in, so a manifest written either way compares
+        // equal to the vocabulary.
+        QCOMPARE(
+            catalogue.entries().first().translationCertainty,
+            QLatin1String(TranslationCertainty::Uncertain));
+        QCOMPARE(
+            translationColumn(catalogue.entries().first()), QStringLiteral("Greek?"));
+    }
+
     void theCataloguingFieldsAreAllOptional()
     {
         // Most manuscripts answer none of these, and a manifest written before
