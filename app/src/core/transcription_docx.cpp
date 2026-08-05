@@ -182,7 +182,7 @@ DocxDocument readingWordDocument(const TranscriptionDocument &transcription)
 
     const auto closeChapter = [&] {
         if (!running.runs.isEmpty()) {
-            document.paragraphs.append(running);
+            document.blocks.append(running);
             running.runs.clear();
         }
     };
@@ -197,7 +197,7 @@ DocxDocument readingWordDocument(const TranscriptionDocument &transcription)
             const int chapter = chapterOfVerse(page, index);
             if (page.book != openBook || chapter != openChapter) {
                 closeChapter();
-                document.paragraphs.append(
+                document.blocks.append(
                     headingParagraph(chapterHeading(page, chapter), QStringLiteral("Heading1")));
                 openBook = page.book;
                 openChapter = chapter;
@@ -242,7 +242,7 @@ DocxDocument interlinearWordDocument(const TranscriptionDocument &transcription)
 
             const int chapter = chapterOfVerse(page, index);
             if (page.book != openBook || chapter != openChapter) {
-                document.paragraphs.append(
+                document.blocks.append(
                     headingParagraph(chapterHeading(page, chapter), QStringLiteral("Heading1")));
                 openBook = page.book;
                 openChapter = chapter;
@@ -251,20 +251,20 @@ DocxDocument interlinearWordDocument(const TranscriptionDocument &transcription)
             // verseHeading says as much of the reference as is known, down to
             // "Unnumbered" — so a verse nobody has numbered yet is still
             // printed, under a name that admits what it is.
-            document.paragraphs.append(
+            document.blocks.append(
                 headingParagraph(verseHeading(page, index), QStringLiteral("Heading2")));
 
             DocxParagraph hebrew;
             hebrew.style = QStringLiteral("VerseHebrew");
             hebrew.rightToLeft = true;
             appendVerseRuns(verse, document, hebrew.runs);
-            document.paragraphs.append(hebrew);
+            document.blocks.append(hebrew);
 
             if (hasAnyGloss(verse)) {
                 DocxParagraph gloss;
                 gloss.style = QStringLiteral("Gloss");
                 gloss.runs.append(DocxRun{glossLine(verse)});
-                document.paragraphs.append(gloss);
+                document.blocks.append(gloss);
             }
         }
     }

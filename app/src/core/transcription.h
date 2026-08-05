@@ -102,7 +102,23 @@ struct TranscriptionMetadata
     QString origin;
     QString libraryMark;
     QString shelfmark;
+    /// Which leaves of the codex this is: "1r–4v".
+    QString folios;
     QString date;
+    /// What it is written on — "Paper", "Parchment".
+    QString material;
+    /// How it came to be where it is kept.
+    QString provenance;
+    /// What the Hebrew was rendered out of, where it is a rendering at all:
+    /// "Translated from the Greek".
+    ///
+    /// Nothing fills this in but the transcriber. It is a judgement about the
+    /// text rather than a fact a library records, which is why no catalogue
+    /// Milah reads has ever carried it.
+    QString translatedFrom;
+    /// The older manuscript this one copies, where it is known to copy one:
+    /// "Copied from Cambridge MS Oo.1.32". A judgement too.
+    QString exemplar;
     QString language;
     QString notes;
     /// Anything the fields above do not cover, so a project can carry a note

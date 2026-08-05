@@ -8,6 +8,21 @@
 #include <QVBoxLayout>
 
 namespace milah {
+namespace {
+
+/// A folio range as a reader writes it rather than as the manifest stores it.
+///
+/// ".." is in the file so that a folio label may itself contain a hyphen —
+/// OPenn labels an endleaf "i-r" — which is a thing a file format has to care
+/// about and a transcriber does not. The picker's Extent column makes the same
+/// substitution for the same reason.
+QString readableFolios(const QString &folios)
+{
+    QString range = folios;
+    return range.replace(QStringLiteral(".."), QStringLiteral("–"));
+}
+
+} // namespace
 
 ScanMetadataDialog::ScanMetadataDialog(
     const ScanEntry &scan,
@@ -38,7 +53,10 @@ ScanMetadataDialog::ScanMetadataDialog(
         {"Origin", &TranscriptionMetadata::origin, scan.origin},
         {"Library", &TranscriptionMetadata::libraryMark, scan.repository},
         {"Shelfmark", &TranscriptionMetadata::shelfmark, scan.shelfmark},
+        {"Folios", &TranscriptionMetadata::folios, readableFolios(scan.folios)},
         {"Date", &TranscriptionMetadata::date, scan.date},
+        {"Material", &TranscriptionMetadata::material, scan.material},
+        {"Provenance", &TranscriptionMetadata::provenance, scan.provenance},
         {"Language", &TranscriptionMetadata::language, scan.language},
     };
 

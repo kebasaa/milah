@@ -48,7 +48,12 @@ private:
     QLineEdit *m_origin = nullptr;
     QLineEdit *m_libraryMark = nullptr;
     QLineEdit *m_shelfmark = nullptr;
+    QLineEdit *m_folios = nullptr;
     QLineEdit *m_date = nullptr;
+    QLineEdit *m_material = nullptr;
+    QLineEdit *m_provenance = nullptr;
+    QLineEdit *m_translatedFrom = nullptr;
+    QLineEdit *m_exemplar = nullptr;
     QLineEdit *m_language = nullptr;
     QPlainTextEdit *m_notes = nullptr;
     QPushButton *m_save = nullptr;

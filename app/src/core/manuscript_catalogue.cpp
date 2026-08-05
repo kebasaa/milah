@@ -95,9 +95,18 @@ ManuscriptCatalogue ManuscriptCatalogue::fromJson(const QJsonObject &document)
         entry.date = record.value(QStringLiteral("date")).toString();
         // Absent from a third of the published texts, and only ever displayed.
         entry.covers = record.value(QStringLiteral("covers")).toString();
-        // Trimmed because the OSIS headers wrap it across lines, and a tooltip
-        // that opens on a newline reads as broken.
+        // Trimmed rather than taken raw, the same way rights is: these come out
+        // of prose in an OSIS header and a stray newline in a table column is
+        // a row that no longer lines up with the ones around it.
+        entry.shelfmark = record.value(QStringLiteral("shelfmark")).toString().trimmed();
+        entry.folios = record.value(QStringLiteral("folios")).toString().trimmed();
+        entry.translatedFrom =
+            record.value(QStringLiteral("translatedFrom")).toString().trimmed();
+        entry.exemplar = record.value(QStringLiteral("exemplar")).toString().trimmed();
+        // Trimmed because the OSIS headers wrap these across lines, and a
+        // tooltip that opens on a newline reads as broken.
         entry.rights = record.value(QStringLiteral("rights")).toString().trimmed();
+        entry.license = record.value(QStringLiteral("license")).toString().trimmed();
         // Only used to say how large a download will be, so a size that makes
         // no sense costs a line of display, not the manuscript.
         entry.bytes = record.value(QStringLiteral("bytes")).toInteger(0);
@@ -114,6 +123,24 @@ ManuscriptCatalogue ManuscriptCatalogue::fromJson(const QJsonObject &document)
     }
 
     return catalogue;
+}
+
+QString ManuscriptCatalogue::manuscriptAge(const CatalogueEntry &entry) const
+{
+    if (!entry.isTranslation() || entry.shelfmark.isEmpty()) {
+        return entry.date;
+    }
+
+    // The witness this renders, by the shelfmark they share — the one field
+    // that names the physical object rather than the file. Its date is the
+    // manuscript's age; this entry's own is the year somebody translated it.
+    for (const CatalogueEntry &witness : m_entries) {
+        if (!witness.isTranslation() && witness.shelfmark == entry.shelfmark
+            && !witness.date.isEmpty()) {
+            return witness.date;
+        }
+    }
+    return entry.date;
 }
 
 QStringList ManuscriptCatalogue::installedFiles(const QString &directory) const

@@ -5,6 +5,7 @@
 #include <QDialogButtonBox>
 #include <QDir>
 #include <QFileInfo>
+#include <QHeaderView>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QLabel>
@@ -49,6 +50,70 @@ namespace {
 /// megabyte.
 constexpr qint64 kFileSizeLimit = 32 * 1024 * 1024;
 
+/// The columns, named rather than counted: seven of them is past where a bare
+/// index in setText() still says which one it means.
+enum Column {
+    ColumnTitle = 0,
+    ColumnShelfmark,
+    ColumnFolios,
+    ColumnAge,
+    ColumnTranslatedFrom,
+    ColumnExemplar,
+    ColumnSize,
+};
+
+/// What a column shows for a field nobody has answered.
+///
+/// A dash rather than an empty cell, so a row that answers nothing still reads
+/// as a row; and rather than "No", because these fields are silent about two
+/// different things at once. An empty `translatedFrom` may mean an independent
+/// Hebrew composition or a question nobody has settled, and "No" would claim
+/// the first when the catalogue only knows it has not been told.
+QString orDash(const QString &value)
+{
+    return value.isEmpty() ? QStringLiteral("—") : value;
+}
+
+/// A free-text field as a column: short enough to read at a glance, with the
+/// whole of it on the tooltip.
+///
+/// "Translated from the Greek" is what a header says and what a scholar wants
+/// to read; "Greek" is what fits beside six other columns. Taking the tail of
+/// the sentence keeps the answer rather than the question — the leading words
+/// are the same on every one of them.
+QString briefly(const QString &sentence)
+{
+    if (sentence.isEmpty()) {
+        return QStringLiteral("—");
+    }
+    static const QStringList leads = {
+        QStringLiteral("Translated from the "),
+        QStringLiteral("Translated from "),
+        QStringLiteral("Copied from the "),
+        QStringLiteral("Copied from "),
+        QStringLiteral("A copy of the "),
+        QStringLiteral("A copy of "),
+    };
+    QString brief = sentence;
+    for (const QString &lead : leads) {
+        if (brief.startsWith(lead, Qt::CaseInsensitive)) {
+            brief = brief.mid(lead.size());
+            break;
+        }
+    }
+    brief = brief.trimmed();
+    if (brief.endsWith(QLatin1Char('.'))) {
+        brief.chop(1);
+    }
+    // Past this it stops being a column and starts being a paragraph; the
+    // tooltip carries the rest either way.
+    constexpr int room = 28;
+    if (brief.size() > room) {
+        return brief.left(room - 1).trimmed() + QStringLiteral("…");
+    }
+    return brief.isEmpty() ? QStringLiteral("Yes") : brief;
+}
+
 QString humanSize(qint64 bytes)
 {
     if (bytes <= 0) {
@@ -86,14 +151,37 @@ DownloadManuscriptsDialog::DownloadManuscriptsDialog(QWidget *parent)
 
     m_tree = new QTreeWidget;
     m_tree->setObjectName(QStringLiteral("manuscriptCatalogue"));
-    m_tree->setHeaderLabels(
-        {QStringLiteral("Manuscript"), QStringLiteral("Covers"), QStringLiteral("Size")});
+    // A catalogue rather than a list. What a scholar wants before taking a copy
+    // is what the manuscript is — where it is kept, which leaves it occupies,
+    // how old it is, whether the Hebrew is itself a rendering of something else
+    // and whether it copies an older book — and reading that off a title alone
+    // is not possible.
+    m_tree->setHeaderLabels({
+        QStringLiteral("Manuscript"),
+        QStringLiteral("Shelfmark"),
+        QStringLiteral("Folios"),
+        QStringLiteral("Age"),
+        QStringLiteral("Translated from"),
+        QStringLiteral("Copy of"),
+        QStringLiteral("Size"),
+    });
     m_tree->setRootIsDecorated(true);
     m_tree->setAlternatingRowColors(true);
     m_tree->setSelectionMode(QAbstractItemView::NoSelection);
     // The texts are Latin-titled and the sizes are numbers, so this one panel
     // reads left to right whatever the manuscripts inside it do.
     m_tree->setLayoutDirection(Qt::LeftToRight);
+
+    // The title takes the slack and the rest take what they need. Without this
+    // every column is the same default width, which for six narrow ones and one
+    // long one is the arrangement that fits worst.
+    QHeaderView *header = m_tree->header();
+    header->setStretchLastSection(false);
+    header->setSectionResizeMode(ColumnTitle, QHeaderView::Stretch);
+    for (int column = ColumnShelfmark; column <= ColumnSize; ++column) {
+        header->setSectionResizeMode(column, QHeaderView::ResizeToContents);
+    }
+
     connect(m_tree, &QTreeWidget::itemChanged, this, [this] { updateDownloadButton(); });
 
     m_progress = new QProgressBar;
@@ -318,9 +406,17 @@ void DownloadManuscriptsDialog::showCatalogue()
         const bool updatable = stale.contains(entry.file);
         const bool alreadyHeld = held.contains(entry.file) && !updatable;
         auto *row = new QTreeWidgetItem(book);
-        row->setText(0, entry.displayTitle());
-        row->setText(1, entry.covers);
-        row->setText(2,
+        row->setText(ColumnTitle, entry.displayTitle());
+        row->setText(ColumnShelfmark, orDash(entry.shelfmark));
+        row->setText(ColumnFolios, orDash(entry.folios));
+        // The manuscript's age on both rows of a pair. A translation's own date
+        // is the year it was translated, and answering 2017 under a column
+        // headed Age for a manuscript written between 1500 and 1699 would be
+        // worse than answering nothing.
+        row->setText(ColumnAge, orDash(m_catalogue.manuscriptAge(entry)));
+        row->setText(ColumnTranslatedFrom, briefly(entry.translatedFrom));
+        row->setText(ColumnExemplar, briefly(entry.exemplar));
+        row->setText(ColumnSize,
                      updatable      ? QStringLiteral("update available")
                          : alreadyHeld ? QStringLiteral("held")
                                        : humanSize(entry.bytes));
@@ -329,28 +425,54 @@ void DownloadManuscriptsDialog::showCatalogue()
         // boilerplate repeated a dozen times, but it must be reachable before
         // the file is taken rather than only after.
         QStringList detail;
+        if (!entry.shelfmark.isEmpty()) {
+            detail.append(QStringLiteral("Shelfmark: %1").arg(entry.shelfmark));
+        }
+        if (!entry.folios.isEmpty()) {
+            detail.append(QStringLiteral("Folios: %1").arg(entry.folios));
+        }
         if (!entry.date.isEmpty()) {
             detail.append(QStringLiteral("Written: %1").arg(entry.date));
+        }
+        // In full, because the columns show only as much of them as fits.
+        if (!entry.translatedFrom.isEmpty()) {
+            detail.append(entry.translatedFrom);
+        }
+        if (!entry.exemplar.isEmpty()) {
+            detail.append(entry.exemplar);
         }
         if (!entry.covers.isEmpty()) {
             detail.append(QStringLiteral("Covers: %1").arg(entry.covers));
         }
+        // Copyright and licence apart, and labelled apart. Who holds a text and
+        // what may be done with it are different answers here — every one of
+        // these names a holder, while the terms run from "All rights reserved"
+        // to CC BY-NC-SA — and running them together would let a reader take
+        // the one for the other.
         if (!entry.rights.isEmpty()) {
-            detail.append(QStringLiteral("Rights: %1").arg(entry.rights));
+            detail.append(QStringLiteral("Copyright: %1").arg(entry.rights));
+        }
+        if (!entry.license.isEmpty()) {
+            detail.append(QStringLiteral("Licence: %1").arg(entry.license));
         }
         detail.append(entry.file);
-        row->setToolTip(0, detail.join(QLatin1Char('\n')));
+        const QString tooltip = detail.join(QLatin1Char('\n'));
+        // On every column, not only the title: with seven of them the pointer
+        // is as likely to be over Folios as over the name when a reader wants
+        // to know more.
+        for (int column = 0; column < m_tree->columnCount(); ++column) {
+            row->setToolTip(column, tooltip);
+        }
         row->setFlags(row->flags() | Qt::ItemIsUserCheckable);
         // Nothing is ticked for the editor, updates included: this window's
         // rule is that opening it puts nothing on the wire. Select updates is
         // there for the case where taking them all is what is wanted.
-        row->setCheckState(0, Qt::Unchecked);
+        row->setCheckState(ColumnTitle, Qt::Unchecked);
         row->setDisabled(alreadyHeld);
-        row->setData(0, Qt::UserRole, entry.file);
-        row->setData(0, Qt::UserRole + 1, updatable);
+        row->setData(ColumnTitle, Qt::UserRole, entry.file);
+        row->setData(ColumnTitle, Qt::UserRole + 1, updatable);
     }
 
-    m_tree->resizeColumnToContents(0);
     if (m_selectUpdates) {
         m_selectUpdates->setEnabled(!stale.isEmpty());
     }

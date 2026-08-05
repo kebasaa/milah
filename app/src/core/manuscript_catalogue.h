@@ -33,18 +33,52 @@ struct CatalogueEntry
     /// What the edition covers. Absent from a third of the texts, so never
     /// assume it is there.
     QString covers;
-    /// The `<rights>` line from the OSIS header: who holds the copyright and on
-    /// what terms the text may be used.
+
+    // What a cataloguer looks a manuscript up by, and what the download window
+    // shows in the columns beside its title. All four describe the manuscript
+    // rather than the file, so a translation carries the same answers as the
+    // witness it renders — it is a rendering of the same physical object.
+    //
+    // Every one of them may be empty, and usually is. These are questions
+    // answered for some manuscripts and not others, and a catalogue that
+    // insisted on them would be a catalogue nobody could add to.
+
+    /// What the holding library files it under: "British Library, Sloane MS
+    /// 237".
+    QString shelfmark;
+    /// Which leaves of the codex it occupies: "1r–4v".
+    QString folios;
+    /// What the Hebrew was rendered out of, where it is a rendering at all:
+    /// "Translated from the Greek".
     ///
-    /// Shown before anything is downloaded, because the terms are not uniform
-    /// and not all of them are permissive — some of these translations are
-    /// "All rights reserved" while the transcriptions beside them are CC
-    /// BY-NC-SA. A reader is entitled to know which of the two they are taking
-    /// a copy of, and telling them afterwards is telling them too late.
+    /// Empty covers two different things — an independent Hebrew composition,
+    /// and a question nobody has settled — and it is honest about neither, so
+    /// the window says "—" rather than "No".
+    QString translatedFrom;
+    /// The older manuscript this one copies, where it is known to copy one:
+    /// "Copied from Cambridge MS Oo.1.32".
+    QString exemplar;
+    // Who holds the text, and what a reader may do with it. Two questions with
+    // two answers, kept apart because conflating them cannot describe the
+    // published set: a copyright holder is named for every one of these texts,
+    // and the terms range from "All rights reserved" through "free for any
+    // non-commercial project" to CC BY-NC-SA. One field could only ever have
+    // given one of those.
+    //
+    // Both are shown before anything is downloaded. A reader is entitled to
+    // know what they are taking a copy of, and telling them afterwards is
+    // telling them too late.
+
+    /// Who holds the copyright, from `<rights type="x-copyright">`. May be
+    /// legitimately empty, where nobody in particular is credited with a bare
+    /// transcription.
+    QString rights;
+    /// On what terms it may be used, from `<rights type="x-license">`.
     ///
     /// Empty when the manifest predates the field, in which case the window
-    /// says nothing rather than implying no terms apply.
-    QString rights;
+    /// says nothing rather than implying no terms apply. Silence is not a
+    /// licence, and must not be shown as one.
+    QString license;
     /// Which way Milah has to load it. The manifest states this rather than the
     /// app guessing, and it is why the library can load a file without asking.
     SourceRole role = SourceRole::Manuscript;
@@ -95,6 +129,19 @@ public:
 
     const QList<CatalogueEntry> &entries() const { return m_entries; }
     bool isEmpty() const { return m_entries.isEmpty(); }
+
+    /// How old the manuscript `entry` is a text of.
+    ///
+    /// Its own `date` for a witness. For a translation, the date of the witness
+    /// it renders, found by shelfmark — because a translation's own date is the
+    /// year somebody translated it, and a column headed Age that answered 2017
+    /// for a manuscript written between 1500 and 1699 would be worse than a
+    /// column that answered nothing.
+    ///
+    /// Falls back to the entry's own date when no witness can be found, which
+    /// is at least a date and is marked as the file's own by nothing else
+    /// claiming otherwise.
+    QString manuscriptAge(const CatalogueEntry &entry) const;
 
     /// The file names of `directory` that this catalogue knows about, so the
     /// download window can say what is already held.

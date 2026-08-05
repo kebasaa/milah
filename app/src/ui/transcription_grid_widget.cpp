@@ -287,7 +287,7 @@ void TranscriptionGridWidget::build()
         // comparison read as the same kind of thing.
         addVerseHeading(addBandGroup(), verse);
 
-        const QList<Band> bands = packBands(widths, readingRoom);
+        const QList<Band> bands = packBands(widths, readingRoom, ColumnSpacing);
         for (int index = 0; index < bands.size(); ++index) {
             const Band &band = bands.at(index);
             // Ruled only between the bands of one verse now, which is what the

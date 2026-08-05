@@ -29,7 +29,10 @@ QString sourceTooltip(const SourceDocument *source)
 {
     QStringList lines;
     if (!source->metadata.rights.isEmpty()) {
-        lines.append(QStringLiteral("Rights: %1").arg(source->metadata.rights));
+        lines.append(QStringLiteral("Copyright: %1").arg(source->metadata.rights));
+    }
+    if (!source->metadata.license.isEmpty()) {
+        lines.append(QStringLiteral("Licence: %1").arg(source->metadata.license));
     }
     lines.append(source->warnings);
     return lines.join(QLatin1Char('\n'));

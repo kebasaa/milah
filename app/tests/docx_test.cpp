@@ -43,8 +43,52 @@ DocxDocument oneHebrewParagraph()
     paragraph.runs.append(hebrew);
 
     paragraph.runs.append(DocxRun{QStringLiteral("in the beginning")});
-    document.paragraphs.append(paragraph);
+    document.blocks.append(paragraph);
     return document;
+}
+
+/// A two-row table whose second row's cells are deliberately left empty.
+///
+/// Empty is the ordinary case in a collation — a witness that reads nothing at
+/// a word the others do — so it is what the table model is exercised with.
+DocxTable twoRowTable(bool rightToLeft = false)
+{
+    DocxTable table;
+    table.rightToLeft = rightToLeft;
+    table.columnWidths = {900, 1200, 1500};
+
+    DocxTableRow filled;
+    for (const QString &text :
+         {QStringLiteral("Sloane"), QStringLiteral("first"), QStringLiteral("second")}) {
+        DocxParagraph paragraph;
+        paragraph.style = QStringLiteral("TableCell");
+        paragraph.runs.append(DocxRun{text});
+        filled.cells.append(DocxTableCell{{paragraph}});
+    }
+    table.rows.append(filled);
+
+    DocxTableRow bare;
+    bare.cells = {DocxTableCell{}, DocxTableCell{}, DocxTableCell{}};
+    table.rows.append(bare);
+
+    return table;
+}
+
+/// Every `w:tc` in `xml`, as the text between it and its matching `</w:tc>`.
+QStringList cellBodies(const QString &xml)
+{
+    QStringList bodies;
+    int at = 0;
+    while ((at = xml.indexOf(QStringLiteral("<w:tc>"), at)) >= 0) {
+        const int opens = xml.indexOf(QLatin1Char('>'), at) + 1;
+        const int closes = xml.indexOf(QStringLiteral("</w:tc>"), opens);
+        if (closes < 0) {
+            break;
+        }
+        bodies.append(xml.mid(opens, closes - opens));
+        at = closes;
+    }
+    return bodies;
 }
 
 } // namespace
@@ -94,7 +138,7 @@ private slots:
         DocxParagraph gloss;
         gloss.style = QStringLiteral("Gloss");
         gloss.runs.append(DocxRun{QStringLiteral("in the beginning")});
-        document.paragraphs.append(gloss);
+        document.blocks.append(gloss);
 
         const QString xml = QString::fromUtf8(docxDocumentXml(document));
         QVERIFY(!xml.contains(QStringLiteral("<w:rtl/>")));
@@ -164,7 +208,7 @@ private slots:
             marker.footnoteId = document.addFootnote(QStringLiteral("note %1").arg(index));
             paragraph.runs.append(marker);
         }
-        document.paragraphs.append(paragraph);
+        document.blocks.append(paragraph);
 
         QSet<QString> referenced;
         const QString body = QString::fromUtf8(docxDocumentXml(document));
@@ -193,7 +237,7 @@ private slots:
         DocxRun marker;
         marker.footnoteId = document.addFootnote(QStringLiteral("a remark"));
         paragraph.runs.append(marker);
-        document.paragraphs.append(paragraph);
+        document.blocks.append(paragraph);
 
         QVERIFY(QString::fromUtf8(docxDocumentXml(document))
                     .contains(QStringLiteral("<w:rStyle w:val=\"FootnoteReference\"/>")));
@@ -212,6 +256,9 @@ private slots:
                                     QStringLiteral("Heading2"),
                                     QStringLiteral("VerseHebrew"),
                                     QStringLiteral("Gloss"),
+                                    QStringLiteral("TableCell"),
+                                    QStringLiteral("TableGloss"),
+                                    QStringLiteral("TableLabel"),
                                     QStringLiteral("FootnoteText"),
                                     QStringLiteral("FootnoteReference")}) {
             QVERIFY2(
@@ -227,7 +274,7 @@ private slots:
         DocxDocument document;
         DocxParagraph paragraph;
         paragraph.runs.append(DocxRun{QStringLiteral("1 ")});
-        document.paragraphs.append(paragraph);
+        document.blocks.append(paragraph);
         QVERIFY(QString::fromUtf8(docxDocumentXml(document))
                     .contains(QStringLiteral("xml:space=\"preserve\"")));
     }
@@ -290,6 +337,147 @@ private slots:
         QVERIFY(QString::fromUtf8(body.readAll()).contains(QStringLiteral("בְּרֵאשִׁית")));
         body.close();
         archive.close();
+    }
+
+    // --- tables -------------------------------------------------------------
+
+    void aTableCellAlwaysHoldsAParagraph()
+    {
+        // The most important test here. An empty cell is not an edge case in a
+        // collation, it is the ordinary case — a witness silent at one word —
+        // and a w:tc with no w:p in it is not a table that lays out oddly, it is
+        // a file Word offers to repair.
+        DocxDocument document;
+        document.blocks.append(DocxBlock(twoRowTable()));
+
+        const QStringList bodies = cellBodies(QString::fromUtf8(docxDocumentXml(document)));
+        QCOMPARE(bodies.size(), 6);
+        for (const QString &body : bodies) {
+            QVERIFY2(body.contains(QStringLiteral("<w:p")), qPrintable(body));
+        }
+    }
+
+    void aTableIsWellFormedAndSurvivesThePackage()
+    {
+        DocxDocument document;
+        document.blocks.append(DocxBlock(twoRowTable(true)));
+
+        QString reason;
+        QVERIFY2(wellFormed(docxDocumentXml(document), &reason), qPrintable(reason));
+    }
+
+    void theTableBordersAreAllNil()
+    {
+        // A collation is a grid to the writer and prose to the reader. Lines
+        // round the words would turn an edition into a spreadsheet.
+        DocxDocument document;
+        document.blocks.append(DocxBlock(twoRowTable()));
+        const QString xml = QString::fromUtf8(docxDocumentXml(document));
+
+        for (const QString &edge : {QStringLiteral("top"),
+                                    QStringLiteral("left"),
+                                    QStringLiteral("bottom"),
+                                    QStringLiteral("right"),
+                                    QStringLiteral("insideH"),
+                                    QStringLiteral("insideV")}) {
+            QVERIFY2(
+                xml.contains(QStringLiteral("<w:%1 w:val=\"nil\"/>").arg(edge)),
+                qPrintable(edge));
+        }
+    }
+
+    void theGridMatchesTheCells()
+    {
+        DocxDocument document;
+        document.blocks.append(DocxBlock(twoRowTable()));
+        const QString xml = QString::fromUtf8(docxDocumentXml(document));
+
+        // One gridCol per declared width, and each cell sized from the grid
+        // rather than from anything it carries itself.
+        QCOMPARE(xml.count(QStringLiteral("<w:gridCol ")), 3);
+        for (const int width : {900, 1200, 1500}) {
+            QVERIFY2(
+                xml.contains(QStringLiteral("<w:gridCol w:w=\"%1\"/>").arg(width)),
+                qPrintable(QString::number(width)));
+            QVERIFY(xml.contains(QStringLiteral("<w:tcW w:w=\"%1\" w:type=\"dxa\"/>").arg(width)));
+        }
+        // And the table's declared width is their sum, not a guess.
+        QVERIFY(xml.contains(QStringLiteral("<w:tblW w:w=\"3600\" w:type=\"dxa\"/>")));
+    }
+
+    void twoTablesNeverTouch()
+    {
+        // Word merges adjacent w:tbl elements into one table, which would run
+        // every band of a verse into a single grid.
+        DocxDocument document;
+        document.blocks.append(DocxBlock(twoRowTable()));
+        document.blocks.append(DocxBlock(twoRowTable()));
+
+        const QString xml = QString::fromUtf8(docxDocumentXml(document));
+        QVERIFY(!xml.contains(QStringLiteral("</w:tbl><w:tbl>")));
+        QCOMPARE(xml.count(QStringLiteral("</w:tbl><w:p/>")), 2);
+    }
+
+    void aRightToLeftTableSaysSoAndKeepsItsOrder()
+    {
+        DocxDocument leftToRight;
+        leftToRight.blocks.append(DocxBlock(twoRowTable(false)));
+        QVERIFY(!QString::fromUtf8(docxDocumentXml(leftToRight))
+                     .contains(QStringLiteral("<w:bidiVisual/>")));
+
+        DocxDocument rightToLeft;
+        rightToLeft.blocks.append(DocxBlock(twoRowTable(true)));
+        const QString xml = QString::fromUtf8(docxDocumentXml(rightToLeft));
+        QVERIFY(xml.contains(QStringLiteral("<w:bidiVisual/>")));
+
+        // The cells are NOT reversed: Word draws the first at the right-hand
+        // edge, so cell n stays column n for everyone who has to reason about
+        // the document afterwards.
+        const QStringList bodies = cellBodies(xml);
+        QVERIFY(bodies.first().contains(QStringLiteral("Sloane")));
+        QVERIFY(bodies.at(2).contains(QStringLiteral("second")));
+    }
+
+    void theTablePropertiesAreInSchemaOrder()
+    {
+        // CT_TblPrBase is a sequence, and Word is markedly less forgiving about
+        // it than about a run's properties. This is what stops a later edit
+        // appending a property wherever it happened to be convenient.
+        DocxDocument document;
+        document.blocks.append(DocxBlock(twoRowTable(true)));
+        const QString xml = QString::fromUtf8(docxDocumentXml(document));
+
+        const int bidi = xml.indexOf(QStringLiteral("<w:bidiVisual/>"));
+        const int width = xml.indexOf(QStringLiteral("<w:tblW "));
+        const int borders = xml.indexOf(QStringLiteral("<w:tblBorders>"));
+        const int layout = xml.indexOf(QStringLiteral("<w:tblLayout "));
+        const int margins = xml.indexOf(QStringLiteral("<w:tblCellMar>"));
+        const int look = xml.indexOf(QStringLiteral("<w:tblLook "));
+
+        QVERIFY(bidi >= 0 && bidi < width);
+        QVERIFY(width < borders);
+        QVERIFY(borders < layout);
+        QVERIFY(layout < margins);
+        QVERIFY(margins < look);
+    }
+
+    void aColouredRunCarriesItsColourAndAStruckRunIsStruck()
+    {
+        DocxDocument document;
+        DocxParagraph paragraph;
+
+        DocxRun missing;
+        missing.text = QStringLiteral("gone");
+        missing.color = QStringLiteral("C0392B");
+        missing.strikeThrough = true;
+        paragraph.runs.append(missing);
+
+        paragraph.runs.append(DocxRun{QStringLiteral("plain")});
+        document.blocks.append(paragraph);
+
+        const QString xml = QString::fromUtf8(docxDocumentXml(document));
+        QCOMPARE(xml.count(QStringLiteral("<w:strike/>")), 1);
+        QCOMPARE(xml.count(QStringLiteral("<w:color w:val=\"C0392B\"/>")), 1);
     }
 };
 
