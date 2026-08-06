@@ -58,6 +58,61 @@ private slots:
         QCOMPARE(verse->tokens.at(0).notes.at(0).text, QStringLiteral("A comment"));
     }
 
+    void theCopyrightAndTheLicenceAreReadApart()
+    {
+        // Two questions with different answers. Every published text names a
+        // holder, while the terms run from "All rights reserved" to
+        // CC BY-NC-SA — one field could only ever have carried one of them.
+        const SourceDocument document = parseOsis(
+            osisWithRights(
+                QStringLiteral("<rights type=\"x-copyright\">© 2018 Nehemia Gordon</rights>"
+                               "<rights type=\"x-license\">All rights reserved.</rights>")),
+            options(QStringLiteral("w"), QStringLiteral("t.osis")));
+
+        QCOMPARE(document.metadata.rights, QStringLiteral("© 2018 Nehemia Gordon"));
+        QCOMPARE(document.metadata.license, QStringLiteral("All rights reserved."));
+    }
+
+    void anUntypedRightsElementIsReadAsTheCopyright()
+    {
+        // Every file carried a bare <rights> before the split. Such a header
+        // must degrade to answering one question rather than neither — and it
+        // must not be mistaken for a licence, which is the more dangerous of
+        // the two ways to be wrong.
+        const SourceDocument document = parseOsis(
+            osisWithRights(QStringLiteral("<rights>© 2017 by Nehemia Gordon</rights>")),
+            options(QStringLiteral("w"), QStringLiteral("t.osis")));
+
+        QCOMPARE(document.metadata.rights, QStringLiteral("© 2017 by Nehemia Gordon"));
+        QVERIFY(document.metadata.license.isEmpty());
+    }
+
+    void aFileStatingNoLicenceClaimsNone()
+    {
+        // Silence is not a licence. A text that names a holder and no terms
+        // must leave the terms empty rather than acquire permissive ones.
+        const SourceDocument document = parseOsis(
+            osisWithRights(
+                QStringLiteral("<rights type=\"x-copyright\">© 2024 Janice F. Baca</rights>")),
+            options(QStringLiteral("w"), QStringLiteral("t.osis")));
+
+        QCOMPARE(document.metadata.rights, QStringLiteral("© 2024 Janice F. Baca"));
+        QVERIFY(document.metadata.license.isEmpty());
+    }
+
+    void aLicenceWithNoNamedHolderIsStillRead()
+    {
+        // A bare transcription may credit nobody in particular; the terms it is
+        // published under are a separate fact and must survive alone.
+        const SourceDocument document = parseOsis(
+            osisWithRights(
+                QStringLiteral("<rights type=\"x-license\">CC BY-NC-SA 4.0</rights>")),
+            options(QStringLiteral("w"), QStringLiteral("t.osis")));
+
+        QVERIFY(document.metadata.rights.isEmpty());
+        QCOMPARE(document.metadata.license, QStringLiteral("CC BY-NC-SA 4.0"));
+    }
+
     void theRightsAreReadFromTheHeader()
     {
         const SourceDocument document = parseOsis(

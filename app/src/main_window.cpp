@@ -536,6 +536,20 @@ void MainWindow::createActions()
     connect(
         m_exportAction, &QAction::triggered, m_controller, &AppController::exportCombined);
 
+    // No shortcut: Ctrl+E is Export Combined, and the transcription tab's Word
+    // export goes without one for the same reason — a File menu with two
+    // exports does not need two chords to remember.
+    m_exportCollationWordAction = new QAction(QStringLiteral("Export to Word…"), this);
+    m_exportCollationWordAction->setToolTip(QStringLiteral(
+        "Writes the whole book — not only the chapter on screen — as a Word "
+        "document: each verse a table of the witnesses one above another, the "
+        "differences coloured as they are here, and the notes as footnotes."));
+    connect(
+        m_exportCollationWordAction,
+        &QAction::triggered,
+        m_controller,
+        &AppController::exportCollationWord);
+
     m_quitAction = new QAction(QStringLiteral("Quit"), this);
     // QKeySequence::Quit is unbound on Windows, so it is written out.
     m_quitAction->setShortcut(QKeySequence(QStringLiteral("Ctrl+Q")));
@@ -831,6 +845,7 @@ void MainWindow::buildMenuBar()
     m_editionFileMenu->addAction(m_loadTranslationsAction);
     m_editionFileMenu->addSeparator();
     m_editionFileMenu->addAction(m_exportAction);
+    m_editionFileMenu->addAction(m_exportCollationWordAction);
     m_editionFileMenu->addSeparator();
     m_editionFileMenu->addAction(m_saveDictionaryAction);
     m_editionFileMenu->addAction(m_loadDictionaryAction);
@@ -1104,6 +1119,7 @@ void MainWindow::updateProjectActions()
     m_saveAction->setEnabled(ready);
     m_closeAction->setEnabled(ready);
     m_exportAction->setEnabled(ready);
+    m_exportCollationWordAction->setEnabled(ready);
 }
 
 void MainWindow::updateNavigationActions()

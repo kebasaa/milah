@@ -1,5 +1,6 @@
 #include "app_controller.h"
 
+#include "core/books.h"
 #include "core/coverage.h"
 #include "core/data_paths.h"
 #include "core/lexicon.h"
@@ -13,7 +14,9 @@
 #include "ui/download_manuscripts_dialog.h"
 #include "ui/manuscript_library_dialog.h"
 
+#include <QApplication>
 #include <QDateTime>
+#include <QDir>
 #include <QFile>
 #include <QFileDialog>
 #include <QFileInfo>
@@ -1419,6 +1422,106 @@ void AppController::exportCombined()
     setMessage(written.size() == 1
         ? QStringLiteral("Combined OSIS exported.")
         : QStringLiteral("Exported %1.").arg(written.join(QStringLiteral(", "))));
+}
+
+CollationExport AppController::collationExport() const
+{
+    CollationExport collation;
+    if (!m_location.has_value()) {
+        return collation;
+    }
+
+    collation.manuscripts = manuscripts();
+    collation.acronyms = acronyms();
+    collation.rightToLeft = readingDirection() == Qt::RightToLeft;
+
+    const QString book = bookName(m_location->book);
+    collation.title = book.isEmpty() ? m_location->book : book;
+    collation.subtitle.append(
+        collation.manuscripts.size() == 1
+            ? QStringLiteral("One witness")
+            : QStringLiteral("%1 witnesses").arg(collation.manuscripts.size()));
+
+    // Every chapter of the book, in the order the coverage list holds them,
+    // rather than only the one being read. Review filters are deliberately not
+    // applied: a filter is a lens for working, not a boundary of the edition,
+    // and dropping verses from a document titled with the book would be a
+    // quieter kind of wrong than leaving them in.
+    for (const LocationCoverage &covered : m_locations) {
+        if (covered.location.book != m_location->book) {
+            continue;
+        }
+        for (const QString &verseId : verseIdsAtLocation(collation.manuscripts, covered.location)) {
+            CollationVerse verse;
+            verse.referenceId = referenceFor(verseId);
+            verse.aligned = alignedFor(verseId, collation.manuscripts, verse.referenceId);
+            verse.draft = draftFor(verse.aligned);
+
+            verse.interlinear.reserve(verse.aligned.columns.size());
+            for (int index = 0; index < verse.aligned.columns.size(); ++index) {
+                verse.interlinear.append(interlinearWord(verseId, index));
+                const QString remark = combinedNote(verseId, index);
+                if (!remark.isEmpty()) {
+                    verse.editorNotes.insert(index, remark);
+                }
+            }
+            collation.verses.append(verse);
+        }
+    }
+
+    return collation;
+}
+
+void AppController::exportCollationWord()
+{
+    if (!m_location.has_value() || manuscripts().isEmpty()) {
+        setMessage(QStringLiteral("There is nothing to export yet."));
+        return;
+    }
+
+    // Aligning every chapter of a book is the slow part, and it runs before the
+    // dialog rather than after so the editor is not left looking at a file
+    // browser that has stopped answering.
+    QApplication::setOverrideCursor(Qt::WaitCursor);
+    const CollationExport collation = collationExport();
+    const DocxDocument document = collationWordDocument(collation);
+    QApplication::restoreOverrideCursor();
+
+    if (document.blocks.isEmpty()) {
+        QMessageBox::warning(
+            m_dialogParent,
+            QStringLiteral("Milah"),
+            QStringLiteral("No verse of this book has a witness to collate."));
+        return;
+    }
+
+    const QString suggested = QStringLiteral("%1.docx").arg(collation.title);
+    const QString directory = lastDirectory();
+    QString path = QFileDialog::getSaveFileName(
+        m_dialogParent,
+        QStringLiteral("Export the collation as a Word document"),
+        directory.isEmpty() ? suggested : QDir(directory).filePath(suggested),
+        QStringLiteral("Word documents (*.docx);;All files (*)"));
+    if (path.isEmpty()) {
+        setMessage(QStringLiteral("Export was cancelled."));
+        return;
+    }
+    if (!path.endsWith(QStringLiteral(".docx"), Qt::CaseInsensitive)) {
+        path += QStringLiteral(".docx");
+    }
+
+    QString error;
+    if (!writeDocx(path, document, &error)) {
+        QMessageBox::warning(m_dialogParent, QStringLiteral("Milah"), error);
+        setMessage(error);
+        return;
+    }
+
+    rememberDirectory(path);
+    setMessage(QStringLiteral("Exported %1 verses of %2 to %3.")
+                   .arg(QString::number(collation.verses.size()),
+                        collation.title,
+                        QFileInfo(path).fileName()));
 }
 
 void AppController::setLocation(const Location &location)

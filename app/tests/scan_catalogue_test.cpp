@@ -319,6 +319,37 @@ private slots:
         QVERIFY(catalogue.isEmpty());
     }
 
+    void whatIsSaidAboutTheTextTravelsWithTheScan()
+    {
+        // No library records these; they are written by hand in the published
+        // link list, and are what lets a transcription started from a scan
+        // begin already knowing what somebody has established about it.
+        const ScanCatalogue catalogue = catalogueFrom(R"JSON({"scans":[
+         {"id":"x","title":"Even Bohan","pages":[{"n":1,"image":"IMG/a"}],
+          "translatedFrom":"Translated from the Greek",
+          "translationCertainty":"Original-Uncertain",
+          "exemplar":"Copied from Cambridge MS Oo.1.32"}]})JSON");
+
+        const ScanEntry &entry = catalogue.entries().constFirst();
+        QCOMPARE(entry.translatedFrom, QStringLiteral("Translated from the Greek"));
+        // Lowercased on the way in, so a manifest written either way matches
+        // the vocabulary the rest of Milah compares against.
+        QCOMPARE(entry.translationCertainty, QStringLiteral("original-uncertain"));
+        QCOMPARE(entry.exemplar, QStringLiteral("Copied from Cambridge MS Oo.1.32"));
+    }
+
+    void aScanThatSaysNothingAboutItsTextClaimsNothing()
+    {
+        // Which is every entry in the published manifest today. Empty is not a
+        // claim that the Hebrew is original — that is what "original" is for.
+        const ScanCatalogue catalogue = catalogueFrom(R"JSON({"scans":[
+         {"id":"x","title":"A codex","pages":[{"n":1,"image":"IMG/a"}]}]})JSON");
+        const ScanEntry &entry = catalogue.entries().constFirst();
+        QVERIFY(entry.translatedFrom.isEmpty());
+        QVERIFY(entry.translationCertainty.isEmpty());
+        QVERIFY(entry.exemplar.isEmpty());
+    }
+
     void anUnavailableEntryWithNoUnavailableFieldWrittenStillDefaultsEmpty()
     {
         // A manifest written before this field existed must not crash reading

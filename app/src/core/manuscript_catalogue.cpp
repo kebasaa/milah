@@ -95,9 +95,22 @@ ManuscriptCatalogue ManuscriptCatalogue::fromJson(const QJsonObject &document)
         entry.date = record.value(QStringLiteral("date")).toString();
         // Absent from a third of the published texts, and only ever displayed.
         entry.covers = record.value(QStringLiteral("covers")).toString();
-        // Trimmed because the OSIS headers wrap it across lines, and a tooltip
-        // that opens on a newline reads as broken.
+        // Trimmed rather than taken raw, the same way rights is: these come out
+        // of prose in an OSIS header and a stray newline in a table column is
+        // a row that no longer lines up with the ones around it.
+        entry.shelfmark = record.value(QStringLiteral("shelfmark")).toString().trimmed();
+        entry.folios = record.value(QStringLiteral("folios")).toString().trimmed();
+        entry.translatedFrom =
+            record.value(QStringLiteral("translatedFrom")).toString().trimmed();
+        entry.translationCertainty = record.value(QStringLiteral("translationCertainty"))
+                                         .toString()
+                                         .trimmed()
+                                         .toLower();
+        entry.exemplar = record.value(QStringLiteral("exemplar")).toString().trimmed();
+        // Trimmed because the OSIS headers wrap these across lines, and a
+        // tooltip that opens on a newline reads as broken.
         entry.rights = record.value(QStringLiteral("rights")).toString().trimmed();
+        entry.license = record.value(QStringLiteral("license")).toString().trimmed();
         // Only used to say how large a download will be, so a size that makes
         // no sense costs a line of display, not the manuscript.
         entry.bytes = record.value(QStringLiteral("bytes")).toInteger(0);
@@ -114,6 +127,97 @@ ManuscriptCatalogue ManuscriptCatalogue::fromJson(const QJsonObject &document)
     }
 
     return catalogue;
+}
+
+QString translationSubType(const QString &certainty)
+{
+    return certainty.isEmpty() ? QString() : QStringLiteral("x-%1").arg(certainty);
+}
+
+QString translationCertaintyOf(const QString &subType)
+{
+    static const QStringList known = {
+        QLatin1String(TranslationCertainty::Certain),
+        QLatin1String(TranslationCertainty::Uncertain),
+        QLatin1String(TranslationCertainty::Original),
+        QLatin1String(TranslationCertainty::OriginalUncertain),
+    };
+    if (!subType.startsWith(QLatin1String("x-"))) {
+        return QString();
+    }
+    const QString value = subType.mid(2).toLower();
+    // Anything else is a header saying something this version has never heard
+    // of, which is not the same as saying nothing — but it is the same to a
+    // reader, and inventing a column for it would be worse than a dash.
+    return known.contains(value) ? value : QString();
+}
+
+QString translationColumn(const CatalogueEntry &entry)
+{
+    const QString certainty = entry.translationCertainty;
+    if (certainty.isEmpty()) {
+        // Not a claim that it is original, and not a claim that it is not:
+        // nobody has recorded an answer, and the column says exactly that.
+        return QStringLiteral("—");
+    }
+
+    const bool settled = certainty == QLatin1String(TranslationCertainty::Certain)
+        || certainty == QLatin1String(TranslationCertainty::Original);
+    const bool original = certainty == QLatin1String(TranslationCertainty::Original)
+        || certainty == QLatin1String(TranslationCertainty::OriginalUncertain);
+    const QString mark = settled ? QString() : QStringLiteral("?");
+
+    if (original) {
+        return QStringLiteral("Original") + mark;
+    }
+
+    // What it renders, cut to the answer. The leading words are the same on
+    // every one of them, and the whole sentence is on the tooltip.
+    static const QStringList leads = {
+        QStringLiteral("Translated from the "),
+        QStringLiteral("Translated from "),
+        QStringLiteral("A translation of the "),
+        QStringLiteral("A translation of "),
+    };
+    QString source = entry.translatedFrom;
+    for (const QString &lead : leads) {
+        if (source.startsWith(lead, Qt::CaseInsensitive)) {
+            source = source.mid(lead.size());
+            break;
+        }
+    }
+    source = source.trimmed();
+    if (source.endsWith(QLatin1Char('.'))) {
+        source.chop(1);
+    }
+    if (source.isEmpty()) {
+        // A verdict with nothing named: it is a rendering of something nobody
+        // has written down.
+        return QStringLiteral("Yes") + mark;
+    }
+    constexpr int room = 26;
+    if (source.size() > room) {
+        source = source.left(room - 1).trimmed() + QStringLiteral("…");
+    }
+    return source + mark;
+}
+
+QString ManuscriptCatalogue::manuscriptAge(const CatalogueEntry &entry) const
+{
+    if (!entry.isTranslation() || entry.shelfmark.isEmpty()) {
+        return entry.date;
+    }
+
+    // The witness this renders, by the shelfmark they share — the one field
+    // that names the physical object rather than the file. Its date is the
+    // manuscript's age; this entry's own is the year somebody translated it.
+    for (const CatalogueEntry &witness : m_entries) {
+        if (!witness.isTranslation() && witness.shelfmark == entry.shelfmark
+            && !witness.date.isEmpty()) {
+            return witness.date;
+        }
+    }
+    return entry.date;
 }
 
 QStringList ManuscriptCatalogue::installedFiles(const QString &directory) const

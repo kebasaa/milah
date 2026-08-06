@@ -2,8 +2,8 @@
 
 #include "app_controller.h"
 #include "core/alignment.h"
-#include "core/diff.h"
 #include "core/lexicon.h"
+#include "core/reading_marks.h"
 #include "core/suggestions.h"
 #include "core/tokenize.h"
 #include "core/word_marker.h"
@@ -62,54 +62,25 @@ QString markedRun(const QString &text, const QString &color, bool struck)
     return QStringLiteral("<span style=\"color:%1\">%2</span>").arg(color, inner);
 }
 
-/// Which of the reference reading's graphemes are absent from `other`.
-QList<bool> missingFromOther(const QString &reference, const QString &other)
-{
-    QList<bool> flags;
-    for (const DiffSegment &segment : diffGraphemes(reference, other)) {
-        if (segment.op == DiffOp::Insert) {
-            continue;
-        }
-        flags.append(QList<bool>(graphemes(segment.before).size(), segment.op == DiffOp::Delete));
-    }
-    return flags;
-}
-
-QString referenceTokenHtml(
-    const QString &text,
-    const QList<bool> &differs,
-    const QString &color)
-{
-    const QStringList clusters = graphemes(text);
-    QString html;
-    int index = 0;
-    while (index < clusters.size()) {
-        const bool marked = differs.value(index, false);
-        QString run;
-        while (index < clusters.size() && differs.value(index, false) == marked) {
-            run += clusters.at(index);
-            ++index;
-        }
-        html += marked ? markedRun(run, color, true) : run.toHtmlEscaped();
-    }
-    return html;
-}
-
-QString variantTokenHtml(
-    const QString &reference,
-    const QString &text,
-    const QString &color)
+/// The marks the core decided, drawn in this palette's inks.
+///
+/// Which graphemes are marked is settled in core/reading_marks.cpp; what is
+/// here is only how they look. The Word export renders the very same marks as
+/// coloured runs, and neither renderer is allowed an opinion about which
+/// stretches are marked — that is the point of the rule living in the core.
+QString markedHtml(const MarkedReading &reading, const DiffColors &colors)
 {
     QString html;
-    for (const DiffSegment &segment : diffGraphemes(reference, text)) {
-        switch (segment.op) {
-        case DiffOp::Equal:
-            html += segment.after.toHtmlEscaped();
+    for (const MarkedSegment &segment : reading) {
+        switch (segment.mark) {
+        case ReadingMark::Plain:
+            html += segment.text.toHtmlEscaped();
             break;
-        case DiffOp::Insert:
-            html += markedRun(segment.after, color, false);
+        case ReadingMark::Missing:
+            html += markedRun(segment.text, colors.removed, true);
             break;
-        case DiffOp::Delete:
+        case ReadingMark::Added:
+            html += markedRun(segment.text, colors.added, false);
             break;
         }
     }
@@ -254,21 +225,18 @@ VerseGridWidget::Row VerseGridWidget::manuscriptRow(
         Cell cell;
         if (const SourceToken *token = column.cell(source->id)) {
             if (isReference) {
-                QList<bool> differs;
+                QStringList readings;
+                readings.reserve(others.size());
                 for (const SourceDocument *other : others) {
                     const SourceToken *reading = column.cell(other->id);
-                    const QList<bool> flags =
-                        missingFromOther(token->text, reading ? reading->text : QString());
-                    differs.resize(std::max(differs.size(), flags.size()));
-                    for (int index = 0; index < flags.size(); ++index) {
-                        differs[index] = differs.at(index) || flags.at(index);
-                    }
+                    readings.append(reading ? reading->text : QString());
                 }
-                cell.html = referenceTokenHtml(token->text, differs, colors.removed);
+                cell.html = markedHtml(markReferenceReading(token->text, readings), colors);
             } else {
                 const SourceToken *anchor = column.cell(reference->id);
-                cell.html = variantTokenHtml(
-                    anchor ? anchor->text : QString(), token->text, colors.added);
+                cell.html = markedHtml(
+                    markVariantReading(anchor ? anchor->text : QString(), token->text),
+                    colors);
             }
 
             if (!token->notes.isEmpty()) {
@@ -1033,7 +1001,7 @@ void VerseGridWidget::build()
     m_builtForAvailable = available;
     const int readingRoom =
         std::max(ColumnSpacing, available - acronymWidth - MeasurementSlack - ColumnSpacing);
-    const QList<Band> bands = packBands(widths, readingRoom);
+    const QList<Band> bands = packBands(widths, readingRoom, ColumnSpacing);
 
     for (int index = 0; index < bands.size(); ++index) {
         const Band &band = bands.at(index);

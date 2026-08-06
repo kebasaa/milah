@@ -865,14 +865,45 @@ WorkMetadata TranscriptionController::workMetadata() const
     work.title = m_document.metadata.manuscriptName.isEmpty()
         ? QStringLiteral("Milah Transcription")
         : m_document.metadata.manuscriptName;
+    // The shelfmark, and not the library holding it. These were crossed: the
+    // institution went out as x-shelfmark — which is what names a witness in
+    // the comparison and fills the download window's Shelfmark column — while
+    // the shelfmark itself reached no file at all.
+    if (!m_document.metadata.shelfmark.isEmpty()) {
+        work.identifiers.insert(
+            QStringLiteral("x-shelfmark"), m_document.metadata.shelfmark);
+    }
     if (!m_document.metadata.libraryMark.isEmpty()) {
         work.identifiers.insert(
-            QStringLiteral("x-shelfmark"), m_document.metadata.libraryMark);
+            QStringLiteral("x-repository"), m_document.metadata.libraryMark);
     }
     if (!m_document.metadata.transcriber.isEmpty()) {
         work.identifiers.insert(
             QStringLiteral("x-transcriber"), m_document.metadata.transcriber);
     }
+
+    // Keyed exactly as the published repository's manifest generator reads
+    // them, so a transcription added to the library describes itself in the
+    // download window without any of this being written out a second time.
+    // Empty ones are dropped by the writer, so unanswered stays unwritten.
+    work.descriptions.insert(
+        QStringLiteral("x-folios"), WorkDescription{m_document.metadata.folios, {}});
+    work.descriptions.insert(
+        QStringLiteral("x-material"), WorkDescription{m_document.metadata.material, {}});
+    work.descriptions.insert(
+        QStringLiteral("x-provenance"),
+        WorkDescription{m_document.metadata.provenance, {}});
+    // The only one of these carrying a verdict as well as an answer: what the
+    // Hebrew renders is a different question from whether that is settled, and
+    // for several of these manuscripts the second is the whole argument.
+    work.descriptions.insert(
+        QStringLiteral("x-translated-from"),
+        WorkDescription{
+            m_document.metadata.translatedFrom,
+            translationSubType(m_document.metadata.translatedFromCertainty)});
+    work.descriptions.insert(
+        QStringLiteral("x-exemplar"), WorkDescription{m_document.metadata.exemplar, {}});
+
     return work;
 }
 
@@ -1071,7 +1102,7 @@ void TranscriptionController::exportWord()
     }
 
     const DocxDocument reading = readingWordDocument(m_document);
-    if (reading.paragraphs.isEmpty()) {
+    if (reading.blocks.isEmpty()) {
         QMessageBox::warning(
             m_dialogParent,
             QStringLiteral("Milah"),

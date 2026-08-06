@@ -43,7 +43,15 @@ QJsonObject metadataToJson(const TranscriptionMetadata &metadata)
     put(json, QStringLiteral("origin"), metadata.origin);
     put(json, QStringLiteral("libraryMark"), metadata.libraryMark);
     put(json, QStringLiteral("shelfmark"), metadata.shelfmark);
+    put(json, QStringLiteral("folios"), metadata.folios);
     put(json, QStringLiteral("date"), metadata.date);
+    put(json, QStringLiteral("material"), metadata.material);
+    put(json, QStringLiteral("provenance"), metadata.provenance);
+    put(json, QStringLiteral("translatedFrom"), metadata.translatedFrom);
+    put(json,
+        QStringLiteral("translatedFromCertainty"),
+        metadata.translatedFromCertainty);
+    put(json, QStringLiteral("exemplar"), metadata.exemplar);
     put(json, QStringLiteral("language"), metadata.language);
     put(json, QStringLiteral("notes"), metadata.notes);
 
@@ -65,7 +73,14 @@ TranscriptionMetadata metadataFromJson(const QJsonObject &json)
     metadata.origin = json.value(QStringLiteral("origin")).toString();
     metadata.libraryMark = json.value(QStringLiteral("libraryMark")).toString();
     metadata.shelfmark = json.value(QStringLiteral("shelfmark")).toString();
+    metadata.folios = json.value(QStringLiteral("folios")).toString();
     metadata.date = json.value(QStringLiteral("date")).toString();
+    metadata.material = json.value(QStringLiteral("material")).toString();
+    metadata.provenance = json.value(QStringLiteral("provenance")).toString();
+    metadata.translatedFrom = json.value(QStringLiteral("translatedFrom")).toString();
+    metadata.translatedFromCertainty =
+        json.value(QStringLiteral("translatedFromCertainty")).toString();
+    metadata.exemplar = json.value(QStringLiteral("exemplar")).toString();
     metadata.language = json.value(QStringLiteral("language")).toString();
     metadata.notes = json.value(QStringLiteral("notes")).toString();
 

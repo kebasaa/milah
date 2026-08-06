@@ -20,19 +20,40 @@ enum class SourceRole {
 QString sourceRoleToString(SourceRole role);
 SourceRole sourceRoleFromString(const QString &value);
 
+/// One `<description>` of a work: what it says, and how firmly.
+struct WorkDescription
+{
+    QString text;
+    /// The `subType` attribute in full — "x-certain". Empty writes none.
+    ///
+    /// Where a verdict goes. OSIS has no `certainty` attribute — checked
+    /// against the schema — but `<description>` accepts `subType` through
+    /// globalWithoutType, and this file already reads `subType="x-alt-…"` off a
+    /// verse. Two different things are being said about a manuscript at once —
+    /// what its Hebrew renders, and whether that is settled — and a catalogue
+    /// that printed the first without the second would state a disputed reading
+    /// as a fact.
+    QString subType;
+};
+
 struct WorkMetadata
 {
     QString workId;
     QString title;
     QString language;
     QString scope;
-    /// The `<rights>` line: who holds the copyright and on what terms.
+    /// Who holds the copyright, from `<rights type="x-copyright">`. An untyped
+    /// `<rights>` is read here too, which is what a header written before the
+    /// split degrades to.
     ///
     /// Read from the file rather than assumed, because the terms differ from
     /// text to text — a collation can hold a CC-licensed transcription and an
     /// "all rights reserved" translation side by side, and the editor working
     /// on them is entitled to see which is which without opening the XML.
     QString rights;
+    /// On what terms it may be used, from `<rights type="x-license">`. Empty is
+    /// "the file did not say", never "no restrictions".
+    QString license;
     /// The `<type>` line's attribute: what kind of work this is. A witness and
     /// an edition are different things and the published library says which by
     /// this line — its manuscript files carry `x-manuscript` where its editions
@@ -42,6 +63,16 @@ struct WorkMetadata
     /// caller that says nothing gets the file it always got.
     QString workType;
     QMap<QString, QString> identifiers;
+    /// `<description type="…">` elements, keyed by the type attribute in full —
+    /// "x-folios", "x-exemplar". What the header says about the manuscript that
+    /// no other element has a place for.
+    ///
+    /// Beside identifiers rather than folded into it: they are different
+    /// elements, and `<work>`'s children are a schema sequence that keeps them
+    /// apart. The keys are the ones the published repository's manifest
+    /// generator reads, so a transcription filed in the library describes
+    /// itself there without anything being typed twice.
+    QMap<QString, WorkDescription> descriptions;
 };
 
 struct SourceNote

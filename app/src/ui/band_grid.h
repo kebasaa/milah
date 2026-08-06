@@ -1,5 +1,7 @@
 #pragma once
 
+#include "core/bands.h"
+
 #include <QFont>
 #include <QList>
 #include <QString>
@@ -55,20 +57,9 @@ inline constexpr int ReflowThreshold = 4;
 /// line and then clips it.
 inline constexpr int CardPadding = 12;
 
-/// A half-open run of columns drawn as one table.
-struct Band
-{
-    int start = 0;
-    int end = 0;
-};
-
-/// Cuts `widths` into bands that each fit `readingRoom`.
-///
-/// Greedy first fit, taken in order and with no lookahead, because the columns
-/// are words in sequence and may not be reordered to pack better. A band always
-/// takes at least one column even where that column is wider than the room it
-/// has: a word too long for the window still has to be drawn somewhere.
-QList<Band> packBands(const QList<int> &widths, int readingRoom);
+// Band and packBands moved to core/bands.h: the Word export packs the same way,
+// in twentieths of a point instead of pixels, and the two have to break in the
+// same places.
 
 /// Readings are set a little larger than the interface: pointed Hebrew is hard
 /// to read at the default size. Applied in code rather than in the stylesheet

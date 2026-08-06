@@ -14,7 +14,8 @@
 namespace milah {
 namespace {
 
-/// One field of the `<work>` element in a file's OSIS header.
+/// One field of the `<work>` element in a file's OSIS header, optionally the
+/// one carrying `type="<wanted>"`.
 ///
 /// Only the header is read — enough of the file to reach the end of it —
 /// because a library of a dozen texts should not cost a dozen full parses to
@@ -22,7 +23,8 @@ namespace {
 /// elements elsewhere, one of which is an entire verse of pointed Hebrew.
 ///
 /// Empty when the file cannot be read or carries no such field.
-QString headerFieldOf(const QString &path, const QByteArray &tag)
+QString headerFieldOf(
+    const QString &path, const QByteArray &tag, const QByteArray &type = QByteArray())
 {
     QFile file(path);
     if (!file.open(QIODevice::ReadOnly)) {
@@ -35,13 +37,25 @@ QString headerFieldOf(const QString &path, const QByteArray &tag)
         return QString();
     }
 
-    const int openAt = head.indexOf("<" + tag, workAt);
-    const int textAt = openAt < 0 ? -1 : head.indexOf('>', openAt);
-    const int closeAt = textAt < 0 ? -1 : head.indexOf("</" + tag + ">", textAt);
-    if (closeAt <= textAt) {
-        return QString();
+    // Walked rather than taken at the first hit, because a header carries two
+    // <rights> elements now and the one wanted is named by its type attribute.
+    int at = workAt;
+    while ((at = head.indexOf("<" + tag, at)) >= 0) {
+        const int textAt = head.indexOf('>', at);
+        const int closeAt = textAt < 0 ? -1 : head.indexOf("</" + tag + ">", textAt);
+        if (closeAt <= textAt) {
+            return QString();
+        }
+        // No type asked for means the first, whatever it carries — which is
+        // what <title> wants and what a header written before the rights split
+        // degrades to.
+        const QByteArray attributes = head.mid(at, textAt - at);
+        if (type.isEmpty() || attributes.contains("\"" + type + "\"")) {
+            return QString::fromUtf8(head.mid(textAt + 1, closeAt - textAt - 1)).trimmed();
+        }
+        at = closeAt;
     }
-    return QString::fromUtf8(head.mid(textAt + 1, closeAt - textAt - 1)).trimmed();
+    return QString();
 }
 
 /// The edition's own name, or the file name when the header does not give one:
@@ -52,16 +66,31 @@ QString titleOf(const QString &path)
     return title.isEmpty() ? QFileInfo(path).fileName() : title;
 }
 
-/// Who holds the copyright and on what terms, as the header states it.
+/// Who holds the text, and what may be done with it.
 ///
-/// Shown here as well as in the download window because the terms are not
-/// uniform across the library — some translations are "All rights reserved"
-/// while the transcriptions beside them are CC BY-NC-SA — and a reader looking
-/// at what they hold should not have to reopen a download window to find out
-/// which is which.
-QString rightsOf(const QString &path)
+/// Two questions, and the header answers them in two `<rights>` elements told
+/// apart by type. Shown here as well as in the download window, because the
+/// terms are not uniform across the library — some of these are "All rights
+/// reserved" and others CC BY-NC-SA — and a reader looking at what they already
+/// hold should not have to reopen a download window to find out which is which.
+///
+/// An untyped `<rights>`, which is what a header written before the split
+/// carries, is read as the copyright: one question answered rather than none.
+QStringList termsOf(const QString &path)
 {
-    return headerFieldOf(path, "rights");
+    QStringList terms;
+    QString copyright = headerFieldOf(path, "rights", "x-copyright");
+    if (copyright.isEmpty()) {
+        copyright = headerFieldOf(path, "rights");
+    }
+    if (!copyright.isEmpty()) {
+        terms.append(QStringLiteral("Copyright: %1").arg(copyright));
+    }
+    const QString licence = headerFieldOf(path, "rights", "x-license");
+    if (!licence.isEmpty()) {
+        terms.append(QStringLiteral("Licence: %1").arg(licence));
+    }
+    return terms;
 }
 
 } // namespace
@@ -81,10 +110,9 @@ ManuscriptLibraryDialog::ManuscriptLibraryDialog(QWidget *parent)
     m_list->setLayoutDirection(Qt::LeftToRight);
     for (const QString &path : library) {
         auto *item = new QListWidgetItem(titleOf(path), m_list);
-        const QString rights = rightsOf(path);
-        item->setToolTip(rights.isEmpty()
-                             ? path
-                             : QStringLiteral("Rights: %1\n%2").arg(rights, path));
+        QStringList detail = termsOf(path);
+        detail.append(path);
+        item->setToolTip(detail.join(QLatin1Char('\n')));
         item->setData(Qt::UserRole, path);
     }
     connect(m_list, &QListWidget::itemSelectionChanged, this, [this] {

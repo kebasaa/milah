@@ -536,6 +536,75 @@ private slots:
         QCOMPARE(verses.at(1).number, QStringLiteral("1"));
     }
 
+    void theCataloguingDetailsSurviveTheArchive()
+    {
+        // What the download window shows beside a manuscript's title. A
+        // transcription that lost them on being reopened would answer those
+        // columns once and never again.
+        QTemporaryDir home;
+        QVERIFY(home.isValid());
+
+        TranscriptionDocument original = sampleDocument();
+        original.metadata.shelfmark = QStringLiteral("Sloane MS 237");
+        original.metadata.folios = QStringLiteral("1r–4v");
+        original.metadata.material = QStringLiteral("Parchment");
+        original.metadata.provenance = QStringLiteral("From the Sloane bequest.");
+        original.metadata.translatedFrom = QStringLiteral("Translated from the Greek");
+        original.metadata.translatedFromCertainty = QStringLiteral("uncertain");
+        original.metadata.exemplar = QStringLiteral("Copied from Cambridge MS Oo.1.32");
+
+        QString error;
+        const QString path = home.filePath(QStringLiteral("details.trscrpt"));
+        QVERIFY2(
+            ProjectStorage::saveToPath(
+                path,
+                payloadToJson(transcriptionPayload(original, {})),
+                &error,
+                ProjectStorage::ImageEntryLimit),
+            qPrintable(error));
+        const TranscriptionDocument restored = restoreTranscription(payloadFromJson(
+            ProjectStorage::loadFromPath(path, &error, ProjectStorage::ImageEntryLimit)));
+
+        QCOMPARE(restored.metadata.shelfmark, original.metadata.shelfmark);
+        QCOMPARE(restored.metadata.folios, original.metadata.folios);
+        QCOMPARE(restored.metadata.material, original.metadata.material);
+        QCOMPARE(restored.metadata.provenance, original.metadata.provenance);
+        QCOMPARE(restored.metadata.translatedFrom, original.metadata.translatedFrom);
+        // The verdict travels with the answer. Losing it would turn "probably
+        // Greek" back into "Greek" on the next open.
+        QCOMPARE(
+            restored.metadata.translatedFromCertainty,
+            original.metadata.translatedFromCertainty);
+        QCOMPARE(restored.metadata.exemplar, original.metadata.exemplar);
+    }
+
+    void aTranscriptionWrittenBeforeTheseFieldsStillOpens()
+    {
+        // They are written only when they say something, so a file made by an
+        // earlier Milah simply has no such keys — and must read back as
+        // unanswered rather than as unreadable.
+        QTemporaryDir home;
+        QVERIFY(home.isValid());
+
+        const TranscriptionDocument original = sampleDocument();
+        QString error;
+        const QString path = home.filePath(QStringLiteral("older.trscrpt"));
+        QVERIFY2(
+            ProjectStorage::saveToPath(
+                path,
+                payloadToJson(transcriptionPayload(original, {})),
+                &error,
+                ProjectStorage::ImageEntryLimit),
+            qPrintable(error));
+        const TranscriptionDocument restored = restoreTranscription(payloadFromJson(
+            ProjectStorage::loadFromPath(path, &error, ProjectStorage::ImageEntryLimit)));
+
+        QVERIFY(restored.metadata.folios.isEmpty());
+        QVERIFY(restored.metadata.exemplar.isEmpty());
+        // And everything that was written is still there.
+        QCOMPARE(restored.metadata.manuscriptName, original.metadata.manuscriptName);
+    }
+
     void aDocumentSurvivesTheArchive()
     {
         QTemporaryDir home;

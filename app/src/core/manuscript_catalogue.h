@@ -33,18 +33,59 @@ struct CatalogueEntry
     /// What the edition covers. Absent from a third of the texts, so never
     /// assume it is there.
     QString covers;
-    /// The `<rights>` line from the OSIS header: who holds the copyright and on
-    /// what terms the text may be used.
+
+    // What a cataloguer looks a manuscript up by, and what the download window
+    // shows in the columns beside its title. All four describe the manuscript
+    // rather than the file, so a translation carries the same answers as the
+    // witness it renders — it is a rendering of the same physical object.
+    //
+    // Every one of them may be empty, and usually is. These are questions
+    // answered for some manuscripts and not others, and a catalogue that
+    // insisted on them would be a catalogue nobody could add to.
+
+    /// What the holding library files it under: "British Library, Sloane MS
+    /// 237".
+    QString shelfmark;
+    /// Which leaves of the codex it occupies: "1r–4v".
+    QString folios;
+    /// What the Hebrew was rendered out of, where it is a rendering at all:
+    /// "Translated from the Greek".
     ///
-    /// Shown before anything is downloaded, because the terms are not uniform
-    /// and not all of them are permissive — some of these translations are
-    /// "All rights reserved" while the transcriptions beside them are CC
-    /// BY-NC-SA. A reader is entitled to know which of the two they are taking
-    /// a copy of, and telling them afterwards is telling them too late.
+    /// Empty means nobody has recorded an answer. What the answer is, and how
+    /// firmly it is held, are two separate questions — see translationCertainty.
+    QString translatedFrom;
+    /// How well the answer above is established. One of `TranslationCertainty`,
+    /// or empty where nothing has been recorded at all.
+    ///
+    /// Kept apart from the prose because a column printing "Greek" flat would
+    /// state as a fact what, for several of these manuscripts, is the very thing
+    /// under argument. An explicit "original" is also what finally lets a Hebrew
+    /// composition say it is one, rather than looking like a blank.
+    QString translationCertainty;
+    /// The older manuscript this one copies, where it is known to copy one:
+    /// "Copied from Cambridge MS Oo.1.32".
+    QString exemplar;
+    // Who holds the text, and what a reader may do with it. Two questions with
+    // two answers, kept apart because conflating them cannot describe the
+    // published set: a copyright holder is named for every one of these texts,
+    // and the terms range from "All rights reserved" through "free for any
+    // non-commercial project" to CC BY-NC-SA. One field could only ever have
+    // given one of those.
+    //
+    // Both are shown before anything is downloaded. A reader is entitled to
+    // know what they are taking a copy of, and telling them afterwards is
+    // telling them too late.
+
+    /// Who holds the copyright, from `<rights type="x-copyright">`. May be
+    /// legitimately empty, where nobody in particular is credited with a bare
+    /// transcription.
+    QString rights;
+    /// On what terms it may be used, from `<rights type="x-license">`.
     ///
     /// Empty when the manifest predates the field, in which case the window
-    /// says nothing rather than implying no terms apply.
-    QString rights;
+    /// says nothing rather than implying no terms apply. Silence is not a
+    /// licence, and must not be shown as one.
+    QString license;
     /// Which way Milah has to load it. The manifest states this rather than the
     /// app guessing, and it is why the library can load a file without asking.
     SourceRole role = SourceRole::Manuscript;
@@ -71,6 +112,37 @@ struct CatalogueEntry
     QString displayTitle() const;
 };
 
+/// What a catalogue may say about whether a Hebrew text renders another.
+///
+/// Two questions crossed: is it a rendering, and is that settled. Written out
+/// as strings rather than an enum because they cross the manifest, the OSIS
+/// headers and the archive as strings, and one spelling in one place is what
+/// keeps the three agreeing.
+namespace TranslationCertainty {
+inline constexpr char Certain[] = "certain";
+inline constexpr char Uncertain[] = "uncertain";
+/// Not a rendering at all: an original Hebrew composition.
+inline constexpr char Original[] = "original";
+inline constexpr char OriginalUncertain[] = "original-uncertain";
+} // namespace TranslationCertainty
+
+/// The `subType` a certainty is written as in an OSIS header, or empty for one
+/// nobody has recorded. The `x-` prefix is the schema's rule for a value it does
+/// not itself define.
+QString translationSubType(const QString &certainty);
+
+/// The certainty an OSIS `subType` means, with its `x-` taken off. Empty for an
+/// absent or unrecognised one, which are the same thing to a reader.
+QString translationCertaintyOf(const QString &subType);
+
+/// What the Translated from column shows: "Greek", "Greek?", "Original",
+/// "Original?", or "—" where nothing has been recorded.
+///
+/// The prose is cut to its answer — "Translated from the Greek" is what a header
+/// says and "Greek" is what fits beside six other columns — and a question mark
+/// is what marks the unsettled ones. The whole sentence stays on the tooltip.
+QString translationColumn(const CatalogueEntry &entry);
+
 /// The checksum of a file as the manifest measures it: over the LF form of its
 /// contents, which is what GitHub serves and therefore what was downloaded.
 ///
@@ -95,6 +167,19 @@ public:
 
     const QList<CatalogueEntry> &entries() const { return m_entries; }
     bool isEmpty() const { return m_entries.isEmpty(); }
+
+    /// How old the manuscript `entry` is a text of.
+    ///
+    /// Its own `date` for a witness. For a translation, the date of the witness
+    /// it renders, found by shelfmark — because a translation's own date is the
+    /// year somebody translated it, and a column headed Age that answered 2017
+    /// for a manuscript written between 1500 and 1699 would be worse than a
+    /// column that answered nothing.
+    ///
+    /// Falls back to the entry's own date when no witness can be found, which
+    /// is at least a date and is marked as the file's own by nothing else
+    /// claiming otherwise.
+    QString manuscriptAge(const CatalogueEntry &entry) const;
 
     /// The file names of `directory` that this catalogue knows about, so the
     /// download window can say what is already held.

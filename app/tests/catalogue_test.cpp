@@ -28,11 +28,17 @@ QByteArray sampleManifest()
        "book":"REV","role":"manuscript","language":"he",
        "date":"between 1500 and 1699",
        "covers":"This edition covers Revelation 1:1-2:13.",
-       "rights":"CC BY-NC-SA 4.0",
+       "shelfmark":"British Library, Sloane MS 237",
+       "folios":"1r-4v",
+       "translatedFrom":"Translated from the Greek",
+       "exemplar":"Copied from Cambridge MS Oo.1.32",
+       "rights":"© 2017 by Nehemia Gordon",
+       "license":"CC BY-NC-SA 4.0",
        "bytes":17203},
       {"file":"REV_Sloane237_translation.osis",
        "title":"English Translation of Revelation (British Library, Sloane MS 237)",
        "book":"REV","role":"translation","language":"en",
+       "shelfmark":"British Library, Sloane MS 237",
        "date":"2017","bytes":12812}
     ]})JSON";
 }
@@ -116,6 +122,177 @@ private slots:
         const ManuscriptCatalogue catalogue = catalogueFrom(sampleManifest());
         QVERIFY(catalogue.entries().at(1).covers.isEmpty());
         QVERIFY(!catalogue.entries().at(1).title.isEmpty());
+    }
+
+    void theCataloguingFieldsAreRead()
+    {
+        // The four columns the download window shows beside a title. Without
+        // them the window is a list of names, which is what it was.
+        const CatalogueEntry &witness = catalogueFrom(sampleManifest()).entries().first();
+        QCOMPARE(witness.shelfmark, QStringLiteral("British Library, Sloane MS 237"));
+        QCOMPARE(witness.folios, QStringLiteral("1r-4v"));
+        QCOMPARE(witness.translatedFrom, QStringLiteral("Translated from the Greek"));
+        QCOMPARE(witness.exemplar, QStringLiteral("Copied from Cambridge MS Oo.1.32"));
+    }
+
+    void theTranslationColumnSaysWhetherItIsSettled()
+    {
+        // The whole feature. A column that printed "Greek" flat would state as
+        // a fact what, for several of these manuscripts, is the argument.
+        CatalogueEntry entry;
+        entry.translatedFrom = QStringLiteral("Translated from the Greek");
+
+        entry.translationCertainty = QLatin1String(TranslationCertainty::Certain);
+        QCOMPARE(translationColumn(entry), QStringLiteral("Greek"));
+
+        entry.translationCertainty = QLatin1String(TranslationCertainty::Uncertain);
+        QCOMPARE(translationColumn(entry), QStringLiteral("Greek?"));
+
+        entry.translationCertainty = QLatin1String(TranslationCertainty::Original);
+        QCOMPARE(translationColumn(entry), QStringLiteral("Original"));
+
+        entry.translationCertainty =
+            QLatin1String(TranslationCertainty::OriginalUncertain);
+        QCOMPARE(translationColumn(entry), QStringLiteral("Original?"));
+    }
+
+    void anUnrecordedAnswerClaimsNothing()
+    {
+        // Not "original", and not "Greek". Nobody has said, and a blank cell
+        // used to mean that and "an original Hebrew text" at the same time.
+        CatalogueEntry entry;
+        QCOMPARE(translationColumn(entry), QStringLiteral("—"));
+
+        // Even where the prose is there: without a verdict it is not an answer
+        // the catalogue is prepared to stand behind.
+        entry.translatedFrom = QStringLiteral("Translated from the Greek");
+        QCOMPARE(translationColumn(entry), QStringLiteral("—"));
+    }
+
+    void theColumnKeepsTheAnswerRatherThanTheQuestion()
+    {
+        // "Translated from the" is the same on every one of them; the language
+        // is what a reader is looking down the column for.
+        CatalogueEntry entry;
+        entry.translationCertainty = QLatin1String(TranslationCertainty::Certain);
+
+        entry.translatedFrom = QStringLiteral("Translated from the Latin Vulgate.");
+        QCOMPARE(translationColumn(entry), QStringLiteral("Latin Vulgate"));
+
+        entry.translatedFrom = QStringLiteral("A translation of the Peshitta");
+        QCOMPARE(translationColumn(entry), QStringLiteral("Peshitta"));
+
+        // A verdict with nothing named still says that it is one.
+        entry.translatedFrom.clear();
+        QCOMPARE(translationColumn(entry), QStringLiteral("Yes"));
+    }
+
+    void aSubTypeCrossesToACertaintyAndBack()
+    {
+        QCOMPARE(
+            translationSubType(QLatin1String(TranslationCertainty::Certain)),
+            QStringLiteral("x-certain"));
+        QCOMPARE(
+            translationCertaintyOf(QStringLiteral("x-original-uncertain")),
+            QLatin1String(TranslationCertainty::OriginalUncertain));
+        // Nothing recorded stays nothing, in both directions.
+        QVERIFY(translationSubType(QString()).isEmpty());
+        QVERIFY(translationCertaintyOf(QString()).isEmpty());
+        // The x- prefix is the schema's rule for a value it does not define, so
+        // an attribute without it is not this vocabulary.
+        QVERIFY(translationCertaintyOf(QStringLiteral("certain")).isEmpty());
+        // And a verdict from a later version reads as one nobody recorded,
+        // which is what it means to this one.
+        QVERIFY(translationCertaintyOf(QStringLiteral("x-disputed")).isEmpty());
+    }
+
+    void theCertaintyIsReadFromTheManifest()
+    {
+        const ManuscriptCatalogue catalogue = catalogueFrom(
+            R"JSON({"manuscripts":[
+              {"file":"a.osis","title":"A","role":"manuscript",
+               "translatedFrom":"Translated from the Greek",
+               "translationCertainty":"Uncertain"}]})JSON");
+        // Lowercased on the way in, so a manifest written either way compares
+        // equal to the vocabulary.
+        QCOMPARE(
+            catalogue.entries().first().translationCertainty,
+            QLatin1String(TranslationCertainty::Uncertain));
+        QCOMPARE(
+            translationColumn(catalogue.entries().first()), QStringLiteral("Greek?"));
+    }
+
+    void theCataloguingFieldsAreAllOptional()
+    {
+        // Most manuscripts answer none of these, and a manifest written before
+        // they existed answers none of them at all. Absent has to be ordinary.
+        const ManuscriptCatalogue catalogue = catalogueFrom(
+            R"JSON({"manuscripts":[
+              {"file":"a.osis","title":"A","role":"manuscript"}]})JSON");
+        const CatalogueEntry &entry = catalogue.entries().first();
+        QVERIFY(entry.shelfmark.isEmpty());
+        QVERIFY(entry.folios.isEmpty());
+        QVERIFY(entry.translatedFrom.isEmpty());
+        QVERIFY(entry.exemplar.isEmpty());
+    }
+
+    void theCataloguingFieldsAreTrimmed()
+    {
+        // They come out of prose in an OSIS header, and a stray newline in a
+        // table column is a row that no longer lines up with its neighbours.
+        const ManuscriptCatalogue catalogue = catalogueFrom(
+            R"JSON({"manuscripts":[
+              {"file":"a.osis","title":"A","role":"manuscript",
+               "shelfmark":"\n  Sloane MS 237  \n","folios":"  1r-4v "}]})JSON");
+        QCOMPARE(catalogue.entries().first().shelfmark, QStringLiteral("Sloane MS 237"));
+        QCOMPARE(catalogue.entries().first().folios, QStringLiteral("1r-4v"));
+    }
+
+    void aTranslationIsAsOldAsTheManuscriptItRenders()
+    {
+        // The one that decides whether the Age column is worth having. A
+        // translation's own date is the year somebody translated it — 2017 —
+        // and answering that under a column headed Age for a manuscript
+        // written between 1500 and 1699 would be worse than answering nothing.
+        const ManuscriptCatalogue catalogue = catalogueFrom(sampleManifest());
+        const CatalogueEntry &witness = catalogue.entries().at(0);
+        const CatalogueEntry &translation = catalogue.entries().at(1);
+
+        QCOMPARE(translation.date, QStringLiteral("2017"));
+        QCOMPARE(
+            catalogue.manuscriptAge(translation),
+            QStringLiteral("between 1500 and 1699"));
+        // And a witness is simply its own age.
+        QCOMPARE(catalogue.manuscriptAge(witness), witness.date);
+    }
+
+    void aTranslationWithNoWitnessKeepsItsOwnDate()
+    {
+        // A date is better than a blank, and nothing else in the window claims
+        // it is the manuscript's.
+        const ManuscriptCatalogue catalogue = catalogueFrom(
+            R"JSON({"manuscripts":[
+              {"file":"a_translation.osis","title":"A","role":"translation",
+               "shelfmark":"Nowhere in particular","date":"2024"}]})JSON");
+        QCOMPARE(
+            catalogue.manuscriptAge(catalogue.entries().first()),
+            QStringLiteral("2024"));
+    }
+
+    void aTranslationIsNotAgedByAnUnrelatedManuscript()
+    {
+        // Paired on the shelfmark, which names the physical object. Pairing on
+        // the book alone would give a Revelation translation the age of
+        // whichever Revelation manuscript happened to be listed first.
+        const ManuscriptCatalogue catalogue = catalogueFrom(
+            R"JSON({"manuscripts":[
+              {"file":"REV_other.osis","title":"Other","book":"REV",
+               "role":"manuscript","shelfmark":"MS.Oo.1.16.2","date":"ca. 1730"},
+              {"file":"REV_x_translation.osis","title":"X","book":"REV",
+               "role":"translation","shelfmark":"Sloane MS 237","date":"2017"}]})JSON");
+        QCOMPARE(
+            catalogue.manuscriptAge(catalogue.entries().at(1)),
+            QStringLiteral("2017"));
     }
 
     void aMalformedEntryIsSkippedNotFatal()
@@ -331,22 +508,45 @@ private slots:
         QCOMPARE(paths.first(), QStringLiteral("C:/somewhere/of/my/own"));
     }
 
-    void theRightsAreReadFromTheManifest()
+    void theCopyrightAndTheLicenceAreReadApart()
     {
+        // Two questions with different answers, and the download window shows
+        // them under different labels. Every published text names a holder,
+        // while the terms run from "All rights reserved" to CC BY-NC-SA — so a
+        // reader told only one of the two has been told the less useful one.
         const ManuscriptCatalogue catalogue = ManuscriptCatalogue::fromJson(
             QJsonDocument::fromJson(sampleManifest()).object());
         QCOMPARE(catalogue.entries().size(), 2);
-        QCOMPARE(catalogue.entries().at(0).rights, QStringLiteral("CC BY-NC-SA 4.0"));
+        QCOMPARE(
+            catalogue.entries().at(0).rights, QStringLiteral("© 2017 by Nehemia Gordon"));
+        QCOMPARE(catalogue.entries().at(0).license, QStringLiteral("CC BY-NC-SA 4.0"));
     }
 
     void anEntryWithoutRightsSaysNothingRatherThanGuessing()
     {
-        // A manifest written before the field existed must not have terms
+        // A manifest written before the fields existed must not have terms
         // invented for it — "no statement" and "no restrictions" are very
-        // different claims to put in front of a reader.
+        // different claims to put in front of a reader, and the second is the
+        // dangerous one.
         const ManuscriptCatalogue catalogue = ManuscriptCatalogue::fromJson(
             QJsonDocument::fromJson(sampleManifest()).object());
         QVERIFY(catalogue.entries().at(1).rights.isEmpty());
+        QVERIFY(catalogue.entries().at(1).license.isEmpty());
+    }
+
+    void aLicenceWithNoNamedHolderIsStillRead()
+    {
+        // The two are independent: a bare transcription may credit nobody in
+        // particular and still be published under stated terms.
+        const ManuscriptCatalogue catalogue = ManuscriptCatalogue::fromJson(
+            QJsonDocument::fromJson(
+                QByteArray(R"JSON({"manuscripts":[{"file":"a.osis","title":"A",)JSON"
+                           R"JSON("role":"manuscript","license":"  CC BY-NC-SA 4.0  "}]})JSON"))
+                .object());
+        QCOMPARE(catalogue.entries().size(), 1);
+        QVERIFY(catalogue.entries().first().rights.isEmpty());
+        // Trimmed like the copyright: these come out of prose in an OSIS header.
+        QCOMPARE(catalogue.entries().first().license, QStringLiteral("CC BY-NC-SA 4.0"));
     }
 
     void theRightsAreTrimmed()

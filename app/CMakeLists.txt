@@ -42,6 +42,10 @@ add_library(MilahCore STATIC
     src/core/tokenize.h
     src/core/diff.cpp
     src/core/diff.h
+    src/core/reading_marks.cpp
+    src/core/reading_marks.h
+    src/core/bands.cpp
+    src/core/bands.h
     src/core/hebrew_forms.cpp
     src/core/hebrew_forms.h
     src/core/align_score.cpp
@@ -76,6 +80,8 @@ add_library(MilahCore STATIC
     src/core/docx.h
     src/core/transcription_docx.cpp
     src/core/transcription_docx.h
+    src/core/collation_docx.cpp
+    src/core/collation_docx.h
     src/project_storage.cpp
     src/project_storage.h
 )
@@ -243,7 +249,8 @@ if(MILAH_BUILD_TESTS)
     foreach(test_name
             project_storage osis consensus apparatus diff acronym lexicon suggestions
             coverage alignment catalogue word_marker transcription books
-            scan_catalogue recent_files docx transcription_docx)
+            scan_catalogue recent_files docx transcription_docx
+            reading_marks collation_docx)
         # Plain add_executable, not qt_add_executable: the latter finalises the
         # target as a Windows GUI application, and a GUI-subsystem binary
         # discards the stdout QTest reports through, leaving a failing test

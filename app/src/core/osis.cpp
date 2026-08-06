@@ -483,12 +483,23 @@ SourceDocument parseOsis(const QString &rawOsis, const ParseOptions &options)
                     document.metadata.language = value;
                 } else if (local == QLatin1String("scope") && !value.isEmpty()) {
                     document.metadata.scope = value;
-                } else if (local == QLatin1String("rights") && !value.isEmpty()
-                           && document.metadata.rights.isEmpty()) {
-                    // First only. The header carries a second <work> for the
-                    // versification system, and its terms — if it ever grows
-                    // any — are not the terms of the text being loaded.
-                    document.metadata.rights = value;
+                } else if (local == QLatin1String("rights") && !value.isEmpty()) {
+                    // Two of them, told apart by type: who holds the text, and
+                    // what may be done with it. An untyped one is read as the
+                    // copyright, which is what a header written before the
+                    // split degrades to — one question answered rather than
+                    // neither.
+                    //
+                    // First of each only. The header carries a second <work>
+                    // for the versification system, and its terms — if it ever
+                    // grows any — are not the terms of the text being loaded.
+                    if (identifierType == QLatin1String("x-license")) {
+                        if (document.metadata.license.isEmpty()) {
+                            document.metadata.license = value;
+                        }
+                    } else if (document.metadata.rights.isEmpty()) {
+                        document.metadata.rights = value;
+                    }
                 }
                 metadataField.clear();
                 metadataText.clear();

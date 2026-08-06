@@ -1,7 +1,9 @@
 #include "ui/transcription_meta_widget.h"
 
+#include "core/manuscript_catalogue.h"
 #include "transcription_controller.h"
 
+#include <QComboBox>
 #include <QFormLayout>
 #include <QGroupBox>
 #include <QLineEdit>
@@ -9,6 +11,8 @@
 #include <QPushButton>
 #include <QSignalBlocker>
 #include <QVBoxLayout>
+
+#include <algorithm>
 
 namespace milah {
 namespace {
@@ -53,7 +57,45 @@ TranscriptionMetaWidget::TranscriptionMetaWidget(
         field(form, QStringLiteral("Library"), QStringLiteral("Biblioteca Vaticana"));
     m_shelfmark =
         field(form, QStringLiteral("Shelfmark"), QStringLiteral("Ebr. 530"));
+    // Against the shelfmark, because that is how one is written out in full:
+    // "Vat. ebr. 530, folios 1r–2v".
+    m_folios = field(form, QStringLiteral("Folios"), QStringLiteral("1r–2v"));
     m_date = field(form, QStringLiteral("Date"), QStringLiteral("14th century"));
+    m_material = field(form, QStringLiteral("Material"), QStringLiteral("Parchment"));
+    m_provenance = field(
+        form,
+        QStringLiteral("Provenance"),
+        QStringLiteral("How it came to be where it is kept"));
+    // The two judgements, together and after the facts. Nothing fills these in
+    // but the transcriber: no library catalogue records either.
+    m_translatedFrom = field(
+        form,
+        QStringLiteral("Translated from"),
+        QStringLiteral("Translated from the Greek"));
+    // A choice rather than a box, because a verdict comes from a fixed set and
+    // typing it invites four spellings of "uncertain" that nothing downstream
+    // could tell apart. The empty first entry is the honest default: not that
+    // the manuscript is original, but that nobody has said.
+    m_translatedFromCertainty = new QComboBox;
+    m_translatedFromCertainty->addItem(QStringLiteral("Not recorded"), QString());
+    m_translatedFromCertainty->addItem(
+        QStringLiteral("Certain"), QLatin1String(TranslationCertainty::Certain));
+    m_translatedFromCertainty->addItem(
+        QStringLiteral("Uncertain"), QLatin1String(TranslationCertainty::Uncertain));
+    m_translatedFromCertainty->addItem(
+        QStringLiteral("Not a translation"),
+        QLatin1String(TranslationCertainty::Original));
+    m_translatedFromCertainty->addItem(
+        QStringLiteral("Probably not a translation"),
+        QLatin1String(TranslationCertainty::OriginalUncertain));
+    m_translatedFromCertainty->setToolTip(QStringLiteral(
+        "Whether the line above is established. The download list shows an "
+        "unsettled answer with a question mark rather than stating it flat."));
+    form->addRow(QString(), m_translatedFromCertainty);
+    m_exemplar = field(
+        form,
+        QStringLiteral("Copy of"),
+        QStringLiteral("Copied from Cambridge MS Oo.1.32"));
     m_language = field(form, QStringLiteral("Language"), QStringLiteral("he"));
 
     m_notes = new QPlainTextEdit;
@@ -71,12 +113,18 @@ TranscriptionMetaWidget::TranscriptionMetaWidget(
     layout->setContentsMargins(0, 0, 0, 0);
     layout->addWidget(box);
 
+    // Every line edit, or Save never lights for the one left out.
     for (QLineEdit *edit : {m_manuscriptName,
                             m_transcriber,
                             m_origin,
                             m_libraryMark,
                             m_shelfmark,
+                            m_folios,
                             m_date,
+                            m_material,
+                            m_provenance,
+                            m_translatedFrom,
+                            m_exemplar,
                             m_language}) {
         connect(
             edit,
@@ -84,6 +132,11 @@ TranscriptionMetaWidget::TranscriptionMetaWidget(
             this,
             &TranscriptionMetaWidget::updateSaveState);
     }
+    connect(
+        m_translatedFromCertainty,
+        &QComboBox::currentIndexChanged,
+        this,
+        &TranscriptionMetaWidget::updateSaveState);
     connect(
         m_notes,
         &QPlainTextEdit::textChanged,
@@ -110,7 +163,13 @@ QString TranscriptionMetaWidget::fingerprint() const
         m_origin->text(),
         m_libraryMark->text(),
         m_shelfmark->text(),
+        m_folios->text(),
         m_date->text(),
+        m_material->text(),
+        m_provenance->text(),
+        m_translatedFrom->text(),
+        m_translatedFromCertainty->currentData().toString(),
+        m_exemplar->text(),
         m_language->text(),
         m_notes->toPlainText(),
     }
@@ -138,7 +197,13 @@ void TranscriptionMetaWidget::refresh()
         const QSignalBlocker blockOrigin(m_origin);
         const QSignalBlocker blockLibrary(m_libraryMark);
         const QSignalBlocker blockShelf(m_shelfmark);
+        const QSignalBlocker blockFolios(m_folios);
         const QSignalBlocker blockDate(m_date);
+        const QSignalBlocker blockMaterial(m_material);
+        const QSignalBlocker blockProvenance(m_provenance);
+        const QSignalBlocker blockTranslatedFrom(m_translatedFrom);
+        const QSignalBlocker blockCertainty(m_translatedFromCertainty);
+        const QSignalBlocker blockExemplar(m_exemplar);
         const QSignalBlocker blockLanguage(m_language);
         const QSignalBlocker blockNotes(m_notes);
 
@@ -147,7 +212,16 @@ void TranscriptionMetaWidget::refresh()
         m_origin->setText(metadata.origin);
         m_libraryMark->setText(metadata.libraryMark);
         m_shelfmark->setText(metadata.shelfmark);
+        m_folios->setText(metadata.folios);
         m_date->setText(metadata.date);
+        m_material->setText(metadata.material);
+        m_provenance->setText(metadata.provenance);
+        m_translatedFrom->setText(metadata.translatedFrom);
+        // findData answers -1 for a verdict this build has never heard of,
+        // which lands on "Not recorded" — the same thing it means to a reader.
+        m_translatedFromCertainty->setCurrentIndex(
+            std::max(0, m_translatedFromCertainty->findData(metadata.translatedFromCertainty)));
+        m_exemplar->setText(metadata.exemplar);
         m_language->setText(metadata.language);
         m_notes->setPlainText(metadata.notes);
     }
@@ -171,7 +245,14 @@ void TranscriptionMetaWidget::save()
     metadata.origin = m_origin->text().trimmed();
     metadata.libraryMark = m_libraryMark->text().trimmed();
     metadata.shelfmark = m_shelfmark->text().trimmed();
+    metadata.folios = m_folios->text().trimmed();
     metadata.date = m_date->text().trimmed();
+    metadata.material = m_material->text().trimmed();
+    metadata.provenance = m_provenance->text().trimmed();
+    metadata.translatedFrom = m_translatedFrom->text().trimmed();
+    metadata.translatedFromCertainty =
+        m_translatedFromCertainty->currentData().toString();
+    metadata.exemplar = m_exemplar->text().trimmed();
     metadata.language = m_language->text().trimmed();
     metadata.notes = m_notes->toPlainText();
 

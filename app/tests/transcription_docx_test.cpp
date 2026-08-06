@@ -29,7 +29,8 @@ TranscribedVerse verse(const QString &number, const QList<TranscribedWord> &word
 QString textOf(const DocxDocument &document)
 {
     QString out;
-    for (const DocxParagraph &paragraph : document.paragraphs) {
+    for (const DocxBlock &block : document.blocks) {
+        const DocxParagraph &paragraph = block.paragraph;
         for (const DocxRun &run : paragraph.runs) {
             out += run.text;
         }
@@ -41,7 +42,8 @@ QString textOf(const DocxDocument &document)
 int paragraphsInStyle(const DocxDocument &document, const QString &style)
 {
     int count = 0;
-    for (const DocxParagraph &paragraph : document.paragraphs) {
+    for (const DocxBlock &block : document.blocks) {
+        const DocxParagraph &paragraph = block.paragraph;
         if (paragraph.style == style) {
             ++count;
         }
@@ -154,7 +156,8 @@ private slots:
         QCOMPARE(paragraphsInStyle(reading, QStringLiteral("VerseHebrew")), 1);
         // And the numbers stand in the flow of it, raised.
         bool raised = false;
-        for (const DocxParagraph &paragraph : reading.paragraphs) {
+        for (const DocxBlock &block : reading.blocks) {
+            const DocxParagraph &paragraph = block.paragraph;
             for (const DocxRun &run : paragraph.runs) {
                 if (run.superscript && run.text.trimmed() == QStringLiteral("2")) {
                     raised = true;
@@ -179,7 +182,8 @@ private slots:
 
         const DocxDocument reading = readingWordDocument(transcription);
         QStringList raised;
-        for (const DocxParagraph &paragraph : reading.paragraphs) {
+        for (const DocxBlock &block : reading.blocks) {
+            const DocxParagraph &paragraph = block.paragraph;
             for (const DocxRun &run : paragraph.runs) {
                 if (run.superscript) {
                     raised.append(run.text.trimmed());
@@ -241,8 +245,8 @@ private slots:
         TranscriptionDocument transcription;
         transcription.pages.append(page);
 
-        QVERIFY(readingWordDocument(transcription).paragraphs.isEmpty());
-        QVERIFY(interlinearWordDocument(transcription).paragraphs.isEmpty());
+        QVERIFY(readingWordDocument(transcription).blocks.isEmpty());
+        QVERIFY(interlinearWordDocument(transcription).blocks.isEmpty());
         QCOMPARE(unnamedVerseCount(transcription), 0);
     }
 
@@ -268,7 +272,7 @@ private slots:
 
         // The marker is the last thing in the paragraph, because the word it
         // belongs to is the last word of the verse.
-        const DocxParagraph &text = reading.paragraphs.constLast();
+        const DocxParagraph &text = reading.blocks.constLast().paragraph;
         QVERIFY(text.runs.constLast().footnoteId >= FirstFootnoteId);
         QVERIFY(text.runs.constLast().text.isEmpty());
         // And the words before it are in the run just ahead of the marker.

@@ -71,6 +71,15 @@ QString runXml(const DocxRun &run)
     if (run.italic) {
         properties += QStringLiteral("<w:i/><w:iCs/>");
     }
+    // strike then color, in that order and here: CT_RPr is a schema sequence,
+    // and while Word forgives a run whose properties are out of it, there is no
+    // reason to spend that forgiveness.
+    if (run.strikeThrough) {
+        properties += QStringLiteral("<w:strike/>");
+    }
+    if (!run.color.isEmpty()) {
+        properties += QStringLiteral("<w:color w:val=\"%1\"/>").arg(escaped(run.color));
+    }
     if (run.superscript) {
         properties += QStringLiteral("<w:vertAlign w:val=\"superscript\"/>");
     }
@@ -121,6 +130,95 @@ QString paragraphXml(const DocxParagraph &paragraph)
         body += runXml(run);
     }
     return QStringLiteral("<w:p>%1</w:p>").arg(body);
+}
+
+/// Borders declared away, all six of them.
+///
+/// A collation is a grid to the writer and prose to the reader: the columns are
+/// what makes the words line up, and lines drawn round them would turn an
+/// edition into a spreadsheet.
+QString tableBordersXml()
+{
+    QString borders;
+    for (const QLatin1String &edge : {QLatin1String("top"),
+                                      QLatin1String("left"),
+                                      QLatin1String("bottom"),
+                                      QLatin1String("right"),
+                                      QLatin1String("insideH"),
+                                      QLatin1String("insideV")}) {
+        borders += QStringLiteral("<w:%1 w:val=\"nil\"/>").arg(edge);
+    }
+    return QStringLiteral("<w:tblBorders>%1</w:tblBorders>").arg(borders);
+}
+
+QString tableXml(const DocxTable &table)
+{
+    // CT_TblPrBase is a schema *sequence*, and Word is markedly less forgiving
+    // about it than about a run's properties: bidiVisual, tblW, tblBorders,
+    // tblLayout, tblCellMar, tblLook. Appending a property in the wrong place
+    // here is how a file stops opening.
+    QString properties;
+    if (table.rightToLeft) {
+        properties += QStringLiteral("<w:bidiVisual/>");
+    }
+    int total = 0;
+    for (const int width : table.columnWidths) {
+        total += width;
+    }
+    properties += QStringLiteral("<w:tblW w:w=\"%1\" w:type=\"dxa\"/>").arg(total);
+    properties += tableBordersXml();
+    properties += QStringLiteral("<w:tblLayout w:type=\"fixed\"/>");
+    properties += QStringLiteral(
+        "<w:tblCellMar><w:top w:w=\"0\" w:type=\"dxa\"/>"
+        "<w:left w:w=\"57\" w:type=\"dxa\"/>"
+        "<w:bottom w:w=\"0\" w:type=\"dxa\"/>"
+        "<w:right w:w=\"57\" w:type=\"dxa\"/></w:tblCellMar>");
+    properties += QStringLiteral(
+        "<w:tblLook w:val=\"0000\" w:firstRow=\"0\" w:lastRow=\"0\""
+        " w:firstColumn=\"0\" w:lastColumn=\"0\" w:noHBand=\"0\" w:noVBand=\"0\"/>");
+
+    QString grid;
+    for (const int width : table.columnWidths) {
+        grid += QStringLiteral("<w:gridCol w:w=\"%1\"/>").arg(width);
+    }
+
+    QString rows;
+    for (const DocxTableRow &row : table.rows) {
+        QString cells;
+        for (int index = 0; index < row.cells.size(); ++index) {
+            const DocxTableCell &cell = row.cells.at(index);
+            // Derived from the grid rather than carried on the cell, so the two
+            // cannot drift; a short row is given the last column's width rather
+            // than none.
+            const int width = table.columnWidths.value(
+                index, table.columnWidths.isEmpty() ? 0 : table.columnWidths.constLast());
+
+            QString content;
+            for (const DocxParagraph &paragraph : cell.paragraphs) {
+                content += paragraphXml(paragraph);
+            }
+            if (content.isEmpty()) {
+                // The ordinary case, not an edge one: a witness silent at this
+                // word. An empty w:tc is a file Word offers to repair.
+                content = QStringLiteral("<w:p/>");
+            }
+
+            cells += QStringLiteral(
+                         "<w:tc><w:tcPr><w:tcW w:w=\"%1\" w:type=\"dxa\"/>"
+                         "<w:vAlign w:val=\"bottom\"/></w:tcPr>%2</w:tc>")
+                         .arg(QString::number(width), content);
+        }
+        // A row of one verse's words is a unit; broken across a page it stops
+        // being an alignment.
+        rows += QStringLiteral("<w:tr><w:trPr><w:cantSplit/></w:trPr>%1</w:tr>").arg(cells);
+    }
+
+    // The trailing paragraph is not decoration. Two w:tbl elements that touch
+    // are merged by Word into one table, which would run every band of a verse
+    // into a single grid; and a table as the last thing in the body leaves
+    // nowhere to put the cursor. Emitted here so no caller has to remember.
+    return QStringLiteral("<w:tbl><w:tblPr>%1</w:tblPr><w:tblGrid>%2</w:tblGrid>%3</w:tbl><w:p/>")
+        .arg(properties, grid, rows);
 }
 
 /// One paragraph of plain text in a named style, for titles and subtitles.
@@ -210,8 +308,8 @@ QByteArray docxDocumentXml(const DocxDocument &document)
     for (const QString &line : document.subtitle) {
         body += plainParagraph(line, QStringLiteral("Subtitle"));
     }
-    for (const DocxParagraph &paragraph : document.paragraphs) {
-        body += paragraphXml(paragraph);
+    for (const DocxBlock &block : document.blocks) {
+        body += block.isTable() ? tableXml(*block.table) : paragraphXml(block.paragraph);
     }
 
     // A4 with even margins. A section is required — a body without one opens,
@@ -325,6 +423,31 @@ QByteArray docxStylesXml()
         QStringLiteral("Gloss"),
         QStringLiteral("<w:spacing w:after=\"200\"/><w:ind w:left=\"284\"/>"),
         QStringLiteral("<w:color w:val=\"333333\"/>"));
+
+    // The three inside a collation's cells. All of them close the paragraph up:
+    // Normal leaves 120 twips after every paragraph, which inside a table cell
+    // is a sixth of an inch of nothing under every word, repeated down every row
+    // of every verse.
+    styles += styleXml(
+        QStringLiteral("paragraph"),
+        QStringLiteral("TableCell"),
+        QStringLiteral("Table Cell"),
+        QStringLiteral("<w:spacing w:after=\"0\"/><w:jc w:val=\"center\"/>"),
+        QStringLiteral("<w:sz w:val=\"28\"/><w:szCs w:val=\"28\"/>"));
+    styles += styleXml(
+        QStringLiteral("paragraph"),
+        QStringLiteral("TableGloss"),
+        QStringLiteral("Table Gloss"),
+        QStringLiteral("<w:spacing w:after=\"0\"/><w:jc w:val=\"center\"/>"),
+        QStringLiteral("<w:sz w:val=\"16\"/><w:szCs w:val=\"16\"/>"
+                       "<w:color w:val=\"333333\"/>"));
+    styles += styleXml(
+        QStringLiteral("paragraph"),
+        QStringLiteral("TableLabel"),
+        QStringLiteral("Table Label"),
+        QStringLiteral("<w:spacing w:after=\"0\"/><w:jc w:val=\"center\"/>"),
+        QStringLiteral("<w:i/><w:iCs/><w:sz w:val=\"16\"/><w:szCs w:val=\"16\"/>"
+                       "<w:color w:val=\"555555\"/>"));
 
     styles += styleXml(
         QStringLiteral("paragraph"),

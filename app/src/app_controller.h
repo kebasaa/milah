@@ -1,6 +1,7 @@
 #pragma once
 
 #include "core/alignment.h"
+#include "core/collation_docx.h"
 #include "core/coverage.h"
 #include "core/serialize.h"
 #include "core/suggestions.h"
@@ -168,6 +169,10 @@ public slots:
     /// asking about unsaved work first. Does nothing if that is declined.
     void closeProject();
     void exportCombined();
+    /// Writes the current book as a Word document: every verse a table of the
+    /// witnesses one above another, the differences coloured as they are on
+    /// screen and the remarks as footnotes.
+    void exportCollationWord();
 
     void setLocation(const milah::Location &location);
     void goToPreviousLocation();
@@ -301,6 +306,15 @@ private:
     QMap<QString, CombinedDraft> buildCombined(const DocumentRefs &manuscripts) const;
     /// The editor's notes as apparatus, each anchored at its word's place in
     /// the verse text. Only for the annotated export; the plain one gets none.
+    /// Every verse of the book on screen, aligned and gathered for the Word
+    /// export.
+    ///
+    /// The whole book rather than the chapter being read: an edition is a book,
+    /// and a document titled with one that held a single chapter would be a
+    /// document that lied about itself. Aligning the chapters not on screen is
+    /// the expensive part, which is why this is only reached from the export.
+    CollationExport collationExport() const;
+
     CombinedApparatus editorApparatus() const;
     /// The aligned translation as one gloss per Combined column, groups of
     /// several words joined by a dash. Empty when nothing is aligned, which is

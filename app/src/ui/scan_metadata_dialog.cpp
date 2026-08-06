@@ -1,5 +1,7 @@
 #include "ui/scan_metadata_dialog.h"
 
+#include "core/manuscript_catalogue.h"
+
 #include <QCheckBox>
 #include <QDialogButtonBox>
 #include <QGridLayout>
@@ -8,6 +10,45 @@
 #include <QVBoxLayout>
 
 namespace milah {
+namespace {
+
+/// A folio range as a reader writes it rather than as the manifest stores it.
+///
+/// ".." is in the file so that a folio label may itself contain a hyphen —
+/// OPenn labels an endleaf "i-r" — which is a thing a file format has to care
+/// about and a transcriber does not. The picker's Extent column makes the same
+/// substitution for the same reason.
+QString readableFolios(const QString &folios)
+{
+    QString range = folios;
+    return range.replace(QStringLiteral(".."), QStringLiteral("–"));
+}
+
+/// A translation verdict as a sentence rather than as its stored word.
+///
+/// "uncertain" is what travels through the manifest, the archive and the OSIS
+/// header, and it is not what a transcriber should be asked to agree to in a
+/// dialog. What is taken is still the word.
+QString certaintyInWords(const QString &certainty)
+{
+    if (certainty == QLatin1String(TranslationCertainty::Certain)) {
+        return QStringLiteral("Yes — the source is established");
+    }
+    if (certainty == QLatin1String(TranslationCertainty::Uncertain)) {
+        return QStringLiteral("No — stated, but not settled");
+    }
+    if (certainty == QLatin1String(TranslationCertainty::Original)) {
+        return QStringLiteral("Not a translation — an original Hebrew text");
+    }
+    if (certainty == QLatin1String(TranslationCertainty::OriginalUncertain)) {
+        return QStringLiteral("Probably not a translation");
+    }
+    // Empty, or a verdict from a later Milah. Either way there is nothing to
+    // offer, and the row is skipped on the value being empty.
+    return QString();
+}
+
+} // namespace
 
 ScanMetadataDialog::ScanMetadataDialog(
     const ScanEntry &scan,
@@ -33,13 +74,31 @@ ScanMetadataDialog::ScanMetadataDialog(
         const char *label;
         QString TranscriptionMetadata::*field;
         QString value;
+        /// What the row shows, where what is stored is not what a reader should
+        /// be shown. Empty shows the value itself, which is every row but one.
+        QString shown;
     } offered[] = {
-        {"Manuscript", &TranscriptionMetadata::manuscriptName, scan.title},
-        {"Origin", &TranscriptionMetadata::origin, scan.origin},
-        {"Library", &TranscriptionMetadata::libraryMark, scan.repository},
-        {"Shelfmark", &TranscriptionMetadata::shelfmark, scan.shelfmark},
-        {"Date", &TranscriptionMetadata::date, scan.date},
-        {"Language", &TranscriptionMetadata::language, scan.language},
+        {"Manuscript", &TranscriptionMetadata::manuscriptName, scan.title, {}},
+        {"Origin", &TranscriptionMetadata::origin, scan.origin, {}},
+        {"Library", &TranscriptionMetadata::libraryMark, scan.repository, {}},
+        {"Shelfmark", &TranscriptionMetadata::shelfmark, scan.shelfmark, {}},
+        {"Folios", &TranscriptionMetadata::folios, readableFolios(scan.folios), {}},
+        {"Date", &TranscriptionMetadata::date, scan.date, {}},
+        {"Material", &TranscriptionMetadata::material, scan.material, {}},
+        {"Provenance", &TranscriptionMetadata::provenance, scan.provenance, {}},
+        // What the text is, as against what the object is. No library records
+        // these; they come from the published link list, where somebody wrote
+        // them down.
+        {"Translated from",
+         &TranscriptionMetadata::translatedFrom,
+         scan.translatedFrom,
+         {}},
+        {"Established",
+         &TranscriptionMetadata::translatedFromCertainty,
+         scan.translationCertainty,
+         certaintyInWords(scan.translationCertainty)},
+        {"Copy of", &TranscriptionMetadata::exemplar, scan.exemplar, {}},
+        {"Language", &TranscriptionMetadata::language, scan.language, {}},
     };
 
     auto *grid = new QGridLayout;
@@ -64,7 +123,8 @@ ScanMetadataDialog::ScanMetadataDialog(
 
         auto *label = new QLabel(QStringLiteral("<b>%1</b>").arg(
             QString::fromLatin1(item.label)));
-        auto *value = new QLabel(item.value);
+        auto *value =
+            new QLabel(item.shown.isEmpty() ? item.value : item.shown);
         value->setWordWrap(true);
         value->setTextInteractionFlags(Qt::TextSelectableByMouse);
 
