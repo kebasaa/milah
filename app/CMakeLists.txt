@@ -44,6 +44,8 @@ add_library(MilahCore STATIC
     src/core/diff.h
     src/core/reading_marks.cpp
     src/core/reading_marks.h
+    src/core/name_forms.cpp
+    src/core/name_forms.h
     src/core/bands.cpp
     src/core/bands.h
     src/core/hebrew_forms.cpp
@@ -101,6 +103,7 @@ target_include_directories(MilahCore PUBLIC src)
 set(MILAH_DATA_FILES
     "${CMAKE_CURRENT_SOURCE_DIR}/data/hebrew_abbreviations.json"
     "${CMAKE_CURRENT_SOURCE_DIR}/data/hebrew_lexicon.json"
+    "${CMAKE_CURRENT_SOURCE_DIR}/data/hebrew_names.json"
     "${CMAKE_CURRENT_SOURCE_DIR}/data/hebrew_phrase_rules.json"
     "${CMAKE_CURRENT_SOURCE_DIR}/data/hebrew_roots.json"
     "${CMAKE_CURRENT_SOURCE_DIR}/data/rabbinic.words.txt"
@@ -250,7 +253,7 @@ if(MILAH_BUILD_TESTS)
             project_storage osis consensus apparatus diff acronym lexicon suggestions
             coverage alignment catalogue word_marker transcription books
             scan_catalogue recent_files docx transcription_docx
-            reading_marks collation_docx)
+            reading_marks collation_docx name_forms)
         # Plain add_executable, not qt_add_executable: the latter finalises the
         # target as a Windows GUI application, and a GUI-subsystem binary
         # discards the stdout QTest reports through, leaving a failing test

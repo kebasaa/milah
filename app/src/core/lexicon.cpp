@@ -1,6 +1,7 @@
 #include "core/lexicon.h"
 
 #include "core/data_paths.h"
+#include "core/hebrew_forms.h"
 #include "core/tokenize.h"
 
 #include <QFile>
@@ -12,15 +13,6 @@
 
 namespace milah {
 namespace {
-
-/// Prefixes that attach directly to a Hebrew word: conjunction vav,
-/// prepositions bet, kaf, lamed, mem, the definite article he, and the
-/// relative shin.
-const QString &prefixLetters()
-{
-    static const QString letters = QStringLiteral("ובכלמהש");
-    return letters;
-}
 
 const QRegularExpression &cantillation()
 {
@@ -254,7 +246,7 @@ QString HebrewLexicon::numbersFor(const QString &word) const
     // only accepted when it is itself in the index, which keeps the heuristic
     // from inventing readings out of coincidental letter sequences.
     for (int peeled = 1; peeled <= 2 && peeled + 1 < consonantal.size(); ++peeled) {
-        if (!prefixLetters().contains(consonantal.at(peeled - 1))) {
+        if (!isPrefixLetter(consonantal.at(peeled - 1))) {
             break;
         }
         const auto stripped = m_forms.constFind(consonantal.mid(peeled));

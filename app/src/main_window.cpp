@@ -494,6 +494,13 @@ void MainWindow::createActions()
         m_controller,
         &AppController::downloadManuscripts);
 
+    m_libraryAction = new QAction(QStringLiteral("Library…"), this);
+    m_libraryAction->setToolTip(QStringLiteral(
+        "Opens what you have downloaded. Milah knows which of them are "
+        "translations, so they load the right way round without being asked."));
+    connect(
+        m_libraryAction, &QAction::triggered, m_controller, &AppController::openLibrary);
+
     m_loadTranslationsAction = new QAction(QStringLiteral("Load translations"), this);
     m_loadTranslationsAction->setIcon(
         appIcon(QStringLiteral("load-translation"), windowPalette));
@@ -840,7 +847,10 @@ void MainWindow::buildMenuBar()
     m_editionFileMenu->addAction(m_saveAction);
     m_editionFileMenu->addAction(m_closeAction);
     m_editionFileMenu->addSeparator();
+    // In the order they are used: fetch into the library, load from it, then
+    // load from anywhere else.
     m_editionFileMenu->addAction(m_downloadAction);
+    m_editionFileMenu->addAction(m_libraryAction);
     m_editionFileMenu->addAction(m_loadManuscriptsAction);
     m_editionFileMenu->addAction(m_loadTranslationsAction);
     m_editionFileMenu->addSeparator();
@@ -1107,6 +1117,7 @@ void MainWindow::updateSourceActions()
     const bool editing = editingEdition();
     m_openAction->setEnabled(editing);
     m_downloadAction->setEnabled(editing);
+    m_libraryAction->setEnabled(editing);
     m_loadManuscriptsAction->setEnabled(editing);
     m_loadTranslationsAction->setEnabled(editing);
     m_loadDictionaryAction->setEnabled(editing);

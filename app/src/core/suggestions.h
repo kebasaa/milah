@@ -1,5 +1,9 @@
 #pragma once
 
+// By value in reviewVerse's default argument, so a forward declaration will not
+// serve.
+#include "core/name_forms.h"
+
 #include <QHash>
 #include <QList>
 #include <QSet>
@@ -74,6 +78,11 @@ enum class SuggestionKind {
     /// call — ה֞ is the divine name, but which of its names is a decision
     /// about the edition, so every reading the table knows is offered.
     Abbreviation,
+    /// A proper name the witnesses spell as a Greek transliteration where the
+    /// edition writes the Hebrew: יאהנניס for יוֹחָנָן. Which form the edition
+    /// should use is an editorial choice, like a phrase rule, so it is proposed
+    /// and never applied on its own.
+    NameForm,
 };
 
 /// Something worth the editor's attention in one Combined word. Never applied
@@ -231,11 +240,16 @@ bool readingsArePointed(const QList<std::optional<QString>> &words);
 
 /// Reviews one verse's Combined words. `accepted` holds comparison keys the
 /// editor has waved through.
+///
+/// Six tables is the limit. A seventh should become one context struct rather
+/// than a seventh parameter — this signature is already at the point where a
+/// caller has to count commas to know what it is passing.
 QList<Suggestion> reviewVerse(
     const QList<std::optional<QString>> &words,
     const HebrewLexicon &lexicon,
     const PhraseRules &rules,
     const QSet<QString> &accepted = QSet<QString>(),
-    const AbbreviationTable &abbreviations = AbbreviationTable());
+    const AbbreviationTable &abbreviations = AbbreviationTable(),
+    const NameForms &names = NameForms());
 
 } // namespace milah

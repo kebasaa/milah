@@ -156,6 +156,12 @@ public slots:
     void loadPaths(milah::SourceRole role, const QStringList &paths);
     /// Offers the published manuscripts for download into the local library.
     void downloadManuscripts();
+    /// Shows what has been downloaded, and loads what is chosen from it.
+    ///
+    /// Apart from loadSources because the two answer different questions: this
+    /// one knows which of its files are translations and needs nobody to say,
+    /// while that one is for a text the library has never seen.
+    void openLibrary();
     void openProject();
     /// Opens a project the reader chose from the Open Recent menu rather than
     /// from a dialog. Asks about unsaved work exactly as openProject does, and
@@ -204,9 +210,15 @@ public slots:
     void chooseToken(const QString &verseId, int columnIndex, const QString &sourceId);
     /// Sets one Combined word by hand. An empty text drops the word.
     void setColumnText(const QString &verseId, int columnIndex, const QString &text);
-    /// Divides a Combined word at its maqaf or space, giving the second half a
-    /// column of its own. The witnesses are untouched: they still read one word
-    /// there, so their rows show a gap beside it.
+    /// Divides a Combined word at its space, giving the second half a column of
+    /// its own. The witnesses are untouched, so their rows show a gap beside
+    /// the new column.
+    ///
+    /// This used to be how a maqaf compound was taken apart. It is not needed
+    /// for that any more: the parser now divides a witness's own reading at a
+    /// maqaf or hyphen, because a joiner joins two words without making them
+    /// one. What is left for this is a word the witnesses genuinely write as
+    /// one and the edition wants as two.
     void splitColumn(const QString &verseId, int columnIndex);
     /// Joins a column back into the one after it, undoing a division. The two
     /// words are separated by a space: the maqaf a division was made at is not

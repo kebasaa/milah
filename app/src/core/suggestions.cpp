@@ -236,8 +236,7 @@ QStringList AbbreviationTable::expansionsFor(const QString &rawText) const
 
     // One agglutinated prefix letter, put back on whatever it resolves to, so
     // לה֞ reads through the same row as ה֞ and comes out לאלהים.
-    static const QString prefixes = QStringLiteral("ובכלמהש");
-    if (stem.size() >= 2 && prefixes.contains(stem.at(0))) {
+    if (stem.size() >= 2 && isPrefixLetter(stem.at(0))) {
         const auto peeled = m_entries.constFind(stem.mid(1));
         if (peeled != m_entries.constEnd()) {
             QStringList prefixed;
@@ -636,6 +635,42 @@ std::optional<Suggestion> abbreviation(
         column, offered.first(), reason, SuggestionKind::Abbreviation};
 }
 
+/// Offers the Hebrew form of a name a witness writes as a transliteration.
+///
+/// The only check here that fires on a word the lexicon or the corpus already
+/// knows: יוחנן and its prefixed forms are all in rabbinic.words.txt, so a name
+/// check placed after the attested test could never speak about any name the
+/// corpus holds. What keeps that from becoming noise is the consonant guard
+/// below.
+std::optional<Suggestion> nameForm(
+    const QString &word, int column, const NameForms &names, bool pointed)
+{
+    QString prefix;
+    const NameGroup *group = names.group(names.groupFor(word, &prefix));
+    if (!group) {
+        return std::nullopt;
+    }
+
+    // Reduced before the comparison, as the phrase rules are.
+    const QString replacement =
+        spelledLikeTheEdition(prefix + group->preferred, pointed);
+
+    // Consonants only, and deliberately stricter than the phrase rules: this
+    // table exists to change which letters are written, not to point a word
+    // that already reads right. Without it a pointed edition would be nagged
+    // about every bare יוחנן in it, and an unpointed one about every pointed
+    // one.
+    if (comparisonKey(replacement) == comparisonKey(word)) {
+        return std::nullopt;
+    }
+
+    const QString reason = group->note.isEmpty()
+        ? QStringLiteral("A spelling of the same name; the edition writes %1.")
+              .arg(replacement)
+        : group->note;
+    return Suggestion{column, replacement, reason, SuggestionKind::NameForm};
+}
+
 } // namespace
 
 bool readingsArePointed(const QList<std::optional<QString>> &words)
@@ -676,10 +711,14 @@ QList<Suggestion> reviewVerse(
     const HebrewLexicon &lexicon,
     const PhraseRules &rules,
     const QSet<QString> &accepted,
-    const AbbreviationTable &abbreviations)
+    const AbbreviationTable &abbreviations,
+    const NameForms &names)
 {
     QList<Suggestion> suggestions;
     QSet<int> abbreviated;
+    /// Columns a name was offered for, so a phrase rule does not give the same
+    /// word a second and differently-worded reason.
+    QSet<int> named;
 
     // Settled once for the whole verse: every replacement below comes from a
     // data table written pointed, and has to be written the way this edition
@@ -711,6 +750,17 @@ QList<Suggestion> reviewVerse(
             suggestions.append(*found);
             // One flag per word: the spelling has to be settled before it is
             // worth asking whether the lexicon knows it.
+            continue;
+        }
+
+        // Before the attested test, not after: יוחנן and every prefixed form of
+        // it are in rabbinic.words.txt, so a name check placed later could
+        // never speak about a name the corpus already holds — which is most of
+        // them.
+        if (const std::optional<Suggestion> found =
+                nameForm(*word, column, names, pointed)) {
+            suggestions.append(*found);
+            named.insert(column);
             continue;
         }
 
@@ -773,6 +823,12 @@ QList<Suggestion> reviewVerse(
                 // reason for it — which for an abbreviation is the wrong
                 // reason. The expansion already said the useful thing.
                 if (abbreviated.contains(column)) {
+                    continue;
+                }
+                // Likewise a name: the table already offered this word a form
+                // and a reason, and an editor's own rules file may still carry
+                // a rule for the same spelling.
+                if (named.contains(column)) {
                     continue;
                 }
                 suggestions.append(Suggestion{

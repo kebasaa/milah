@@ -76,14 +76,6 @@ bool isAbbreviationMark(QChar character)
 /// of them collide, and the alphabet is small.
 constexpr int kMinimumSkeleton = 3;
 
-/// The letters that agglutinate onto the front of a Hebrew word. Same set the
-/// lexicon peels with, and for the same reason.
-const QString &prefixLetters()
-{
-    static const QString letters = QStringLiteral("ובכלמהש");
-    return letters;
-}
-
 /// Endings common enough to be worth removing, longest first so that ינו is
 /// not mistaken for a bare ו. Deliberately short: every entry is a chance to
 /// take a letter that belonged to the word.
@@ -134,6 +126,12 @@ QString asWritten(const QString &folded)
 bool isHebrewLetter(QChar character)
 {
     return character.unicode() >= 0x05D0 && character.unicode() <= 0x05EA;
+}
+
+bool isPrefixLetter(QChar character)
+{
+    static const QString letters = QStringLiteral("ובכלמהש");
+    return letters.contains(character);
 }
 
 std::optional<QChar> finalOf(QChar letter)
@@ -236,7 +234,7 @@ QString skeletonKey(const QString &key, const AttestedForms *attested)
     // out of coincidental letter sequences.
     if (attested) {
         for (int peeled = 1; peeled <= 2 && peeled < result.size(); ++peeled) {
-            if (!prefixLetters().contains(result.at(peeled - 1))) {
+            if (!isPrefixLetter(result.at(peeled - 1))) {
                 break;
             }
             const QString rest = result.mid(peeled);

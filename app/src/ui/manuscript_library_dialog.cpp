@@ -98,7 +98,9 @@ QStringList termsOf(const QString &path)
 ManuscriptLibraryDialog::ManuscriptLibraryDialog(QWidget *parent)
     : QDialog(parent)
 {
-    setWindowTitle(QStringLiteral("Load manuscripts"));
+    // Not "Load manuscripts": that names a different File entry, which goes
+    // straight to a file dialog.
+    setWindowTitle(QStringLiteral("Manuscript library"));
     setObjectName(QStringLiteral("manuscriptLibraryDialog"));
 
     const QStringList library = installedManuscripts();

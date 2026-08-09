@@ -13,7 +13,14 @@
     "reason:  shown to the editor, so say why rather than what.",
     "",
     "Rules can also be kept in hebrew_phrase_rules.json under the",
-    "application data directory; those are read in addition to these."
+    "application data directory; those are read in addition to these.",
+    "",
+    "The five ישו rules that used to live here — one bare and four for the",
+    "prefixes ל, ו, ב and כ — moved to hebrew_names.json. A phrase rule has no",
+    "prefix peeling, so every prefix needed a rule of its own; the name table",
+    "peels, so one entry covers them all. A word the name table speaks about",
+    "is skipped here, so a rule an editor keeps for the same spelling does not",
+    "give it a second and differently-worded reason."
   ],
   "rules": [
     {
@@ -25,31 +32,6 @@
       "match": ["ישוע", "משיח"],
       "replace": ["", "הַמָּשִׁיחַ"],
       "reason": "A title standing in apposition to a name takes the definite article: Yeshua the Messiah."
-    },
-    {
-      "match": ["ישו"],
-      "replace": ["יֵשׁוּעַ"],
-      "reason": "The truncated ישו is a derogatory shortening; the name is written in full as Yeshua."
-    },
-    {
-      "match": ["לישו"],
-      "replace": ["לְיֵשׁוּעַ"],
-      "reason": "The truncated ישו is a derogatory shortening; the name is written in full as Yeshua."
-    },
-    {
-      "match": ["וישו"],
-      "replace": ["וְיֵשׁוּעַ"],
-      "reason": "The truncated ישו is a derogatory shortening; the name is written in full as Yeshua."
-    },
-    {
-      "match": ["בישו"],
-      "replace": ["בְּיֵשׁוּעַ"],
-      "reason": "The truncated ישו is a derogatory shortening; the name is written in full as Yeshua."
-    },
-    {
-      "match": ["כישו"],
-      "replace": ["כְּיֵשׁוּעַ"],
-      "reason": "The truncated ישו is a derogatory shortening; the name is written in full as Yeshua."
     }
   ]
 }

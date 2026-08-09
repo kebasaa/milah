@@ -178,6 +178,67 @@ an unpointed Cochin verse as pointed and do exactly the wrong thing.
 Numeric abbreviations (`א׳` for one, `י׳ב` for twelve) are deliberately absent:
 they expand to numbers rather than words. They pass through untouched.
 
+## hebrew_names.json
+
+Which spellings are the same proper name — the only table Milah has that is an
+assertion rather than a computation.
+
+These manuscripts write New Testament names as Greek transliterations where
+other witnesses write the Hebrew. Cochin's `יאהנניס` is Sloane's `יוֹחָנָן`, and
+**nothing derives that**: four edits over a seven-letter word, no Strong's
+number, no shared consonantal skeleton. No amount of loosening the near-match
+threshold would reach it without also pairing largely unrelated words
+throughout the corpus. So somebody who knows has to say so, and this is where.
+
+```json
+{ "id": "john", "prefer": "יוֹחָנָן", "forms": ["יאהנניס", "יהאנניס", "יאנניס"],
+  "note": "John. Cochin writes the Greek Iōannēs three ways…" }
+```
+
+`prefer` is a member of its own group, so a witness reading the Hebrew name
+needs no separate entry in `forms`. It is written **pointed** and reduced for an
+unpointed edition, exactly as an abbreviation expansion is.
+
+### Prefix peeling
+
+One or two letters of `ובכלמהש` come off, so `ולעפהיזוס` reaches `עפהיזוס` and
+`לסמירנון` reaches `סמירנון`. **Shortest peel first, and that is load-bearing**:
+`ולאדיצאן` has to resolve as `ו` + `לאדיצאן` because Laodicea begins with a
+lamed of its own, while Sloane's `לאודיקיאה` has to resolve whole. Any other
+order gets one of the two wrong.
+
+A glued particle is **not** peeled — `אל` is not a prefix letter, and it is
+`god`, `to`, `not` and `these` depending on pointing. Sloane's `ואלסמרנה` is
+listed literally as `אלסמרנה` instead, and the `ו` comes off that. Words Sloane
+runs together entirely (`אנייוחנן` for "I John") are a tokenisation problem and
+out of scope.
+
+A prefix taken off a folded key is bare consonants, so it is glued back onto a
+pointed name: `ולעפהיזוס` offers `ואֶפֶסוֹס`, where the vav wants a shewa. Cosmetic,
+and the abbreviation table already does the same with `לאֱלֹהִים`.
+
+### Keep it small
+
+A group outranks a shared Strong's number in the alignment (`kScoreName` = 42
+against `kScoreStrongs` = 36), so a wrong equivalence beats the dictionary
+silently. What holds that in check is that the table is ten curated entries of
+exotic transliterations, that an exact agreement still wins at 48, and that the
+alignment test's rung tally makes every column the table decided countable in
+one diff. **If this ever grows past a page, the rung needs re-thinking rather
+than more entries.**
+
+`יהושע` is both Yeshua and the biblical Joshua. Grouping it under `jesus` is
+right for Revelation and would be wrong for a book quoting Joshua son of Nun;
+groups are corpus-wide and have no way to say "here it means Joshua".
+
+The five `ישו` rules that used to live in `hebrew_phrase_rules.json` are here
+now. A phrase rule has no peeling, so each of `ל`, `ו`, `ב` and `כ` needed a
+rule of its own; one entry here covers them all.
+
+Entries marked `"unconfirmed": true` carry a preferred spelling proposed rather
+than settled — they go into the edition when accepted, so read them first. The
+field is documentation; Milah does not read it.
+
 ## rabbinic.words.txt
 
 The vocabulary the unknown-word check accepts beyond the Hebrew Bible.

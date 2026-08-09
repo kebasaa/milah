@@ -3,6 +3,7 @@
 #include "app_controller.h"
 #include "core/alignment.h"
 #include "core/lexicon.h"
+#include "core/name_forms.h"
 #include "core/reading_marks.h"
 #include "core/suggestions.h"
 #include "core/tokenize.h"
@@ -608,8 +609,8 @@ void VerseGridWidget::showWitnessMenu(int columnIndex, const QPoint &globalPosit
         QAction *split = menu.addAction(
             QStringLiteral("Split into %1").arg(parts.join(QStringLiteral(" + "))));
         split->setToolTip(QStringLiteral(
-            "Gives each word a column of its own. The witnesses still read one "
-            "word here, so their rows show a gap beside it."));
+            "Gives each word a column of its own. The witnesses are not "
+            "changed, so their rows show a gap beside the new column."));
         connect(split, &QAction::triggered, this, [this, columnIndex] {
             m_controller->splitColumn(verseId(), columnIndex);
         });
@@ -932,7 +933,8 @@ void VerseGridWidget::build()
              HebrewLexicon::shared(),
              PhraseRules::shared(),
              m_controller->acceptedForms(),
-             AbbreviationTable::shared())) {
+             AbbreviationTable::shared(),
+             NameForms::shared())) {
         m_suggestions.insert(suggestion.column, suggestion);
     }
 

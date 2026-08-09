@@ -10,6 +10,7 @@ namespace milah {
 class AbbreviationTable;
 class AttestedForms;
 class HebrewLexicon;
+class NameForms;
 
 /**
  * How two readings are scored against each other when the alignment decides
@@ -44,6 +45,10 @@ struct TokenProfile
     QVarLengthArray<quint32, 4> strongs;
     /// Roots the dictionary derives this reading from, already parsed.
     QVarLengthArray<quint32, 4> roots;
+    /// Name groups this reading belongs to — its own, and any its abbreviation
+    /// expansions belong to, so יש֞ו reaches the name rung as well. Held as
+    /// numbers so sharesANumber() serves all three of these lists.
+    QVarLengthArray<quint32, 4> names;
     /// The guessed consonantal skeleton, or empty for "no opinion".
     QString skeleton;
     /// Set when `written` is the raw text rather than a real key.
@@ -69,6 +74,51 @@ constexpr int kScale = 12;
 constexpr int kScoreMatch = 4 * kScale;
 /// No reason to think these are the same word.
 constexpr int kScoreMismatch = -2 * kScale;
+
+/**
+ * The name table vouches that these two spellings are one proper name.
+ *
+ * The strongest rung below outright agreement, and the only one that is not a
+ * computation. A Strong's number arrives by looking an ambiguous form up and
+ * may be one of four candidates; a name group is somebody who knows saying that
+ * Cochin's יאהנניס and Sloane's יוֹחָנָן are the same word. Nothing derives that:
+ * four edits over a seven-letter word, no Strong's number, no shared skeleton.
+ * See core/name_forms.h.
+ *
+ * Below kScoreMatch because the witnesses do not agree — one writes the Greek
+ * transliteration and the other the Hebrew name — which is the relation
+ * kScoreExpansion encodes for abbreviations.
+ *
+ * 42 rather than a multiple of kScale: every value on the 12-grid between 36
+ * and 48 is taken. It must not be 30 — kScoreRoot, kScoreNear and
+ * kScoreExpansion are all 30, and the golden dump's tally tells the rungs apart
+ * by score alone.
+ *
+ * Because this outranks the lexicon, a wrong group beats the dictionary
+ * silently. What holds that in check is that the table is small, curated, and
+ * countable in the dump's tally — not anything in this file. If it ever grows
+ * past a page, this rung needs re-thinking rather than more entries.
+ */
+constexpr int kScoreName = 42;
+
+/**
+ * The name table vouches that these two spellings are DIFFERENT proper names.
+ *
+ * The table's contrapositive, and the only rung on the ladder that refuses
+ * rather than proposes. Naming two words as different names is as much an
+ * assertion as naming them the same, and it is the only thing that can say
+ * Cochin's יהאנניס is not Sloane's יהושע.
+ *
+ * Dearer than two gaps, deliberately. kScoreGap == kScoreMismatch, so parking
+ * two unrelated words in one column costs exactly what opening a gap on each
+ * side costs, and the diagonal-first tie-break then takes the pairing —
+ * which is how John came to sit on Jesus in the first place. Anything above
+ * -48 would leave them there.
+ *
+ * Only where BOTH readings are named. One named word facing an unnamed one is
+ * no evidence at all; only the table asserting two names is.
+ */
+constexpr int kScoreDifferentName = -5 * kScale;
 
 /**
  * The lexicon gives both readings the same Strong's number: two inflections of
@@ -162,6 +212,7 @@ struct ScoringContext
     const AbbreviationTable *abbreviations = nullptr;
     const HebrewLexicon *lexicon = nullptr;
     const AttestedForms *attested = nullptr;
+    const NameForms *names = nullptr;
 };
 
 /// Reads one token into the form the scorer compares.
