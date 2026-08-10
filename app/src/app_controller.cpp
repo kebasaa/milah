@@ -4,6 +4,7 @@
 #include "core/coverage.h"
 #include "core/data_paths.h"
 #include "core/lexicon.h"
+#include "core/name_forms.h"
 #include "core/osis.h"
 #include "core/project.h"
 #include "core/recent_files.h"
@@ -107,6 +108,9 @@ AppController::AppController(QWidget *dialogParent, QObject *parent)
     // shows it as a standing indicator instead.
     m_acceptedForms = AttestedForms::shared().keys();
     m_acceptedForms.unite(m_dictionary.keys());
+    // Forced here rather than on the first alignment, so the cost of reading it
+    // falls where the other tables' does.
+    NameForms::shared();
 
     if (HebrewLexicon::shared().isEmpty()) {
         m_dataWarning = QStringLiteral(
@@ -384,6 +388,7 @@ AlignedVerse AppController::alignedFor(
     options.abbreviations = &AbbreviationTable::shared();
     options.lexicon = &HebrewLexicon::shared();
     options.attested = &AttestedForms::shared();
+    options.names = &NameForms::shared();
 
     return applyColumnSplits(
         alignVerse(verseId, sources, priorityId, options),
@@ -943,29 +948,32 @@ void AppController::downloadManuscripts()
     dialog.exec();
     if (dialog.downloadedAnything()) {
         setMessage(QStringLiteral(
-            "Downloaded. Use Load manuscripts to open what you have taken."));
+            "Downloaded. Use Library to open what you have taken."));
     }
+}
+
+void AppController::openLibrary()
+{
+    ManuscriptLibraryDialog library(m_dialogParent);
+    if (library.exec() != QDialog::Accepted) {
+        return;
+    }
+    // The escape hatch, for a text that never passed through the library: the
+    // repository corpus, or anything a transcriber made with pdf2osis.
+    if (library.wantsToBrowse()) {
+        loadSources(SourceRole::Manuscript);
+        return;
+    }
+    // Not asked which is which: the file names say, and loadLibraryFiles reads
+    // them, so a mixed choice loads the right way round.
+    loadLibraryFiles(library.chosenFiles());
 }
 
 void AppController::loadSources(SourceRole role)
 {
-    // The library first, for manuscripts: what was downloaded is what an editor
-    // most often wants, and it knows which files are translations, so they load
-    // the right way round without being asked. Browsing is still one click away
-    // — the corpus in tools/data/01_osis never passes through the library.
-    if (role == SourceRole::Manuscript) {
-        ManuscriptLibraryDialog library(m_dialogParent);
-        if (!library.isEmpty()) {
-            if (library.exec() != QDialog::Accepted) {
-                return;
-            }
-            if (!library.wantsToBrowse()) {
-                loadLibraryFiles(library.chosenFiles());
-                return;
-            }
-        }
-    }
-
+    // A file dialog, and nothing else. This used to open the library first for
+    // manuscripts, which made the one action named "Load manuscripts" the one
+    // that did not simply load a manuscript. The library has its own entry now.
     const QString title = role == SourceRole::Translation
         ? QStringLiteral("Load translation OSIS files")
         : QStringLiteral("Load manuscript OSIS files");

@@ -192,6 +192,7 @@ private:
     QAction *m_saveAction = nullptr;
     QAction *m_closeAction = nullptr;
     QAction *m_downloadAction = nullptr;
+    QAction *m_libraryAction = nullptr;
     QAction *m_exportAction = nullptr;
     /// Named apart from m_exportWordAction, which is the transcription tab's.
     QAction *m_exportCollationWordAction = nullptr;

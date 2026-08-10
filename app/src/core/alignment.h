@@ -31,6 +31,7 @@ private:
 class AbbreviationTable;
 class AttestedForms;
 class HebrewLexicon;
+class NameForms;
 
 /// What the scorer may consult while aligning.
 ///
@@ -48,6 +49,10 @@ struct AlignmentOptions
     /// Vouches for a stem left behind by peeling a prefix. Without it the
     /// peeling is disabled rather than done unchecked.
     const AttestedForms *attested = nullptr;
+    /// Says which spellings are the same proper name. Without it a
+    /// transliteration and its Hebrew original score as unrelated, which is
+    /// what they look like to every other rung.
+    const NameForms *names = nullptr;
 };
 
 /// Aligns one verse across every manuscript, starting from the priority

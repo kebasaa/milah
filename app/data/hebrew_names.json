@@ -1,0 +1,121 @@
+{
+  "version": 1,
+  "about": [
+    "Proper names, and the spellings the witnesses write them with.",
+    "",
+    "These manuscripts render New Testament names as Greek transliterations",
+    "where other witnesses write the Hebrew: Cochin's יאהנניס is Sloane's",
+    "יוחנן. Nothing computes that relation. It is four edits over a",
+    "seven-letter word, it carries no Strong's number, and the two share no",
+    "consonantal skeleton -- so no measure of similarity will ever reach it,",
+    "however it is tuned. Someone who knows has to say so, and this is where.",
+    "",
+    "forms:  every spelling met in a manuscript. Compared on the consonantal",
+    "        skeleton with final letters folded, so pointing and word-final",
+    "        forms need not agree with what is written here.",
+    "prefer: the form Milah offers the editor. Written POINTED; it is stripped",
+    "        automatically for an unpointed edition, and points cannot be",
+    "        invented the other way. It is a member of its own group, so a",
+    "        witness reading it needs no separate entry in forms.",
+    "id:     stable and not shown to anyone. It is what a test asserts on, and",
+    "        what catches John being filed under Jesus -- a test that a",
+    "        spelling merely resolves would pass with the groups swapped.",
+    "",
+    "One or two agglutinated prefix letters (ובכלמהש) are peeled, so ולעפהיזוס",
+    "reaches עפהיזוס and לסמירנון reaches סמירנון. Shortest peel first, which",
+    "is why ולאדיצאן resolves as ו + לאדיצאן and not as ול + אדיצאן: Laodicea",
+    "begins with a lamed of its own.",
+    "",
+    "The אל-prefixed forms (אלסמרנה, אלתיאטירה, אלפילדלפיאה) are no longer",
+    "reached from this corpus: Sloane writes וְאֶל-סְמֻרְנָה with a hyphen, and",
+    "the parser now divides at a hyphen or maqaf, so the bare name is what",
+    "arrives here. They are kept as insurance for a witness that glues the",
+    "particle on with nothing between -- אל is not a peelable prefix letter,",
+    "being 'god', 'to', 'not' and 'these' by turns.",
+    "",
+    "UNCONFIRMED PREFERRED SPELLINGS. Entries marked \"unconfirmed\": true carry",
+    "a preferred form proposed by the transcriber of this file, not settled by",
+    "the editor. They go into the edition when accepted, so read them before",
+    "trusting them. יוֹחָנָן and יֵשׁוּעַ are not marked: those are settled.",
+    "The field is documentation -- Milah does not read it.",
+    "",
+    "This table is meant to stay SMALL. A group outranks a shared Strong's",
+    "number in the alignment, so a wrong equivalence beats the dictionary",
+    "silently. See the note on kScoreName in app/src/core/align_score.h.",
+    "",
+    "Names can also be kept in hebrew_names.json under the application data",
+    "directory. A group there whose id matches one here REPLACES it whole,",
+    "spellings included, so a wrong form can be taken out and not merely",
+    "added to."
+  ],
+  "names": [
+    {
+      "id": "john",
+      "prefer": "יוֹחָנָן",
+      "forms": ["יאהנניס", "יהאנניס", "יאנניס"],
+      "note": "John. Cochin writes the Greek Iōannēs three ways, metathesising the alef and he; Sloane writes the Hebrew name. Sloane's אנייוחנן at Rev 1:9 is 'I John' run together and is a tokenisation problem, not a spelling of the name."
+    },
+    {
+      "id": "jesus",
+      "prefer": "יֵשׁוּעַ",
+      "forms": ["ישו", "ישוע", "יהושע"],
+      "note": "The truncated ישו is a derogatory shortening; the name is written in full as Yeshua. Cochin abbreviates to יש֞ו, Sloane writes יהושע. Beware: יהושע is also the biblical Joshua, so this group is right for Revelation and would be wrong for a book quoting Joshua son of Nun."
+    },
+    {
+      "id": "patmos",
+      "prefer": "פַּטְמוֹס",
+      "unconfirmed": true,
+      "forms": ["פטמס", "פטמוש"],
+      "note": "Patmos. Rev 1:9."
+    },
+    {
+      "id": "ephesus",
+      "prefer": "אֶפֶסוֹס",
+      "unconfirmed": true,
+      "forms": ["עפהיזוס", "אפשוס"],
+      "note": "Ephesus, the first of the seven churches. Cochin opens it with ayin, Sloane with alef."
+    },
+    {
+      "id": "smyrna",
+      "prefer": "סְמוּרְנָא",
+      "unconfirmed": true,
+      "forms": ["סמירנון", "זמירנין", "סמרנה", "אלסמרנה"],
+      "note": "Smyrna. Cochin writes it with a samekh at Rev 1:11 and a zayin at Rev 2:8. אלסמרנה is kept only for a witness that glues the preposition on with nothing between; Sloane's own וְאֶל-סְמֻרְנָה is divided at the hyphen."
+    },
+    {
+      "id": "pergamum",
+      "prefer": "פֶּרְגָמוֹן",
+      "unconfirmed": true,
+      "forms": ["פירגימוס", "פירגימום", "פרגמוש"],
+      "note": "Pergamum. Cochin ends it with samekh at Rev 1:11 and mem at Rev 2:12 — a different letter, not a final form, so both are listed."
+    },
+    {
+      "id": "thyatira",
+      "prefer": "תִּיאַטִירָא",
+      "unconfirmed": true,
+      "forms": ["טיאטירס", "טיאטירא", "תיאטירה", "אלתיאטירה"],
+      "note": "Thyatira. Cochin opens it with tet, Sloane with tav."
+    },
+    {
+      "id": "sardis",
+      "prefer": "סַרְדִּיס",
+      "unconfirmed": true,
+      "forms": ["זארדס", "סרדש"],
+      "note": "Sardis. Cochin opens it with zayin, Sloane with samekh."
+    },
+    {
+      "id": "philadelphia",
+      "prefer": "פִילָדֶלְפִיָא",
+      "unconfirmed": true,
+      "forms": ["פילדלפיאן", "פילדלפיאה", "אלפילדלפיאה"],
+      "note": "Philadelphia. אלפילדלפיאה is kept for the same glued אל as Smyrna, and for the same reason is not what this corpus actually reaches."
+    },
+    {
+      "id": "laodicea",
+      "prefer": "לָאוֹדִיקְיָא",
+      "unconfirmed": true,
+      "forms": ["לאדיצאן", "לאדיצא", "לאודיקיאה"],
+      "note": "Laodicea. The one that proves the peeling order: Cochin's ולאדיצאן must come off as ו + לאדיצאן, because the name itself begins with a lamed, while Sloane's לאודיקיאה must resolve whole."
+    }
+  ]
+}

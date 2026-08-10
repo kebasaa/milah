@@ -25,12 +25,32 @@ const QRegularExpression &trailingWhitespace()
     return expression;
 }
 
+/// How a manuscript's verse is cut into words.
+///
+/// A run of letters, then any number of apostrophe- or geresh-joined runs after
+/// it — `ע׳י` is one abbreviation and not two words — and then an optional
+/// **trailing** maqaf or hyphen, which ends the token.
+///
+/// That trailing joiner is the whole of the rule about compounds. A maqaf joins
+/// two words in Hebrew; it does not make them one word, and Sloane 237 writes
+/// 48 of its 434 words in compounds like אֲנִי-יוֹחָנָן ("I-John") using an
+/// ASCII hyphen for the purpose. Held together, Sloane's John could never line
+/// up against Cochin's, which is how Cochin's יהאנניס came to sit in a column
+/// with Sloane's יהושע — John read as Jesus.
+///
+/// The joiner rides on the *first* piece rather than standing alone. Alone it
+/// would open a column of its own in every one of those 48 places, against a
+/// witness that writes no hyphen at all; and joinTokens closes a space after a
+/// maqaf but not before one, so the text would rebuild as `אֲנִי -יוֹחָנָן`.
+/// Carried on the first word it costs no column, rebuilds exactly, and keys as
+/// `אני` — an exact match for what Cochin writes.
 const QRegularExpression &tokenPattern()
 {
     static const QRegularExpression expression(
         QStringLiteral(
             "[\\p{L}\\p{M}\\p{N}]+"
-            "(?:['\\x{2019}\\x{05F3}\\x{05F4}-][\\p{L}\\p{M}\\p{N}]+)*"
+            "(?:['\\x{2019}\\x{05F3}\\x{05F4}][\\p{L}\\p{M}\\p{N}]+)*"
+            "[-\\x{05BE}]?"
             "|[^\\s]"),
         QRegularExpression::UseUnicodePropertiesOption);
     return expression;

@@ -2,6 +2,7 @@
 #include "core/alignment.h"
 #include "core/hebrew_forms.h"
 #include "core/lexicon.h"
+#include "core/name_forms.h"
 #include "core/osis.h"
 #include "core/suggestions.h"
 #include "core/tokenize.h"
@@ -10,6 +11,7 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QJsonObject>
+#include <QProcessEnvironment>
 #include <QtTest>
 
 using namespace milah;
@@ -60,22 +62,63 @@ bool offersReading(const QStringList &expansions, const QString &consonants)
 
 // --- the repository corpus, for the golden dump ---------------------------
 
-QString corpusPath(const QString &file)
+/// A witness of the golden dump names itself twice, because it is kept in two
+/// places under two conventions.
+struct CorpusWitness
 {
-    return QStringLiteral("%1/tools/data/01_osis/%2.osis")
-        .arg(QStringLiteral(MILAH_REPO_ROOT), file);
+    /// `tools/data/01_osis/<local>.osis`, where the corpus was kept when this
+    /// dump was first taken. Never tracked in git — so on a fresh clone the
+    /// dump could not be regenerated, and the copy committed beside the sources
+    /// was a snapshot nobody could reproduce.
+    QString local;
+    /// `../hebrew_manuscripts/manuscripts/<published>.osis`, the published
+    /// repository. The same two texts, checked word for word against the
+    /// committed dump.
+    QString published;
+};
+
+const CorpusWitness &cochinFile()
+{
+    static const CorpusWitness witness{
+        QStringLiteral("Rev_CochinOo.1.16.2_hebrew"),
+        QStringLiteral("REV_CochinOo.1.16.2_hebrew_commented")};
+    return witness;
 }
 
-const QString &cochinFile()
+const CorpusWitness &sloaneFile()
 {
-    static const QString name = QStringLiteral("Rev_CochinOo.1.16.2_hebrew");
-    return name;
+    static const CorpusWitness witness{
+        QStringLiteral("Rev_Sloane237_hebrew"),
+        QStringLiteral("REV_Sloane237_hebrew_commented")};
+    return witness;
 }
 
-const QString &sloaneFile()
+/// The first of the two that exists, or the local one so a failure names the
+/// path a reader is most likely to be looking for.
+///
+/// $MILAH_CORPUS_DIR overrides both, for a corpus kept somewhere else; it holds
+/// files under the local naming.
+QString corpusPath(const CorpusWitness &witness)
 {
-    static const QString name = QStringLiteral("Rev_Sloane237_hebrew");
-    return name;
+    const QString override =
+        QProcessEnvironment::systemEnvironment().value(QStringLiteral("MILAH_CORPUS_DIR"));
+    if (!override.isEmpty()) {
+        const QString path = QStringLiteral("%1/%2.osis").arg(override, witness.local);
+        if (QFileInfo::exists(path)) {
+            return path;
+        }
+    }
+
+    const QString local = QStringLiteral("%1/tools/data/01_osis/%2.osis")
+                              .arg(QStringLiteral(MILAH_REPO_ROOT), witness.local);
+    if (QFileInfo::exists(local)) {
+        return local;
+    }
+
+    const QString published =
+        QStringLiteral("%1/../hebrew_manuscripts/manuscripts/%2.osis")
+            .arg(QStringLiteral(MILAH_REPO_ROOT), witness.published);
+    return QFileInfo::exists(published) ? published : local;
 }
 
 bool corpusAvailable()
@@ -84,16 +127,18 @@ bool corpusAvailable()
         && QFileInfo::exists(corpusPath(sloaneFile()));
 }
 
-SourceDocument readWitness(const QString &file, const QString &id)
+SourceDocument readWitness(const CorpusWitness &witness, const QString &id)
 {
-    QFile handle(corpusPath(file));
+    QFile handle(corpusPath(witness));
     if (!handle.open(QIODevice::ReadOnly)) {
         return SourceDocument();
     }
 
     ParseOptions options;
     options.id = id;
-    options.name = file + QStringLiteral(".osis");
+    // The local name whichever copy was read, so the dump does not change when
+    // the corpus moves.
+    options.name = witness.local + QStringLiteral(".osis");
     options.role = SourceRole::Manuscript;
     return parseOsis(QString::fromUtf8(handle.readAll()), options);
 }
@@ -185,12 +230,19 @@ private slots:
         QCOMPARE(aligned.columns.size(), 1);
     }
 
-    void aGluedPrefixDoesNotBreakAPlaceName()
+    void aHyphenedPrefixLeavesThePlaceNameToMatch()
     {
         // Revelation 1:11. Sloane writes וְאֶל- joined to the place name by a
-        // hyphen, which the tokeniser keeps as one word, and ends it with a
-        // different letter. Three edits out of twelve characters, and neither
-        // string contains the other, so the old rule called them unrelated.
+        // hyphen. This test used to assert the opposite: that the tokeniser
+        // held the compound together and the near-match rung reached across the
+        // prefix. That was the decision, and it has been reversed — a maqaf
+        // joins two words without making them one, and holding them together is
+        // what buried Sloane's יוֹחָנָן inside אֲנִי-יוֹחָנָן until Cochin's John
+        // had nothing to pair with but Jesus.
+        //
+        // Divided, the place names face each other directly and the prefix
+        // takes a column of its own, which is the truth of it: Sloane writes a
+        // word there that Cochin does not.
         const QList<SourceDocument> documents = {
             witness(QStringLiteral("a"), QString::fromUtf8("לְפִילַדֶלְפיַאן")),
             witness(
@@ -199,8 +251,18 @@ private slots:
         const AlignedVerse aligned =
             alignVerse(verseId(), refs(documents), QStringLiteral("a"));
 
-        QCOMPARE(aligned.columns.size(), 1);
-        QCOMPARE(readers(aligned.columns.at(0), twoWitnesses()), twoWitnesses());
+        QCOMPARE(aligned.columns.size(), 2);
+
+        int shared = 0;
+        for (const AlignmentColumn &column : aligned.columns) {
+            if (readers(column, twoWitnesses()) == twoWitnesses()) {
+                ++shared;
+                QCOMPARE(
+                    cellText(column, QStringLiteral("b")),
+                    QString::fromUtf8("פילדלפיאה"));
+            }
+        }
+        QCOMPARE(shared, 1);
     }
 
     void aNearMissBeatsAGapButNotAnExactMatch()
@@ -349,6 +411,181 @@ private slots:
         const QString guarded = skeletonKey(QString::fromUtf8("המלכימ"), nullptr);
         QVERIFY(!guarded.startsWith(QString::fromUtf8("מלכ"))
                 || guarded == QString::fromUtf8("המלכ"));
+    }
+
+    // --- names ---------------------------------------------------------------
+
+    void aSharedNameOutbidsEverythingButAgreement()
+    {
+        // The case the table exists for. יאהנניס is the Greek Iōannēs and
+        // יוֹחָנָן is the Hebrew John: four edits over seven letters, no Strong's
+        // number, no shared skeleton. Every other rung reads them as unrelated.
+        if (NameForms::shared().isEmpty()) {
+            QSKIP("hebrew_names.json is not beside this build.");
+        }
+
+        ScoringContext context;
+        context.names = &NameForms::shared();
+        context.lexicon = &HebrewLexicon::shared();
+
+        SourceToken greek;
+        greek.text = QString::fromUtf8("יאהנניס");
+        SourceToken hebrew;
+        hebrew.text = QString::fromUtf8("יוֹחָנָן");
+
+        const TokenProfile left = profileFor(&greek, context);
+        const TokenProfile right = profileFor(&hebrew, context);
+        QVERIFY(!left.names.isEmpty());
+        QCOMPARE(scoreProfiles(left, right), kScoreName);
+    }
+
+    void withoutTheNameTableTheOldScoreStands()
+    {
+        // The null-stands-down contract, and the reason the alignment stays a
+        // pure function of its arguments: a build that cannot find the table
+        // must produce exactly the alignment it produced before the table
+        // existed, not a different one.
+        ScoringContext context;
+
+        SourceToken greek;
+        greek.text = QString::fromUtf8("יאהנניס");
+        SourceToken hebrew;
+        hebrew.text = QString::fromUtf8("יוֹחָנָן");
+
+        QCOMPARE(
+            scoreProfiles(profileFor(&greek, context), profileFor(&hebrew, context)),
+            kScoreMismatch);
+    }
+
+    void aNameNeverBeatsAnExactAgreement()
+    {
+        // kScoreMatch returns before the cascade is reached, so no group can
+        // touch a column two witnesses already agree on. That invariant is what
+        // makes the golden dump's "exact" tally a before-and-after check.
+        if (NameForms::shared().isEmpty()) {
+            QSKIP("hebrew_names.json is not beside this build.");
+        }
+
+        ScoringContext context;
+        context.names = &NameForms::shared();
+
+        SourceToken one;
+        one.text = QString::fromUtf8("יוחנן");
+        SourceToken two;
+        two.text = QString::fromUtf8("יוֹחָנָן");
+
+        QCOMPARE(
+            scoreProfiles(profileFor(&one, context), profileFor(&two, context)),
+            kScoreMatch);
+    }
+
+    void anAbbreviatedNameReachesTheNameRung()
+    {
+        // יש֞ו carries no useful letters of its own, but what it stands for is
+        // a name. Reached through the expansion, so the table's claim (42)
+        // rather than the expansion's coincidence (30) is what scores.
+        if (NameForms::shared().isEmpty()) {
+            QSKIP("hebrew_names.json is not beside this build.");
+        }
+
+        ScoringContext context;
+        context.names = &NameForms::shared();
+        context.abbreviations = &AbbreviationTable::shared();
+
+        SourceToken abbreviated;
+        abbreviated.text = QString::fromUtf8("יש֞ו");
+        SourceToken written;
+        written.text = QString::fromUtf8("יהושע");
+
+        QCOMPARE(
+            scoreProfiles(
+                profileFor(&abbreviated, context), profileFor(&written, context)),
+            kScoreName);
+    }
+
+    void johnAndJesusAreRefusedOutright()
+    {
+        // Not merely "not the same name" — actively kept out of one column.
+        // Before this, Cochin's יהאנניס and Sloane's יהושע shared a column at
+        // Rev 1:9, because a mismatch costs exactly what two gaps cost and the
+        // tie-break prefers the pairing.
+        if (NameForms::shared().isEmpty()) {
+            QSKIP("hebrew_names.json is not beside this build.");
+        }
+
+        ScoringContext context;
+        context.names = &NameForms::shared();
+
+        SourceToken john;
+        john.text = QString::fromUtf8("יהאנניס");
+        SourceToken jesus;
+        jesus.text = QString::fromUtf8("יהושע");
+
+        QCOMPARE(
+            scoreProfiles(profileFor(&john, context), profileFor(&jesus, context)),
+            kScoreDifferentName);
+    }
+
+    void aRefusalIsDearerThanTwoGaps()
+    {
+        // The whole point of the value. At anything above two gaps the matrix
+        // would still rather pair the two words than open a gap on each side.
+        static_assert(kScoreDifferentName < 2 * kScoreGap);
+        QVERIFY(true);
+    }
+
+    void oneNamedWordFacingAnUnnamedOneIsNotRefused()
+    {
+        // Only the table asserting TWO names is evidence. A name meeting an
+        // ordinary word says nothing, and refusing there would scatter every
+        // name in the corpus away from its neighbours.
+        if (NameForms::shared().isEmpty()) {
+            QSKIP("hebrew_names.json is not beside this build.");
+        }
+
+        ScoringContext context;
+        context.names = &NameForms::shared();
+
+        SourceToken john;
+        john.text = QString::fromUtf8("יהאנניס");
+        SourceToken ordinary;
+        ordinary.text = QString::fromUtf8("הייתי");
+
+        QVERIFY(
+            scoreProfiles(profileFor(&john, context), profileFor(&ordinary, context))
+            != kScoreDifferentName);
+    }
+
+    void withoutTheTableTwoNamesAreMerelyUnrelated()
+    {
+        // The null-stands-down contract again, on the refusal this time: a
+        // build that cannot find the table must not refuse anything.
+        ScoringContext context;
+
+        SourceToken john;
+        john.text = QString::fromUtf8("יהאנניס");
+        SourceToken jesus;
+        jesus.text = QString::fromUtf8("יהושע");
+
+        QCOMPARE(
+            scoreProfiles(profileFor(&john, context), profileFor(&jesus, context)),
+            kScoreMismatch);
+    }
+
+    void theNameRungIsTellableFromEveryOther()
+    {
+        // The golden dump's tally tells rungs apart by score alone, so a value
+        // shared with another rung would report the wrong table as having
+        // decided a column.
+        static_assert(kScoreName != kScoreMatch);
+        static_assert(kScoreName != kScoreStrongs);
+        static_assert(kScoreName != kScoreRoot);
+        static_assert(kScoreName != kScoreNear);
+        static_assert(kScoreName != kScoreSkeleton);
+        static_assert(kScoreName != kScoreExpansion);
+        // Below outright agreement, above the lexicon.
+        static_assert(kScoreName < kScoreMatch);
+        static_assert(kScoreName > kScoreStrongs);
     }
 
     void theRootMapRelatesWordsTheLemmaDoesNot()
@@ -922,6 +1159,68 @@ private slots:
 
     // --- the corpus golden dump --------------------------------------------
 
+    void theNamesOfTheCorpusShareTheirColumns_data()
+    {
+        QTest::addColumn<QString>("verseId");
+        QTest::addColumn<QString>("cochin");
+        QTest::addColumn<QString>("sloane");
+
+        // The columns the name table exists to join, pinned here rather than
+        // left to whoever next reads the golden dump. A dump nobody re-reads is
+        // not a regression test.
+        QTest::newRow("John at Rev 1:1")
+            << QStringLiteral("Rev.1.1") << QString::fromUtf8("יאהנניס")
+            << QString::fromUtf8("יוחנן");
+        // The one this whole change is for. Sloane writes אֲנִי-יוֹחָנָן, and
+        // until the compound was divided Cochin's John had nothing to pair with
+        // and settled on Sloane's יְהוֹשֻׁעַ — John read as Jesus.
+        QTest::newRow("John at Rev 1:9")
+            << QStringLiteral("Rev.1.9") << QString::fromUtf8("יהאנניס")
+            << QString::fromUtf8("יוחנן");
+        QTest::newRow("Smyrna at Rev 1:11")
+            << QStringLiteral("Rev.1.11") << QString::fromUtf8("לסמירנון")
+            << QString::fromUtf8("סמרנה");
+        QTest::newRow("Laodicea at Rev 1:11")
+            << QStringLiteral("Rev.1.11") << QString::fromUtf8("ולאדיצאן")
+            << QString::fromUtf8("לאודיקיאה");
+        QTest::newRow("Smyrna at Rev 2:8")
+            << QStringLiteral("Rev.2.8") << QString::fromUtf8("זמירנין")
+            << QString::fromUtf8("בסמרנה");
+    }
+
+    void theNamesOfTheCorpusShareTheirColumns()
+    {
+        if (!corpusAvailable() || NameForms::shared().isEmpty()) {
+            QSKIP("The OSIS corpus or the name table is not beside this build.");
+        }
+        QFETCH(QString, verseId);
+        QFETCH(QString, cochin);
+        QFETCH(QString, sloane);
+
+        const QList<SourceDocument> documents = {
+            readWitness(cochinFile(), QStringLiteral("cochin")),
+            readWitness(sloaneFile(), QStringLiteral("sloane"))};
+
+        AlignmentOptions options;
+        options.abbreviations = &AbbreviationTable::shared();
+        options.lexicon = &HebrewLexicon::shared();
+        options.attested = &AttestedForms::shared();
+        options.names = &NameForms::shared();
+
+        const AlignedVerse aligned =
+            alignVerse(verseId, refs(documents), QStringLiteral("cochin"), options);
+
+        bool together = false;
+        for (const AlignmentColumn &column : aligned.columns) {
+            if (cellText(column, QStringLiteral("cochin")) == cochin
+                && cellText(column, QStringLiteral("sloane")) == sloane) {
+                together = true;
+                break;
+            }
+        }
+        QVERIFY2(together, qPrintable(cochin + QStringLiteral(" | ") + sloane));
+    }
+
     void dumpsTheRealCorpusAlignment()
     {
         if (!corpusAvailable()) {
@@ -951,6 +1250,7 @@ private slots:
         options.abbreviations = &AbbreviationTable::shared();
         options.lexicon = &HebrewLexicon::shared();
         options.attested = &AttestedForms::shared();
+        options.names = &NameForms::shared();
 
         QStringList lines;
         int shared = 0;
@@ -985,6 +1285,7 @@ private slots:
         context.abbreviations = options.abbreviations;
         context.lexicon = options.lexicon;
         context.attested = options.attested;
+        context.names = options.names;
 
         QMap<QString, int> tally;
         for (const QString &id : sharedIds) {
@@ -999,8 +1300,15 @@ private slots:
                 const int score = scoreProfiles(
                     profileFor(first, context), profileFor(second, context));
                 QString rung;
-                if (score == kScoreMatch) {
+                if (score == kScoreDifferentName) {
+                    // Should never appear: a refusal keeps two words out of one
+                    // column, so a column it decided is a column that should
+                    // not exist. Counted so that is visible rather than assumed.
+                    rung = QStringLiteral("0 refused     ");
+                } else if (score == kScoreMatch) {
                     rung = QStringLiteral("1 exact       ");
+                } else if (score == kScoreName) {
+                    rung = QStringLiteral("1b name       ");
                 } else if (score == kScoreStrongs) {
                     rung = QStringLiteral("2 same lemma  ");
                 } else if (score == kScoreRoot) {

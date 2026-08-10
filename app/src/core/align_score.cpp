@@ -2,6 +2,7 @@
 
 #include "core/hebrew_forms.h"
 #include "core/lexicon.h"
+#include "core/name_forms.h"
 #include "core/suggestions.h"
 
 #include <algorithm>
@@ -151,6 +152,21 @@ TokenProfile profileFor(const SourceToken *token, const ScoringContext &context)
 
     profile.skeleton = skeletonKey(profile.written.text, context.attested);
 
+    if (context.names) {
+        // The written form, and then anything an abbreviation stands for: יש֞ו
+        // is a name too, and reaches the table through its expansion.
+        const int group = context.names->groupForFoldedKey(profile.written.text);
+        if (group >= 0) {
+            profile.names.append(quint32(group));
+        }
+        for (const QString &expansion : expansions) {
+            const int other = context.names->groupFor(expansion);
+            if (other >= 0 && !profile.names.contains(quint32(other))) {
+                profile.names.append(quint32(other));
+            }
+        }
+    }
+
     if (context.lexicon) {
         // What the scribe wrote, and then anything an abbreviation stands for:
         // ה֞ carries no useful lemma of its own, but אלהים carries H430.
@@ -174,12 +190,23 @@ int scoreProfiles(const TokenProfile &left, const TokenProfile &right)
     if (left.punctuation || right.punctuation) {
         return kScoreMismatch;
     }
+    // Two names the table says are different. Returned outright rather than
+    // carried in `best`: the cascade below ends in std::max with the graded
+    // closeness, which would lift a refusal straight back to a mismatch and
+    // leave the two words together. A refusal is not a weak positive.
+    if (!left.names.isEmpty() && !right.names.isEmpty()
+        && !sharesANumber(left.names, right.names)) {
+        return kScoreDifferentName;
+    }
 
-    // A cascade of authority: the same word, then words off the same root,
-    // then a guess. Only the first that applies is taken, because a weaker
-    // rung firing on the same pair says nothing the stronger one has not.
+    // A cascade of authority: a name somebody vouched for, then the same word,
+    // then words off the same root, then a guess. Only the first that applies
+    // is taken, because a weaker rung firing on the same pair says nothing the
+    // stronger one has not.
     int best = kScoreMismatch;
-    if (sharesANumber(left.strongs, right.strongs)) {
+    if (sharesANumber(left.names, right.names)) {
+        best = kScoreName;
+    } else if (sharesANumber(left.strongs, right.strongs)) {
         best = kScoreStrongs;
     } else if (sharesANumber(left.roots, right.roots)) {
         best = kScoreRoot;

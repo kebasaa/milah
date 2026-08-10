@@ -24,12 +24,9 @@ public:
 
     /// Absolute paths of what was chosen, in library order.
     QStringList chosenFiles() const;
-    /// True when the editor asked to browse instead, so the caller falls back
-    /// to the file dialog it used before the library existed.
+    /// True when the editor asked to browse instead, so the caller hands over
+    /// to the file dialog.
     bool wantsToBrowse() const { return m_browse; }
-    /// True when the library held nothing, so the caller can go straight to
-    /// browsing rather than showing an empty list.
-    bool isEmpty() const { return m_empty; }
 
 private:
     QListWidget *m_list = nullptr;

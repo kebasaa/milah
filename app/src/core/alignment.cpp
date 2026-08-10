@@ -193,6 +193,7 @@ AlignedVerse alignVerse(
     context.abbreviations = options.abbreviations;
     context.lexicon = options.lexicon;
     context.attested = options.attested;
+    context.names = options.names;
     ProfileCache profiles(context);
 
     for (const SourceDocument *source : manuscripts) {

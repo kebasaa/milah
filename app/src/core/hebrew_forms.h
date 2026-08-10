@@ -12,6 +12,15 @@ class AttestedForms;
 /// True for an unpointed Hebrew consonant, final forms included.
 bool isHebrewLetter(QChar character);
 
+/// True for one of the letters that agglutinate onto the front of a Hebrew
+/// word — the conjunction, the prepositions, the article and the relative.
+///
+/// Named here because four places peel with this set: the skeleton, the
+/// lexicon's form lookup, the abbreviation table and the name table. Three of
+/// them wrote the string out for themselves, and a set that is nearly the same
+/// in four places is a set that will one day differ in one of them.
+bool isPrefixLetter(QChar character);
+
 /// The final form of `letter`, when it has one.
 std::optional<QChar> finalOf(QChar letter);
 
@@ -30,7 +39,17 @@ int lastLetterIndex(const QString &word);
 /// shipped lexicon indexes, rabbinic.words.txt, the phrase rules and the user
 /// dictionary, and it is mirrored character-for-character in
 /// hebrew_manuscripts/tools/python/tools/build_lexicon.py; folding there would
-/// silently miss every lookup. Nothing may use this as an index key.
+/// silently miss every lookup. **No index shared with the Python tools may be
+/// keyed on this.**
+///
+/// `NameForms` is the one deliberate exception, and is keyed on this rather
+/// than on `comparisonKey`. Its table is authored for Milah alone and has no
+/// Python counterpart; the aligner already holds a folded key and must not
+/// re-normalise inside the matrix; and folding is wanted there anyway, since
+/// Cochin writes פירגימום and לסמירנון with final letters where the same names
+/// end plain elsewhere. Because folding is a strict coarsening of
+/// `comparisonKey`, one folded index answers both the aligner and the
+/// suggester — the reverse would not work.
 ///
 /// Folding matters because a scribe writes the same word differently depending
 /// on where it falls: Cochin's מלאך and Sloane's הַמַּלְאָכוֹ differ in their kaf

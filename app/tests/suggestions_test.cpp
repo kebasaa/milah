@@ -42,6 +42,22 @@ AbbreviationTable abbreviationsFrom(const QByteArray &json)
     return AbbreviationTable::fromJson(QJsonDocument::fromJson(json).object());
 }
 
+NameForms namesFrom(const QByteArray &json)
+{
+    return NameForms::fromJson(QJsonDocument::fromJson(json).object());
+}
+
+/// John and Ephesus, enough to exercise the name check without the shipped
+/// table.
+QByteArray johnAndEphesus()
+{
+    return R"JSON({"names":[
+      {"id":"john","prefer":"יוֹחָנָן","forms":["יאהנניס","יהאנניס"],
+       "note":"John, written as the Greek Iōannēs."},
+      {"id":"ephesus","prefer":"אֶפֶסוֹס","forms":["עפהיזוס"]}
+    ]})JSON";
+}
+
 } // namespace
 
 class SuggestionsTest final : public QObject
@@ -639,6 +655,185 @@ private slots:
         QVERIFY2(
             !PhraseRules::shared().isEmpty(),
             "hebrew_phrase_rules.json is missing from the Qt resource");
+    }
+
+    // --- proper names -------------------------------------------------------
+
+    void theHebrewNameIsOfferedForATransliteration()
+    {
+        // The case the table exists for. Before it, יאהנניס got "Not attested
+        // in the Hebrew Bible" and no replacement at all — a flag with nothing
+        // to do about it.
+        // Two pointed words to one unpointed: readingsArePointed wants a strict
+        // majority, so a single pointed neighbour would not settle the
+        // convention and the name would come back bare.
+        const QList<Suggestion> found = of(
+            reviewVerse(
+                verse({QString::fromUtf8("וְאָמְרָה"),
+                       QString::fromUtf8("אֲנִי"),
+                       QString::fromUtf8("יאהנניס")}),
+                m_lexicon,
+                PhraseRules(),
+                QSet<QString>(),
+                AbbreviationTable(),
+                namesFrom(johnAndEphesus())),
+            SuggestionKind::NameForm);
+
+        QCOMPARE(found.size(), 1);
+        QCOMPARE(found.first().replacement, QString::fromUtf8("יוֹחָנָן"));
+        QVERIFY(found.first().reason.contains(QString::fromUtf8("Iōannēs")));
+    }
+
+    void anUnpointedEditionGetsAnUnpointedName()
+    {
+        const QList<Suggestion> found = of(
+            reviewVerse(
+                verse({QString::fromUtf8("ואמרה"), QString::fromUtf8("יאהנניס")}),
+                m_lexicon,
+                PhraseRules(),
+                QSet<QString>(),
+                AbbreviationTable(),
+                namesFrom(johnAndEphesus())),
+            SuggestionKind::NameForm);
+
+        QCOMPARE(found.size(), 1);
+        QCOMPARE(found.first().replacement, QString::fromUtf8("יוחנן"));
+    }
+
+    void aVerseAlreadyReadingTheNameIsNotFlagged()
+    {
+        // Both conventions: an unpointed edition reading יוחנן and a pointed
+        // one reading יוֹחָנָן are each already right.
+        const NameForms names = namesFrom(johnAndEphesus());
+        QVERIFY(of(reviewVerse(
+                       verse({QString::fromUtf8("ואמרה"), QString::fromUtf8("יוחנן")}),
+                       m_lexicon, PhraseRules(), QSet<QString>(),
+                       AbbreviationTable(), names),
+                   SuggestionKind::NameForm)
+                    .isEmpty());
+        QVERIFY(of(reviewVerse(
+                       verse({QString::fromUtf8("וְאָמְרָה"), QString::fromUtf8("יוֹחָנָן")}),
+                       m_lexicon, PhraseRules(), QSet<QString>(),
+                       AbbreviationTable(), names),
+                   SuggestionKind::NameForm)
+                    .isEmpty());
+    }
+
+    void pointingAloneIsNeverOfferedAsAChange()
+    {
+        // A pointed edition reading a bare יוחנן must not be nagged. The name
+        // table changes which letters are written, not how they are pointed —
+        // deliberately stricter than the phrase rules, which do point a word.
+        QVERIFY(of(reviewVerse(
+                       verse({QString::fromUtf8("וְאָמְרָה"), QString::fromUtf8("יוחנן")}),
+                       m_lexicon, PhraseRules(), QSet<QString>(),
+                       AbbreviationTable(), namesFrom(johnAndEphesus())),
+                   SuggestionKind::NameForm)
+                    .isEmpty());
+    }
+
+    void aPrefixedTransliterationKeepsItsPrefix()
+    {
+        const QList<Suggestion> found = of(
+            reviewVerse(
+                verse({QString::fromUtf8("ושלח"), QString::fromUtf8("ולעפהיזוס")}),
+                m_lexicon,
+                PhraseRules(),
+                QSet<QString>(),
+                AbbreviationTable(),
+                namesFrom(johnAndEphesus())),
+            SuggestionKind::NameForm);
+
+        QCOMPARE(found.size(), 1);
+        QVERIFY(found.first().replacement.startsWith(QString::fromUtf8("ול")));
+        QVERIFY(comparisonKey(found.first().replacement)
+                    .endsWith(QString::fromUtf8("אפסוס")));
+    }
+
+    void aNameIsNotAlsoCalledUnattested()
+    {
+        // One flag per word. Before the table, יאהנניס got the "not attested"
+        // flag; it must now get the name and only the name.
+        const QList<Suggestion> found = reviewVerse(
+            verse({QString::fromUtf8("ואמרה"), QString::fromUtf8("יאהנניס")}),
+            m_lexicon,
+            PhraseRules(),
+            QSet<QString>(),
+            AbbreviationTable(),
+            namesFrom(johnAndEphesus()));
+
+        QCOMPARE(of(found, SuggestionKind::NameForm).size(), 1);
+        QVERIFY(of(found, SuggestionKind::UnknownForm).isEmpty());
+    }
+
+    void aNameTheCorpusAlreadyAttestsIsStillOffered()
+    {
+        // The reason the check sits before the attested test: יוחנן and every
+        // prefixed form of it are in rabbinic.words.txt, so a name check placed
+        // after it could never speak about most of the names in the table.
+        const QList<Suggestion> found = of(
+            reviewVerse(
+                verse({QString::fromUtf8("ואמרה"), QString::fromUtf8("יאהנניס")}),
+                m_lexicon,
+                PhraseRules(),
+                AttestedForms::shared().keys(),
+                AbbreviationTable(),
+                namesFrom(johnAndEphesus())),
+            SuggestionKind::NameForm);
+        QCOMPARE(found.size(), 1);
+    }
+
+    void anAbbreviatedNameGetsTheAbbreviationReasonOnly()
+    {
+        // יש֞ו is a name, but the mark is a fact about the token that the name
+        // table cannot see, and the expansion already said the useful thing.
+        const QList<Suggestion> found = reviewVerse(
+            verse({QString::fromUtf8("ליש֞ו"), QString::fromUtf8("המשיח")}),
+            m_lexicon,
+            PhraseRules(),
+            QSet<QString>(),
+            abbreviationsFrom(
+                R"({"entries":[{"stem":"ישו","expansions":["יֵשׁוּעַ"]}]})"),
+            namesFrom(R"JSON({"names":[
+                {"id":"jesus","prefer":"יֵשׁוּעַ","forms":["ישו"]}]})JSON"));
+
+        QCOMPARE(of(found, SuggestionKind::Abbreviation).size(), 1);
+        QVERIFY(of(found, SuggestionKind::NameForm).isEmpty());
+    }
+
+    void aNameSuppressesAPhraseRuleOnTheSameWord()
+    {
+        const QList<Suggestion> found = reviewVerse(
+            verse({QString::fromUtf8("ואמרה"), QString::fromUtf8("יאהנניס")}),
+            m_lexicon,
+            rulesFrom(
+                R"({"rules":[{"match":["יאהנניס"],"replace":["יוֹחָנָן"],
+                              "reason":"Some other reason."}]})"),
+            QSet<QString>(),
+            AbbreviationTable(),
+            namesFrom(johnAndEphesus()));
+
+        QCOMPARE(of(found, SuggestionKind::NameForm).size(), 1);
+        QVERIFY(of(found, SuggestionKind::PhraseRule).isEmpty());
+    }
+
+    void withoutTheNameTableNothingChanges()
+    {
+        // The null-stands-down contract: a build with no table behaves exactly
+        // as it did before the table existed.
+        const QList<Suggestion> found = reviewVerse(
+            verse({QString::fromUtf8("ואמרה"), QString::fromUtf8("יאהנניס")}),
+            m_lexicon,
+            PhraseRules());
+        QVERIFY(of(found, SuggestionKind::NameForm).isEmpty());
+        QCOMPARE(of(found, SuggestionKind::UnknownForm).size(), 1);
+    }
+
+    void theBundledNamesLoadFromTheDataDirectory()
+    {
+        QVERIFY2(
+            !NameForms::shared().isEmpty(),
+            "hebrew_names.json is not beside this build");
     }
 
     // --- user dictionary --------------------------------------------------

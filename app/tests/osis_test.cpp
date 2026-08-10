@@ -174,6 +174,85 @@ private slots:
             4);
     }
 
+    // --- compounds ----------------------------------------------------------
+
+    void aHyphenDividesTwoWordsAndRidesOnTheFirst()
+    {
+        // Sloane writes אֲנִי-יוֹחָנָן, "I-John", with an ASCII hyphen for a
+        // maqaf. Held together, its John could never line up against Cochin's,
+        // which is how John came to be read as Jesus at Rev 1:9.
+        const QList<SourceToken> tokens = tokenize(
+            QStringLiteral("Rev.1.9"), QString::fromUtf8("אֲנִי-יוֹחָנָן"), {});
+
+        QCOMPARE(tokens.size(), 2);
+        QCOMPARE(tokens.at(0).text, QString::fromUtf8("אֲנִי-"));
+        QCOMPARE(tokens.at(1).text, QString::fromUtf8("יוֹחָנָן"));
+        // And the first piece keys as the bare word, so it matches a witness
+        // that writes no hyphen.
+        QCOMPARE(comparisonKey(tokens.at(0).text), QString::fromUtf8("אני"));
+    }
+
+    void aMaqafDividesTheSameWay()
+    {
+        // One rule for both joiners. A maqaf used to make a token of its own,
+        // which is a column no other witness has anything to face.
+        const QList<SourceToken> tokens = tokenize(
+            QStringLiteral("Rev.1.1"), QString::fromUtf8("אֲשֶׁר־בָּהּ"), {});
+
+        QCOMPARE(tokens.size(), 2);
+        QCOMPARE(tokens.at(0).text, QString::fromUtf8("אֲשֶׁר־"));
+        QCOMPARE(tokens.at(1).text, QString::fromUtf8("בָּהּ"));
+    }
+
+    void aCompoundOfThreeGivesThreeWords()
+    {
+        // Sloane's הַבְּכֹר-מִן-הַמְּתִים is three words, and saying so is the
+        // point even where the other witness writes one.
+        const QList<SourceToken> tokens = tokenize(
+            QStringLiteral("Rev.1.5"),
+            QString::fromUtf8("הַבְּכֹר-מִן-הַמְּתִים"),
+            {});
+        QCOMPARE(tokens.size(), 3);
+        QCOMPARE(tokens.at(2).text, QString::fromUtf8("הַמְּתִים"));
+    }
+
+    void anAbbreviationJoinedByGereshStaysOneWord()
+    {
+        // ע׳י is one abbreviation. The geresh joins where the maqaf divides,
+        // and losing that would break the abbreviation table's every lookup.
+        QCOMPARE(
+            tokenize(QStringLiteral("Rev.1.1"), QString::fromUtf8("ע׳י"), {}).size(),
+            1);
+        QCOMPARE(
+            tokenize(QStringLiteral("Rev.1.1"), QString::fromUtf8("ע״י"), {}).size(),
+            1);
+    }
+
+    void aJoinerWithNoWordAfterItStandsAlone()
+    {
+        // A hyphen with a space after it has nothing to ride on.
+        const QList<SourceToken> tokens = tokenize(
+            QStringLiteral("Rev.1.1"), QString::fromUtf8("אשר - בה"), {});
+        QCOMPARE(tokens.size(), 3);
+        QCOMPARE(tokens.at(1).text, QStringLiteral("-"));
+    }
+
+    void aDividedCompoundRebuildsExactly()
+    {
+        // What the edition writes back out. joinTokens closes the space after a
+        // joiner, so a compound the parser divided comes back character for
+        // character — which is why the joiner rides on the first piece.
+        const QString original = QString::fromUtf8("אֲנִי-יוֹחָנָן");
+        const QList<SourceToken> tokens =
+            tokenize(QStringLiteral("Rev.1.9"), original, {});
+
+        QList<std::optional<QString>> pieces;
+        for (const SourceToken &token : tokens) {
+            pieces.append(token.text);
+        }
+        QCOMPARE(joinTokens(pieces), original);
+    }
+
     void punctuationBelongsToTheWordInATranslation()
     {
         // A bracket around a gloss is part of the gloss, not a word of its own:
