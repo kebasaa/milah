@@ -214,6 +214,13 @@ public slots:
     /// The transcriber's own remark on a word. Empty removes it.
     void setNote(int verse, int column, const QString &note);
     void setVerseNumber(int verse, const QString &number);
+    /// Takes one word off the folio, and nothing else.
+    ///
+    /// The verse keeps its place even when that was its last word: the heading
+    /// carries the number and the chapter break, and a recogniser that read one
+    /// word too many has not made the verse wrong. What is left is an empty
+    /// cell to type in, which is what every verse ends with anyway.
+    void removeWord(int verse, int column);
     void removeVerse(int verse);
     /// This verse and every verse after it move into the next chapter.
     void moveVerseToNewChapter(int verse);

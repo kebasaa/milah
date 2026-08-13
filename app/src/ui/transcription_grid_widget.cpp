@@ -187,6 +187,19 @@ void TranscriptionGridWidget::showWordMenu(int verse, int column, const QPoint &
         });
     }
 
+    menu.addSeparator();
+    QAction *remove = menu.addAction(QStringLiteral("Delete word"));
+    remove->setToolTip(QStringLiteral(
+        "Takes this word off the folio, keeping the verse and the words around "
+        "it. Ctrl+Z puts it back."));
+    // Nothing to take off a cell with nothing in it — and every verse ends with
+    // one of those, because that is where the next word gets typed.
+    remove->setEnabled(
+        !word.hebrew.isEmpty() || !word.english.isEmpty() || !word.note.isEmpty());
+    connect(remove, &QAction::triggered, this, [this, verse, column] {
+        m_controller->removeWord(verse, column);
+    });
+
     menu.exec(globalPosition);
 }
 

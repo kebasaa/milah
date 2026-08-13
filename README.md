@@ -230,6 +230,11 @@ from that verse on becomes the next chapter — and **Delete this verse**.
 **Edit ▸ Move verse to new chapter** repeats the first for whichever verse has
 the caret.
 
+Right-clicking a word offers **Add/edit note**, **Remove note** where there is
+one, and **Delete word** — which takes that word off the folio and leaves the
+verse and the words around it where they are. A recogniser that read one word
+too many has not made the verse wrong. Ctrl+Z puts it back.
+
 #### Reading a folio with Kraken
 
 **Transcribe** on the toolbar hands the folio to

@@ -792,6 +792,23 @@ bool TranscriptionController::loadTranscriptionFrom(const QString &path)
     }
 
     m_document = document;
+    // The gloss is the lexicon's answer, so a file written against an older
+    // lexicon carries older answers — and the Strong's number beside it is
+    // derived at draw time and would be the new one, leaving the two visibly
+    // contradicting each other. Only where the transcriber has not written the
+    // gloss themselves: englishIsOwn is exactly the record of which are theirs.
+    //
+    // Not marked dirty. Opening a transcription must not, by itself, make one;
+    // the file catches up at the next save.
+    for (TranscribedPage &page : m_document.pages) {
+        for (TranscribedVerse &verse : page.verses) {
+            for (TranscribedWord &word : verse.words) {
+                if (!word.englishIsOwn) {
+                    word.english = suggestedGloss(word.hebrew);
+                }
+            }
+        }
+    }
     m_images = transcriptionImages(payload);
     m_filePath = path;
     m_currentPage = m_document.pages.isEmpty() ? -1 : 0;
@@ -2138,6 +2155,25 @@ void TranscriptionController::setVerseNumber(int verse, const QString &number)
     page->verses[verse].number = number;
     setDirty(true);
     emit versesChanged();
+}
+
+void TranscriptionController::removeWord(int verse, int column)
+{
+    if (!isValid(verse, column)) {
+        return;
+    }
+    pushUndo();
+    mutablePage()->verses[verse].words.removeAt(column);
+    // Which puts an empty cell back when that was the last word, so the verse
+    // still has somewhere to type rather than becoming unreachable.
+    ensureTypingRoom();
+    // The word the caret was in has gone and every column after it has moved
+    // down one, so the remembered position no longer names what it named.
+    m_selectedVerse = -1;
+    m_selectedColumn = -1;
+    setDirty(true);
+    emit versesChanged();
+    emit selectionChanged();
 }
 
 void TranscriptionController::removeVerse(int verse)
