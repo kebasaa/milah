@@ -29,9 +29,14 @@ public:
 
 public slots:
     void setMagnifierEnabled(bool enabled);
+    void setOverlayVisible(bool visible);
 
 private:
     void showCurrentPage();
+    /// Hands the folio's words to the image pane, so the boxes follow the text
+    /// as it is corrected. Cheap when there are none, which is every folio
+    /// nobody has run a recogniser over.
+    void refreshOverlay();
 
     TranscriptionController *m_controller = nullptr;
     QSplitter *m_splitter = nullptr;

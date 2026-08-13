@@ -7,3 +7,4 @@ __pycache__/
 # Milah desktop app build output
 /build/
 /milah-portabl*
+/example

@@ -91,6 +91,47 @@ TranscriptionMetadata metadataFromJson(const QJsonObject &json)
     return metadata;
 }
 
+/// A word's place on the folio, as `"x y w h"`.
+///
+/// One string rather than four numbers so that put() carries it like every
+/// other optional field: a rectangle nobody has is simply absent, and a version
+/// of Milah that predates recognition reads the file exactly as it always did.
+QString boxToText(const QRect &box)
+{
+    if (box.isNull()) {
+        return QString();
+    }
+    return QStringLiteral("%1 %2 %3 %4")
+        .arg(box.x())
+        .arg(box.y())
+        .arg(box.width())
+        .arg(box.height());
+}
+
+QRect boxFromText(const QString &text)
+{
+    if (text.isEmpty()) {
+        return QRect();
+    }
+    static const QRegularExpression whitespace(QStringLiteral("\\s+"));
+    const QStringList parts = text.split(whitespace, Qt::SkipEmptyParts);
+    if (parts.size() != 4) {
+        return QRect();
+    }
+
+    int numbers[4] = {0, 0, 0, 0};
+    for (int index = 0; index < 4; ++index) {
+        bool ok = false;
+        numbers[index] = parts.at(index).toInt(&ok);
+        // A box read only partly is a box in the wrong place, so a malformed
+        // one becomes no box at all and the word keeps its text.
+        if (!ok) {
+            return QRect();
+        }
+    }
+    return QRect(numbers[0], numbers[1], numbers[2], numbers[3]);
+}
+
 QJsonObject wordToJson(const TranscribedWord &word)
 {
     QJsonObject json;
@@ -100,6 +141,10 @@ QJsonObject wordToJson(const TranscribedWord &word)
         json.insert(QStringLiteral("englishIsOwn"), true);
     }
     put(json, QStringLiteral("note"), word.note);
+    put(json, QStringLiteral("box"), boxToText(word.box));
+    if (word.unchecked) {
+        json.insert(QStringLiteral("unchecked"), true);
+    }
     return json;
 }
 
@@ -112,6 +157,11 @@ TranscribedWord wordFromJson(const QJsonObject &json)
     // Absent from files written before a word could be remarked on, which reads
     // correctly as nothing having been said about it.
     word.note = json.value(QStringLiteral("note")).toString();
+    // Both absent from files written before a machine could read a folio, and
+    // both mean the right thing when absent: nobody knows where this word is on
+    // the picture, and a person typed it.
+    word.box = boxFromText(json.value(QStringLiteral("box")).toString());
+    word.unchecked = json.value(QStringLiteral("unchecked")).toBool();
     return word;
 }
 
@@ -192,6 +242,25 @@ TranscribedPage pageFromJson(const QJsonObject &json)
         page.verses.append(verseFromJson(value.toObject()));
     }
     return page;
+}
+
+/// Letters and digits, joined up: "Ebr. 530" becomes "Ebr530".
+///
+/// Stricter than libraryFileName's rule, which keeps dots and dashes, and
+/// deliberately so rather than by oversight. That name is a machine's key in
+/// the published library, where staying close to what the transcriber typed
+/// matters more than reading well. This one is offered to a person in a Save
+/// dialog, where "LUK_Ebr.530.trscrpt" reads as a file with two extensions.
+QString condensedName(const QString &text)
+{
+    QString out;
+    out.reserve(text.size());
+    for (const QChar character : text) {
+        if (character.isLetterOrNumber()) {
+            out.append(character);
+        }
+    }
+    return out;
 }
 
 } // namespace
@@ -396,6 +465,50 @@ QString libraryFileName(const QString &bookOsisId, const QString &manuscriptName
         .arg(book.isEmpty() ? QStringLiteral("NT") : book, name);
 }
 
+QString transcriptionFileStem(const TranscriptionDocument &document, int pageIndex)
+{
+    // The folio on screen names the book, and where it does not — a cover, a
+    // flyleaf, a page opened before the transcriber said what they were reading
+    // — the first page that names one does. A transcription knows what it is
+    // even while sitting on a blank leaf.
+    QString book;
+    if (pageIndex >= 0 && pageIndex < document.pages.size()) {
+        book = document.pages.at(pageIndex).book;
+    }
+    if (book.isEmpty()) {
+        for (const TranscribedPage &page : document.pages) {
+            if (!page.book.isEmpty()) {
+                book = page.book;
+                break;
+            }
+        }
+    }
+
+    // The shelfmark first. It is what makes one copy of Luke a different thing
+    // from another, and it is what a transcriber writes on the folder. The
+    // manuscript name is the fallback and not the other way round, because for
+    // a transcription of one book it is usually the *book's* name — so leading
+    // with it would give "LUK_Luke", which distinguishes nothing.
+    QString manuscript = condensedName(document.metadata.shelfmark);
+    if (manuscript.isEmpty()) {
+        manuscript = condensedName(document.metadata.manuscriptName);
+    }
+
+    const QString id = condensedName(book);
+    if (!id.isEmpty() && !manuscript.isEmpty()) {
+        return id + QLatin1Char('_') + manuscript;
+    }
+    if (!id.isEmpty()) {
+        return id;
+    }
+    if (!manuscript.isEmpty()) {
+        return manuscript;
+    }
+    // A transcription that has said nothing about itself yet still has to be
+    // offered a name.
+    return QStringLiteral("Transcription");
+}
+
 MilahProjectPayload transcriptionPayload(
     const TranscriptionDocument &document,
     const QHash<QString, QByteArray> &imageBytes)
@@ -406,9 +519,10 @@ MilahProjectPayload transcriptionPayload(
     }
 
     MilahProjectPayload payload;
-    payload.suggestedName = document.metadata.manuscriptName.isEmpty()
-        ? QStringLiteral("Transcription.trscrpt")
-        : QStringLiteral("%1.trscrpt").arg(document.metadata.manuscriptName);
+    // The same name the Save dialog offers. No folio is on screen from in here,
+    // so the book comes from the first page that names one.
+    payload.suggestedName =
+        QStringLiteral("%1.trscrpt").arg(transcriptionFileStem(document, -1));
     payload.manifest = QJsonObject{
         {QStringLiteral("format"), QString(kFormat)},
         {QStringLiteral("version"), kVersion},

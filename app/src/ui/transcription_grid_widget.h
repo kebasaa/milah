@@ -73,6 +73,11 @@ private:
     /// never lost to the rebuild that follows.
     void commit(QLineEdit *field);
 
+    /// Takes the muting off one word that has now been looked at, without
+    /// rebuilding the folio around it — see TranscriptionController::
+    /// wordChecked for why that matters.
+    void showWordChecked(int verse, int column);
+
     static int cellKey(int verse, int column) { return (verse << 12) | (column & 0xFFF); }
 
     TranscriptionController *m_controller = nullptr;

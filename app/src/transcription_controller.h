@@ -1,12 +1,17 @@
 #pragma once
 
+#include "core/page_layout.h"
 #include "core/serialize.h"
 #include "core/transcription.h"
+#include "ui/kraken_environment.h"
 
 #include <QHash>
 #include <QObject>
+#include <QSize>
 #include <QString>
 #include <QStringList>
+
+#include <memory>
 
 class QNetworkAccessManager;
 class QWidget;
@@ -81,6 +86,24 @@ public:
     /// The chapter the caret is in, for the toolbar field. 0 when nothing is.
     int selectedChapter() const;
 
+    /// How many words on this folio a machine read and nobody has looked at
+    /// yet. Zero for a folio nothing was recognised on, which is every folio
+    /// somebody typed.
+    int uncheckedWordCount() const;
+    /// Whether anything on this folio was placed by a recogniser, which is what
+    /// decides whether the eye button is worth offering.
+    ///
+    /// Asked of the document rather than of the image pane, so the answer does
+    /// not depend on which of the two heard about the change first.
+    bool hasRecognisedWords() const;
+
+    /// Whether there is a kraken installation to remove, for the menu entry
+    /// that offers to. Probes the machine the first time and remembers.
+    bool krakenInstalled() const;
+    /// What was found there, for the menu entry that offers to install it —
+    /// which names WSL2 or does not, depending on this.
+    KrakenEnvironment::State krakenState() const;
+
 public slots:
     /// Opens a folio and reads its folder, so the arrows have somewhere to go.
     void openImage();
@@ -112,6 +135,33 @@ public slots:
     /// where the Textual criticism tab looks for witnesses to collate.
     void addToLibrary();
     void closeTranscription();
+    /// Takes an ALTO or PAGE layout file somebody else produced — an
+    /// institutional eScriptorium export, or a folio processed on a machine
+    /// that is not this one — and reads it onto the folio on screen.
+    ///
+    /// The same landing place kraken's own output uses, and worth having on its
+    /// own account rather than only as a way of testing that one: a transcriber
+    /// whose library has already run the recognition should not have to run it
+    /// again to get the benefit of it.
+    void importRecognisedLayout();
+    /// Reads the folio on screen with kraken. Sets kraken up first, asking, if
+    /// this is the first time.
+    void transcribeFolio();
+    /// Opens the setup dialog deliberately rather than by surprise, so it can
+    /// be done once at a desk with time for it. The runtime only — models are
+    /// manageModels().
+    void setUpKraken();
+    /// Opens the models dialog: what is installed, and which one runs.
+    ///
+    /// Separate from setUpKraken() because installing Kraken and installing a
+    /// model happen on quite different schedules, and joining them left no way
+    /// to add a second model once the first was in place.
+    void manageModels();
+    /// Shows what the last recognition ran, said and produced.
+    void showLastRecognition();
+    /// Deletes the venv and the models, after saying what will go and roughly
+    /// how much that is. Not WSL2 and not the distribution.
+    void removeKraken();
     void goToPreviousImage();
     void goToNextImage();
 
@@ -164,6 +214,13 @@ public slots:
     /// The transcriber's own remark on a word. Empty removes it.
     void setNote(int verse, int column, const QString &note);
     void setVerseNumber(int verse, const QString &number);
+    /// Takes one word off the folio, and nothing else.
+    ///
+    /// The verse keeps its place even when that was its last word: the heading
+    /// carries the number and the chapter break, and a recogniser that read one
+    /// word too many has not made the verse wrong. What is left is an empty
+    /// cell to type in, which is what every verse ends with anyway.
+    void removeWord(int verse, int column);
     void removeVerse(int verse);
     /// This verse and every verse after it move into the next chapter.
     void moveVerseToNewChapter(int verse);
@@ -181,6 +238,22 @@ signals:
     void pageChanged();
     /// The text of the current folio changed, so the grid must be rebuilt.
     void versesChanged();
+    /// A machine has just read this folio, and there is something new on the
+    /// picture to look at.
+    ///
+    /// Deliberately not versesChanged, which also fires on every keystroke a
+    /// transcriber commits. This is the one moment where opening the overlay
+    /// unasked is what somebody wants — checking a reading against the ink it
+    /// came from is the whole of what happens next.
+    void recognitionApplied();
+    /// One word a machine read has now been looked at by a person.
+    ///
+    /// Deliberately not versesChanged. This fires as the caret leaves a word,
+    /// which is to say while somebody is moving through the folio — and a grid
+    /// rebuilt at that moment destroys the very field the Tab key is on its way
+    /// to. So the two places that show the flag change the one word in place:
+    /// the cell drops its muting, and the folio overlay redraws.
+    void wordChecked(int verse, int column);
     /// Which word the caret is in.
     void selectionChanged();
     /// Asks the Notes panel to take the caret, for "Add/edit note".
@@ -212,6 +285,23 @@ private:
     static QString unaddressedNotice(const Exportable &work);
     /// Writes one OSIS file, atomically, reporting a failure itself.
     bool writeOsisTo(const QString &path, const QString &osis);
+
+    /// Puts a recognised page onto the folio on screen, as one verse with no
+    /// number, every word marked unchecked. One undo step, and — when the folio
+    /// already has something on it — one question first.
+    ///
+    /// `source` names where the reading came from, for the message and for the
+    /// question. False when nothing was applied.
+    bool applyRecognition(const RecognisedPage &recognised, const QString &source);
+    /// The folio's own pixel size, read from the image header rather than by
+    /// decoding it. What a layout file's declared page size is converted into,
+    /// so that TranscribedWord::box means one thing everywhere.
+    QSize folioPixelSize() const;
+
+    /// Where kraken lives, made the first time anything asks. Probing costs a
+    /// `wsl.exe` launch on Windows, and a session that never presses Transcribe
+    /// should not pay for it.
+    KrakenEnvironment &kraken() const;
 
     TranscribedPage *mutablePage();
     /// True when `verse` and `column` name a word that exists.
@@ -337,6 +427,10 @@ private:
 
     QList<EditStep> m_undoStack;
     QList<EditStep> m_redoStack;
+
+    /// Mutable because krakenInstalled() is a question about the machine, and a
+    /// caller asking it has not changed the transcription.
+    mutable std::unique_ptr<KrakenEnvironment> m_kraken;
 };
 
 } // namespace milah

@@ -230,6 +230,115 @@ from that verse on becomes the next chapter — and **Delete this verse**.
 **Edit ▸ Move verse to new chapter** repeats the first for whichever verse has
 the caret.
 
+Right-clicking a word offers **Add/edit note**, **Remove note** where there is
+one, and **Delete word** — which takes that word off the folio and leaves the
+verse and the words around it where they are. A recogniser that read one word
+too many has not made the verse wrong. Ctrl+Z puts it back.
+
+#### Reading a folio with Kraken
+
+**Transcribe** on the toolbar hands the folio to
+[Kraken](https://github.com/mittagessen/kraken), a handwriting recogniser, and
+fills the grid with what it read. Every word arrives marked *unchecked* and is
+drawn quieter than the rest; moving the caret through a word marks it checked,
+whether or not you change it. The status bar says how many are left.
+
+The **eye** button beside it draws each recognised word over the ink it was read
+from, so you can see at a glance what was read where — struck through while the
+overlay is off, and greyed out on a folio that has no readings to show. Words
+still unchecked are outlined with a dashed box. A finished recognition opens the
+overlay itself, since checking a reading against the ink is what happens next;
+shut it again and it stays shut until the next one.
+
+The first time Transcribe is pressed, Milah asks before it installs anything:
+
+> Install WSL2 and Kraken to automatically attempt transcriptions?
+
+— naming WSL2 only on a Windows that has not got it. About 3–4 GB is
+downloaded, nearly all of it PyTorch. Kraken is a Linux program, so on Windows
+it runs inside WSL; on Linux everything is local and there is no subsystem to
+install.
+
+Milah brings its own Python rather than using the distribution's. Kraken needs
+3.10–3.13, and what a distribution ships is its own affair — Ubuntu's WSL image
+has been ahead of that range — so [uv](https://docs.astral.sh/uv/) fetches a
+standalone interpreter into Milah's own folder. Nothing is added to the
+distribution, nothing needs root, and removal is still the deletion of one
+folder. The only thing asked of the distribution is `curl`, to fetch the first
+file; if that is missing, Milah opens a console window where you can add it,
+since `sudo` wants your Linux password and cannot be answered through a pipe. Installing WSL2 needs administrator rights and a restart: Windows
+raises its own elevation prompt, Milah never restarts anything, and after the
+restart the next Transcribe carries on where it left off.
+
+Models are added under **File ▸ Handwriting recognition ▸ Manage models…**.
+**Add from repository…** lists what Kraken's repository holds in a sortable
+table — file, fit, script, language, character error rate, size, date. The
+**Size** column is what pressing Download will fetch: the Hebrew bookhand models
+are 16 MB apiece, the multilingual base models several hundred.
+
+The **File** column carries the name a model is actually known by. The four
+medieval Hebrew bookhand models all summarise themselves as "Medieval Hebrew
+manuscripts", and only their files say which is which: `BiblIA_01`,
+`Ashkenazi_01`, `Sephardi_01`, `Italian_01`. The filter box searches it, so
+typing `bibl` finds BiblIA.
+
+A **Script** box picks what the models should read, opening on
+Hebrew, and a **Fit** column says how narrowly each model is aimed at it:
+*Dedicated* where it reads that script and no other, *Focused* where it reads a
+few, *Multilingual* where it reads many, *Mentioned* where only the summary says
+so. A model trained on medieval Hebrew alone therefore outranks a twelve-script
+generalist that merely lists Hebrew. Models of equal fit are ordered by whether
+they name a matching language, then by their stated error rate, lowest first.
+
+**Kraken's repository holds models for other programs too**, and Kraken cannot
+load them. They are left out of the list, on three signals: one was downloaded
+once and refused, one names another program in its record, one names another
+program in its summary. **Show models Kraken cannot load** brings them back,
+greyed, each saying which of the three applies — because a suspicion and a
+demonstration are not the same claim.
+
+Milah still asks Kraken to load every model as it arrives, since a record can
+declare Kraken and be something else. One that fails is deleted, not left on
+disk, and is not offered again. **Manage models…** also says when there are
+downloads no installed model uses — from an interrupted download, say — and
+offers to clear them out. CER is explained
+wherever it appears — including the warning that the figures were each measured
+on their own author's manuscripts and are not comparable between models.
+
+**Choose a file…** uses a `.mlmodel` already on the machine, which is the one
+route that needs no network. Downloads land inside Milah's own folder, so
+removing Kraken removes them too.
+
+**More than one model can be installed.** Which one runs is chosen from the
+arrow beside the **Transcribe** button — pressing the button transcribes,
+pressing the arrow lists the installed models with the current one ticked — and
+the Transcribe tooltip names the model it would use.
+
+**File ▸ Handwriting recognition** keeps the two jobs apart, because they happen
+on different schedules: Kraken once per machine, a model whenever a new hand
+turns up.
+
+| | |
+|---|---|
+| **Use model ▸** | The installed models, the running one ticked. |
+| **Manage models…** | Add from the repository or from a file, remove, and choose which runs. |
+| **Show last recognition…** | What Milah ran, what Kraken said, and the layout file that came back. One run's worth, replaced each time, so a reading that goes wrong can be looked at rather than guessed about. |
+| **Install Kraken…** | Only when Kraken is absent. |
+| **Remove Kraken…** | Deletes the Python environment and the models, and leaves WSL2 and your Linux distribution alone. |
+
+Removing a single model in **Manage models…** means one of two things, and the
+confirmation says which: a model Milah downloaded is deleted and its disk
+reclaimed, while a model you chose off your own disk is merely forgotten and the
+file left where it is.
+
+**File ▸ Import recognised layout…** reads an ALTO or PAGE file produced
+elsewhere — an institution's own eScriptorium export, or a folio processed on
+another machine — onto the folio on screen. It needs word-level segmentation:
+a file segmented only into lines says so rather than filling the grid with
+sentences.
+
+Reading onto a folio that already has text on it asks first.
+
 #### The metadata dock
 
 The right-hand dock records what the folio is, as against what it says, all
@@ -243,10 +352,13 @@ optional: **Manuscript**, **Transcriber**, **Origin**, **Library**,
 
 #### Menus and toolbar at a glance
 
-**File:** Open Image, Open Transcription Project, Save Transcription project │
-Export to OSIS, Close Transcription Project │ Quit.
+**File:** Open Image, Get Online Manuscript Scan, Open Transcription Project,
+Open Recent, Save Transcription project │ Import recognised layout, Handwriting
+recognition (Use model, Manage models, Show last recognition, Install Kraken,
+Remove Kraken) │ Export to OSIS, Export to Word,
+Add to my library, Close Transcription Project │ Quit.
 **Edit:** Undo, Redo │ Move verse to new chapter │ Define word in my dictionary.
-**Toolbar:** Book, " as " acronym, Chapter, ← →, Magnify.
+**Toolbar:** Book, " as " acronym, Chapter, ← →, Magnify, Transcribe, eye.
 
 ### Exports
 

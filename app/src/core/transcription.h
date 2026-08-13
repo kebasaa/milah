@@ -5,6 +5,7 @@
 #include <QHash>
 #include <QList>
 #include <QMap>
+#include <QRect>
 #include <QString>
 
 namespace milah {
@@ -40,6 +41,26 @@ struct TranscribedWord
     /// Exported as an OSIS note anchored at the word, in the same markup the
     /// comparison's notes use.
     QString note;
+    /// Where on the folio this word was read from, in the image's own pixels.
+    /// Null for a word somebody typed, which is most of them.
+    ///
+    /// Only a recogniser fills this in — see core/page_layout.h. Nothing else
+    /// in Milah knows where on the picture a word is, because until a machine
+    /// read one nothing had any way to.
+    QRect box;
+    /// Read by a machine and not yet looked at by a person. Cleared the moment
+    /// the word is edited, because editing it is what checking it means.
+    ///
+    /// What stops an unreviewed pass of handwriting recognition reaching the
+    /// manuscript library through Add to my library with nobody having said it
+    /// is right. A transcription is a claim about what a folio says, and a
+    /// machine's guess is not one until somebody has stood behind it.
+    bool unchecked = false;
+
+    /// Field for field. What lets the folio overlay tell a keystroke that
+    /// changed a word it draws from the very many that did not, and so skip
+    /// repainting a scan for nothing.
+    bool operator==(const TranscribedWord &) const = default;
 };
 
 struct TranscribedVerse
@@ -209,6 +230,21 @@ QString verseHeading(const TranscribedPage &page, int verseIndex);
 /// Never ends `_translation`: that suffix, and nothing in the file, is what
 /// tells Milah a library text is a translation rather than a witness.
 QString libraryFileName(const QString &bookOsisId, const QString &manuscriptName);
+
+/// The name Save and the two exports offer, without an extension:
+/// `<OSIS id>_<Manuscript>` — "LUK_Ebr530".
+///
+/// A transcriber works through several codices of the same gospel, and a folder
+/// of files all called "Luke" tells them apart from nothing. So the book *and*
+/// the manuscript, and the manuscript is the shelfmark where there is one:
+/// "Manuscript name" on a transcription of one book is usually the name of the
+/// book, which would only repeat the id.
+///
+/// `pageIndex` is the folio on screen, and may be -1 or out of range — the book
+/// then comes from the first page that names one. Letters and digits only, so
+/// "Ebr. 530" comes out "Ebr530"; see condensedName for why that is stricter
+/// than libraryFileName's rule.
+QString transcriptionFileStem(const TranscriptionDocument &document, int pageIndex);
 
 /// True while nothing has been read off any folio of this transcription.
 ///

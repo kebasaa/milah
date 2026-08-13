@@ -102,6 +102,17 @@ private:
     /// What the transcription side may do, which turns on whether a folio is
     /// open and whether anything has been typed on it.
     void updateTranscriptionActions();
+    /// Fills `menu` with the installed models, the active one checked, and
+    /// "Choose a model…" at the foot. Called from each menu's own aboutToShow,
+    /// so neither can offer one that has since been removed.
+    ///
+    /// Reads QSettings and nothing else — deliberately, because asking the
+    /// environment would start WSL and a dropdown that hesitates before opening
+    /// is one nobody uses twice.
+    void fillModelMenu(QMenu *menu);
+    /// Names the model Transcribe would use, in its tooltip. A button whose
+    /// behaviour depends on a setting kept elsewhere should say what it is.
+    void refreshTranscribeTooltip();
     /// Fills the Book, abbreviation and Chapter fields from the folio on screen.
     void refreshTranscriptionToolBar();
     /// Completes a book name into the field as it is typed. Qt offers a popup
@@ -229,6 +240,32 @@ private:
     QAction *m_previousImageAction = nullptr;
     QAction *m_nextImageAction = nullptr;
     QAction *m_magnifyAction = nullptr;
+    /// Reads the folio with a handwriting recogniser, and draws what it read
+    /// over the ink it read it from. The eye is checkable and swaps its own
+    /// icon, which is what puts the stroke through it.
+    QAction *m_transcribeAction = nullptr;
+    QAction *m_overlayAction = nullptr;
+    /// Takes an ALTO or PAGE file made elsewhere. Lives in the File menu rather
+    /// than on the toolbar: it is the occasional way in, not the daily one.
+    QAction *m_importLayoutAction = nullptr;
+    /// File ▸ Handwriting recognition. Exactly one of the two is live at any
+    /// moment, which is the whole of the state the menu has to convey.
+    QMenu *m_htrMenu = nullptr;
+    QAction *m_htrInstallAction = nullptr;
+    QAction *m_htrRemoveAction = nullptr;
+    /// Its own action, and that is the fix rather than a tidying. The way to
+    /// the model chooser used to *be* m_htrInstallAction, which the menu greys
+    /// out once Kraken is installed — so having one model made it impossible to
+    /// add a second from anywhere in Milah.
+    QAction *m_manageModelsAction = nullptr;
+    /// What the last run did. Live only once there has been one.
+    QAction *m_lastRunAction = nullptr;
+    /// The installed models, offered in two places at once: under the Transcribe
+    /// button's own arrow, where somebody about to press it is already looking,
+    /// and in the File menu beside the rest of the recognition settings. One
+    /// menu each, filled by one function.
+    QMenu *m_modelMenu = nullptr;
+    QMenu *m_toolbarModelMenu = nullptr;
     QAction *m_newChapterAction = nullptr;
     QLineEdit *m_bookField = nullptr;
     /// The id the verses are exported under. Read-only where Milah knows the

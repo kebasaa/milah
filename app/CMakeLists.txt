@@ -5,7 +5,7 @@ cmake_minimum_required(VERSION 3.24)
 # Windows VERSIONINFO resource. It is unrelated to the `.milah` project file
 # format version, which is pinned to 1 in src/core/project.cpp and gates
 # whether a saved project can be opened at all.
-project(Milah VERSION 1.1.2 LANGUAGES CXX)
+project(Milah VERSION 1.2.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -62,6 +62,8 @@ add_library(MilahCore STATIC
     src/core/word_marker.h
     src/core/osis.cpp
     src/core/osis.h
+    src/core/page_layout.cpp
+    src/core/page_layout.h
     src/core/alignment.cpp
     src/core/alignment.h
     src/core/coverage.cpp
@@ -148,6 +150,18 @@ qt_add_executable(Milah WIN32
     src/ui/dictionary_entry_dialog.h
     src/ui/download_manuscripts_dialog.cpp
     src/ui/download_manuscripts_dialog.h
+    src/ui/htr_last_run_dialog.cpp
+    src/ui/htr_last_run_dialog.h
+    src/ui/htr_models_dialog.cpp
+    src/ui/htr_models_dialog.h
+    src/ui/htr_progress.cpp
+    src/ui/htr_progress.h
+    src/ui/htr_repository_dialog.cpp
+    src/ui/htr_repository_dialog.h
+    src/ui/htr_setup_dialog.cpp
+    src/ui/htr_setup_dialog.h
+    src/ui/kraken_environment.cpp
+    src/ui/kraken_environment.h
     src/ui/manuscript_image_view.cpp
     src/ui/manuscript_image_view.h
     src/ui/network_fetch.cpp
@@ -199,12 +213,15 @@ qt_add_resources(Milah "milah_icons"
         img/icons/document-save-as.svg
         img/icons/edit-redo.svg
         img/icons/edit-undo.svg
+        img/icons/eye.svg
+        img/icons/eye-off.svg
         img/icons/go-next.svg
         img/icons/go-previous.svg
         img/icons/help-about.svg
         img/icons/load-manuscript.svg
         img/icons/note-marker.svg
         img/icons/load-translation.svg
+        img/icons/text-recognise.svg
         img/icons/view-refresh.svg
         img/icons/zoom-in.svg
 )
@@ -252,7 +269,7 @@ if(MILAH_BUILD_TESTS)
     foreach(test_name
             project_storage osis consensus apparatus diff acronym lexicon suggestions
             coverage alignment catalogue word_marker transcription books
-            scan_catalogue recent_files docx transcription_docx
+            scan_catalogue recent_files docx transcription_docx page_layout
             reading_marks collation_docx name_forms)
         # Plain add_executable, not qt_add_executable: the latter finalises the
         # target as a Windows GUI application, and a GUI-subsystem binary
