@@ -3,6 +3,9 @@
 #include "project_storage.h"
 
 #include <QDir>
+#include <QJsonArray>
+#include <QJsonObject>
+#include <QRect>
 #include <QTemporaryDir>
 #include <QtTest>
 
@@ -452,6 +455,81 @@ private slots:
         QVERIFY(name.endsWith(QStringLiteral("_hebrew_commented.osis")));
     }
 
+    void theSuggestedNameCarriesTheBookAndTheManuscript()
+    {
+        TranscriptionDocument document = sampleDocument();
+        document.metadata.shelfmark = QStringLiteral("Ebr. 530");
+        // The book of the folio on screen, and the shelfmark with its
+        // punctuation taken out. A folder of transcriptions of Luke is only
+        // navigable if the manuscript is in the name.
+        QCOMPARE(
+            transcriptionFileStem(document, 0), QStringLiteral("Gen_Ebr530"));
+
+        // Spaces go the same way as stops.
+        document.metadata.shelfmark = QStringLiteral("Gaster Hebrew MS 1616");
+        QCOMPARE(
+            transcriptionFileStem(document, 0),
+            QStringLiteral("Gen_GasterHebrewMS1616"));
+    }
+
+    void theShelfmarkIsPreferredToTheManuscriptName()
+    {
+        TranscriptionDocument document = sampleDocument();
+        document.metadata.manuscriptName = QStringLiteral("Luke");
+        document.metadata.shelfmark = QStringLiteral("Vat. ebr. 530");
+        QCOMPARE(
+            transcriptionFileStem(document, 0), QStringLiteral("Gen_Vatebr530"));
+
+        // The name only where there is no shelfmark — and there it is usually
+        // the work rather than the copy, which is why it is second.
+        document.metadata.shelfmark.clear();
+        QCOMPARE(transcriptionFileStem(document, 0), QStringLiteral("Gen_Luke"));
+    }
+
+    void theBookComesFromWhicheverFolioNamesOne()
+    {
+        TranscriptionDocument document = sampleDocument();
+        document.metadata.shelfmark = QStringLiteral("Ebr. 530");
+
+        // A cover or a flyleaf opened before the transcriber has said what they
+        // are reading. The book is still known — the folio after it says so.
+        TranscribedPage cover;
+        cover.imageName = QStringLiteral("cover.png");
+        document.pages.prepend(cover);
+        QCOMPARE(
+            transcriptionFileStem(document, 0), QStringLiteral("Gen_Ebr530"));
+
+        // And an index nothing is open at, which is what the archive writer
+        // has to work from.
+        QCOMPARE(
+            transcriptionFileStem(document, -1), QStringLiteral("Gen_Ebr530"));
+        QCOMPARE(
+            transcriptionFileStem(document, 99), QStringLiteral("Gen_Ebr530"));
+    }
+
+    void halfANameIsBetterThanNone()
+    {
+        TranscriptionDocument document;
+        document.pages = {samplePage()};
+        // No manuscript said yet: the book alone, rather than a trailing
+        // underscore.
+        QCOMPARE(transcriptionFileStem(document, 0), QStringLiteral("Gen"));
+
+        // And no book: the manuscript alone.
+        document.pages[0].book.clear();
+        document.metadata.shelfmark = QStringLiteral("Ebr. 530");
+        QCOMPARE(transcriptionFileStem(document, 0), QStringLiteral("Ebr530"));
+
+        // A transcription that has said nothing about itself still has to be
+        // offered something.
+        document.metadata.shelfmark.clear();
+        QCOMPARE(
+            transcriptionFileStem(document, 0), QStringLiteral("Transcription"));
+        QCOMPARE(
+            transcriptionFileStem(TranscriptionDocument{}, 0),
+            QStringLiteral("Transcription"));
+    }
+
     void aBookOutsideTheCanonIsFiledUnderItsOwnId()
     {
         QCOMPARE(
@@ -473,6 +551,78 @@ private slots:
             QStringLiteral("The second letter is doubtful."));
         // And a word nobody remarked on carries nothing.
         QVERIFY(restored.pages.at(0).verses.at(0).words.at(0).note.isEmpty());
+    }
+
+    void aBoxAndAnUncheckedFlagSurviveTheArchive()
+    {
+        TranscriptionDocument document = sampleDocument();
+        document.pages[0].verses[0].words[0].box = QRect(700, 200, 180, 55);
+        document.pages[0].verses[0].words[0].unchecked = true;
+
+        const TranscriptionDocument restored =
+            restoreTranscription(transcriptionPayload(document, {}));
+
+        const TranscribedWord &read = restored.pages.at(0).verses.at(0).words.at(0);
+        QCOMPARE(read.box, QRect(700, 200, 180, 55));
+        QVERIFY(read.unchecked);
+        // And the word beside it, which nobody's machine has touched.
+        QVERIFY(restored.pages.at(0).verses.at(0).words.at(1).box.isNull());
+        QVERIFY(!restored.pages.at(0).verses.at(0).words.at(1).unchecked);
+    }
+
+    void aTypedWordWritesNeitherOfThem()
+    {
+        // What lets a .trscrpt made by this version open in one that has never
+        // heard of handwriting recognition: an ordinary transcription contains
+        // not one mention of it. The whole scheme for adding fields without
+        // moving the format version rests on this, so it is asserted rather
+        // than assumed.
+        const QJsonObject manifest =
+            transcriptionPayload(sampleDocument(), {}).manifest;
+        const QJsonObject word = manifest.value(QStringLiteral("pages"))
+                                     .toArray()
+                                     .at(0)
+                                     .toObject()
+                                     .value(QStringLiteral("verses"))
+                                     .toArray()
+                                     .at(0)
+                                     .toObject()
+                                     .value(QStringLiteral("words"))
+                                     .toArray()
+                                     .at(0)
+                                     .toObject();
+
+        QVERIFY(!word.isEmpty());
+        QVERIFY(!word.contains(QStringLiteral("box")));
+        QVERIFY(!word.contains(QStringLiteral("unchecked")));
+    }
+
+    void aBoxWrittenWrongIsNoBoxAtAll()
+    {
+        // Three numbers where four were meant would otherwise become a
+        // rectangle at the origin, and the overlay would draw it there with
+        // every appearance of meaning it.
+        TranscriptionDocument document = sampleDocument();
+        MilahProjectPayload payload = transcriptionPayload(document, {});
+
+        QJsonArray pages = payload.manifest.value(QStringLiteral("pages")).toArray();
+        QJsonObject page = pages.at(0).toObject();
+        QJsonArray verses = page.value(QStringLiteral("verses")).toArray();
+        QJsonObject verse = verses.at(0).toObject();
+        QJsonArray words = verse.value(QStringLiteral("words")).toArray();
+        QJsonObject word = words.at(0).toObject();
+        word.insert(QStringLiteral("box"), QStringLiteral("700 200 180"));
+        words.replace(0, word);
+        verse.insert(QStringLiteral("words"), words);
+        verses.replace(0, verse);
+        page.insert(QStringLiteral("verses"), verses);
+        pages.replace(0, page);
+        payload.manifest.insert(QStringLiteral("pages"), pages);
+
+        const TranscriptionDocument restored = restoreTranscription(payload);
+        QVERIFY(restored.pages.at(0).verses.at(0).words.at(0).box.isNull());
+        // The text is not the casualty of a bad rectangle.
+        QVERIFY(!restored.pages.at(0).verses.at(0).words.at(0).hebrew.isEmpty());
     }
 
     void verseNumbersAreRecognisedAsTyped()

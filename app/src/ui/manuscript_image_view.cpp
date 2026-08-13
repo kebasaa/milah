@@ -1,6 +1,7 @@
 #include "ui/manuscript_image_view.h"
 
 #include <QBuffer>
+#include <QFontMetricsF>
 #include <QImageReader>
 #include <QMouseEvent>
 #include <QPainter>
@@ -27,6 +28,14 @@ constexpr double MaxMagnification = 12.0;
 /// wider — including for the verse comparison, which needs the width it can get.
 constexpr int MinimumPageWidth = 240;
 
+/// Below this the label would be an ellipsis and nothing else, and a folio
+/// carries hundreds of them.
+constexpr double MinimumLabelWidth = 14.0;
+/// How opaque the strip behind a label is. Enough to read black text on, little
+/// enough to see that there is ink underneath — which is the whole point of
+/// having put it there.
+constexpr int LabelBackingAlpha = 205;
+
 } // namespace
 
 ManuscriptImageView::ManuscriptImageView(QWidget *parent)
@@ -48,6 +57,10 @@ void ManuscriptImageView::setImageData(
     m_name = name;
     m_failure.clear();
     m_loupeVisible = false;
+    // A different folio, so the boxes read off the last one are not merely
+    // stale, they are somewhere else entirely. Whoever shows a folio says what
+    // is on it, in that order.
+    m_words.clear();
 
     if (bytes.isEmpty()) {
         // A folio that was meant to be here and is not says so. Empty is
@@ -87,6 +100,36 @@ void ManuscriptImageView::setImageData(
 void ManuscriptImageView::clear()
 {
     setImageData(QByteArray(), QString());
+}
+
+void ManuscriptImageView::setWords(const QList<TranscribedWord> &words)
+{
+    QList<TranscribedWord> boxed;
+    boxed.reserve(words.size());
+    for (const TranscribedWord &word : words) {
+        // A word somebody typed has no box, and most words are typed. Dropping
+        // them here is what lets the drawing loop and hasWordBoxes() both be
+        // about nothing but geometry.
+        if (!word.box.isNull() && !word.hebrew.isEmpty()) {
+            boxed.append(word);
+        }
+    }
+    if (boxed == m_words) {
+        // Every keystroke reports the verses changed, and a repaint of a folio
+        // that has no boxes on it is a repaint of a scan for nothing.
+        return;
+    }
+    m_words = boxed;
+    update();
+}
+
+void ManuscriptImageView::setOverlayVisible(bool visible)
+{
+    if (m_overlayVisible == visible) {
+        return;
+    }
+    m_overlayVisible = visible;
+    update();
 }
 
 void ManuscriptImageView::setMagnifierEnabled(bool enabled)
@@ -161,6 +204,12 @@ void ManuscriptImageView::paintEvent(QPaintEvent *event)
     const QRect page = pageRect();
     painter.drawImage(page, m_image);
 
+    // Over the folio and under the loupe, so that magnifying a word the machine
+    // read shows the ink rather than the reading of it.
+    if (m_overlayVisible && hasWordBoxes()) {
+        drawWordOverlay(painter, page, event->rect());
+    }
+
     if (!m_magnifying || !m_loupeVisible) {
         return;
     }
@@ -198,6 +247,84 @@ void ManuscriptImageView::paintEvent(QPaintEvent *event)
     painter.setPen(QPen(palette().color(QPalette::Mid), 1));
     painter.setBrush(Qt::NoBrush);
     painter.drawEllipse(loupe);
+}
+
+void ManuscriptImageView::drawWordOverlay(
+    QPainter &painter,
+    const QRect &page,
+    const QRect &damage) const
+{
+    // Two factors rather than the one the folio is drawn with. They are equal
+    // whenever the recogniser saw the image Milah holds, which is every folio
+    // Transcribe produces — but an ALTO imported from elsewhere may have been
+    // made from a copy resized to a slightly different shape, and there the
+    // right answer is to stretch the boxes with it rather than to slide them
+    // all a little further down the page.
+    const double scaleX = double(page.width()) / m_image.width();
+    const double scaleY = double(page.height()) / m_image.height();
+
+    QFont labelFont = painter.font();
+    labelFont.setPointSizeF(std::max(7.0, labelFont.pointSizeF() * 0.85));
+    painter.setFont(labelFont);
+    const QFontMetricsF metrics(labelFont);
+    const double lineHeight = metrics.height();
+
+    // The same colour the grid's secondary rows use — see acronymColor() in
+    // band_grid, which spells it as a stylesheet string because that is what a
+    // label wants. Built here rather than parsed from there: `rgba(…, 0.72)` is
+    // CSS, and QColor does not read it.
+    QColor outline = palette().color(QPalette::Text);
+    outline.setAlphaF(0.72);
+    QColor backing = palette().color(QPalette::Base);
+    backing.setAlpha(LabelBackingAlpha);
+    const QColor ink = palette().color(QPalette::Text);
+
+    painter.setBrush(Qt::NoBrush);
+
+    for (const TranscribedWord &word : m_words) {
+        const QRectF box(
+            page.x() + word.box.x() * scaleX,
+            page.y() + word.box.y() * scaleY,
+            word.box.width() * scaleX,
+            word.box.height() * scaleY);
+        if (box.width() < 1.0 || box.height() < 1.0) {
+            continue;
+        }
+
+        // The label sits above the box, so the region a word can touch is
+        // taller than the word.
+        const QRect touched =
+            box.toAlignedRect().adjusted(-1, -int(lineHeight) - 3, 1, int(lineHeight) + 3);
+        if (!touched.intersects(damage)) {
+            continue;
+        }
+
+        // Dashed until somebody has looked at it. The count in the status line
+        // says how many are left; this says which, and where on the folio they
+        // are, which is what decides where to read next.
+        QPen pen(outline, 1.0);
+        pen.setStyle(word.unchecked ? Qt::DashLine : Qt::SolidLine);
+        painter.setPen(pen);
+        painter.drawRect(box);
+
+        if (box.width() < MinimumLabelWidth) {
+            continue;
+        }
+
+        QRectF label(box.x(), box.y() - lineHeight - 2.0, box.width(), lineHeight);
+        // A word on the first line of the folio has nothing above it, so its
+        // reading goes underneath instead of off the top of the pane.
+        if (label.top() < page.top()) {
+            label.moveTop(box.bottom() + 2.0);
+        }
+
+        painter.fillRect(label, backing);
+        painter.setPen(ink);
+        painter.drawText(
+            label,
+            Qt::AlignCenter,
+            metrics.elidedText(word.hebrew, Qt::ElideRight, label.width()));
+    }
 }
 
 void ManuscriptImageView::resizeEvent(QResizeEvent *event)

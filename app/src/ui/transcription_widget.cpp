@@ -64,6 +64,19 @@ TranscriptionWidget::TranscriptionWidget(
         &TranscriptionController::documentChanged,
         this,
         &TranscriptionWidget::showCurrentPage);
+    // The boxes belong to the words, so a correction moves the reading drawn on
+    // the folio with it. wordChecked is separate from versesChanged on purpose —
+    // see the signal — and both mean the overlay is out of date.
+    connect(
+        m_controller,
+        &TranscriptionController::versesChanged,
+        this,
+        &TranscriptionWidget::refreshOverlay);
+    connect(
+        m_controller,
+        &TranscriptionController::wordChecked,
+        this,
+        [this] { refreshOverlay(); });
 
     showCurrentPage();
 }
@@ -71,6 +84,25 @@ TranscriptionWidget::TranscriptionWidget(
 void TranscriptionWidget::setMagnifierEnabled(bool enabled)
 {
     m_image->setMagnifierEnabled(enabled);
+}
+
+void TranscriptionWidget::setOverlayVisible(bool visible)
+{
+    m_image->setOverlayVisible(visible);
+}
+
+void TranscriptionWidget::refreshOverlay()
+{
+    const TranscribedPage *page = m_controller->currentPage();
+    if (!page) {
+        m_image->setWords({});
+        return;
+    }
+    QList<TranscribedWord> words;
+    for (const TranscribedVerse &verse : page->verses) {
+        words.append(verse.words);
+    }
+    m_image->setWords(words);
 }
 
 void TranscriptionWidget::showCurrentPage()
@@ -86,10 +118,15 @@ void TranscriptionWidget::showCurrentPage()
     // them would cost a scan's worth of work and — worse — throw the reader
     // back to the top of a page they were halfway down.
     if (page->imageEntry == m_shownEntry) {
+        // The picture is the same; what is drawn on it need not be.
+        refreshOverlay();
         return;
     }
     const QByteArray bytes = m_controller->currentImageBytes();
     m_image->setImageData(bytes, page->imageName, m_controller->imageFailure());
+    // After the image and never before it: showing a folio drops the overlay,
+    // because the boxes belonged to the folio being replaced.
+    refreshOverlay();
     // Remembered only once something was actually shown. A folio that failed to
     // arrive has nothing to decode and nothing to scroll, so the guard above
     // buys nothing for it — and recording it as shown would keep the notice on

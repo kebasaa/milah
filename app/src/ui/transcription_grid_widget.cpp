@@ -102,6 +102,11 @@ TranscriptionGridWidget::TranscriptionGridWidget(
         &TranscriptionController::pageChanged,
         this,
         &TranscriptionGridWidget::build);
+    connect(
+        m_controller,
+        &TranscriptionController::wordChecked,
+        this,
+        &TranscriptionGridWidget::showWordChecked);
 
     build();
 }
@@ -314,6 +319,18 @@ void TranscriptionGridWidget::build()
                         m_controller->requestNoteEditing();
                     });
                 }
+                if (word.unchecked) {
+                    // Quieter than a word somebody stands behind. Inline rather
+                    // than in the window's stylesheet, because the window has no
+                    // way to ask which words those are — and because clearing it
+                    // one cell at a time is what lets a transcriber read through
+                    // a folio without the grid being rebuilt at every word.
+                    hebrew->setStyleSheet(
+                        QStringLiteral("color: %1;").arg(acronymColor(palette())));
+                    hebrew->setToolTip(QStringLiteral(
+                        "Read by the recogniser and not yet checked. Moving the "
+                        "caret through it marks it checked."));
+                }
                 if (unread && verse == 0 && column == 0) {
                     // Qt keeps a placeholder on screen while the field is empty
                     // even once it has the focus, so the ghost and the caret
@@ -439,6 +456,14 @@ void TranscriptionGridWidget::showVerseMenu(int verse, const QPoint &globalPosit
 // --------------------------------------------------------------------------
 // Typing
 // --------------------------------------------------------------------------
+
+void TranscriptionGridWidget::showWordChecked(int verse, int column)
+{
+    if (QLineEdit *field = m_hebrewCells.value(cellKey(verse, column))) {
+        field->setStyleSheet(QString());
+        field->setToolTip(QString());
+    }
+}
 
 void TranscriptionGridWidget::commit(QLineEdit *field)
 {

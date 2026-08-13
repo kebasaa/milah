@@ -10,10 +10,14 @@
 #include "core/transcription_docx.h"
 #include "core/suggestions.h"
 #include "project_storage.h"
+#include "ui/htr_last_run_dialog.h"
+#include "ui/htr_models_dialog.h"
+#include "ui/htr_setup_dialog.h"
 #include "ui/network_fetch.h"
 #include "ui/online_scan_dialog.h"
 #include "ui/scan_metadata_dialog.h"
 
+#include <QBuffer>
 #include <QCollator>
 #include <QDir>
 #include <QFile>
@@ -23,9 +27,12 @@
 #include <QApplication>
 #include <QEventLoop>
 #include <QImageReader>
+#include <QLocale>
 #include <QMessageBox>
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
+#include <QProcess>
+#include <QProgressDialog>
 #include <QSaveFile>
 #include <QSettings>
 
@@ -716,9 +723,8 @@ bool TranscriptionController::saveTranscription()
         return writeTo(m_filePath);
     }
 
-    const QString suggested = m_document.metadata.manuscriptName.isEmpty()
-        ? QStringLiteral("Transcription")
-        : m_document.metadata.manuscriptName;
+    const QString suggested = QStringLiteral("%1.trscrpt")
+                                  .arg(transcriptionFileStem(m_document, m_currentPage));
     const QString directory =
         QSettings().value(QStringLiteral("paths/lastDirectory")).toString();
     QString path = QFileDialog::getSaveFileName(
@@ -850,6 +856,546 @@ void TranscriptionController::closeTranscription()
     emit versesChanged();
     emit selectionChanged();
     emit historyChanged();
+}
+
+int TranscriptionController::uncheckedWordCount() const
+{
+    const TranscribedPage *page = currentPage();
+    if (!page) {
+        return 0;
+    }
+    int count = 0;
+    for (const TranscribedVerse &verse : page->verses) {
+        for (const TranscribedWord &word : verse.words) {
+            if (word.unchecked) {
+                ++count;
+            }
+        }
+    }
+    return count;
+}
+
+bool TranscriptionController::hasRecognisedWords() const
+{
+    const TranscribedPage *page = currentPage();
+    if (!page) {
+        return false;
+    }
+    for (const TranscribedVerse &verse : page->verses) {
+        for (const TranscribedWord &word : verse.words) {
+            if (!word.box.isNull()) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+QSize TranscriptionController::folioPixelSize() const
+{
+    const QByteArray bytes = currentImageBytes();
+    if (bytes.isEmpty()) {
+        return QSize();
+    }
+    QBuffer buffer;
+    buffer.setData(bytes);
+    buffer.open(QIODevice::ReadOnly);
+    QImageReader reader(&buffer);
+    // The same transformation the image pane applies, so that the size the
+    // boxes are converted into is the size they will be drawn against. A folio
+    // whose file says it is rotated is a folio whose width and height swap, and
+    // getting that the wrong way round would put every word on the page at
+    // right angles to its ink.
+    reader.setAutoTransform(true);
+    return reader.size();
+}
+
+bool TranscriptionController::applyRecognition(
+    const RecognisedPage &recognised,
+    const QString &source)
+{
+    if (!mutablePage()) {
+        // Said out loud. This is one of the two ways a whole recognition can
+        // end in nothing at all, and the status bar is not where somebody who
+        // has waited minutes for a folio will be looking.
+        QMessageBox::warning(
+            m_dialogParent,
+            QStringLiteral("Milah"),
+            QStringLiteral("There is no folio open to read %1's words onto, so "
+                           "nothing has been changed.")
+                .arg(source));
+        return false;
+    }
+
+    if (recognised.words.isEmpty()) {
+        QMessageBox::information(
+            m_dialogParent,
+            QStringLiteral("Milah"),
+            QStringLiteral("%1 has no words on it, so there is nothing to read "
+                           "onto this folio.")
+                .arg(source));
+        return false;
+    }
+
+    // A folio somebody has already read is not a folio to overwrite without
+    // asking. Undo would bring it back, but a transcriber who has just lost an
+    // hour's work does not yet know that.
+    if (!isUntouched(*currentPage())
+        && QMessageBox::question(
+               m_dialogParent,
+               QStringLiteral("Milah"),
+               QStringLiteral("This folio already has text on it. Replace all of "
+                              "it with what %1 read?")
+                   .arg(source),
+               QMessageBox::Yes | QMessageBox::Cancel,
+               QMessageBox::Cancel)
+            != QMessageBox::Yes) {
+        return false;
+    }
+
+    // The recogniser may have been given a copy of the folio at another size —
+    // an institution's export is made from whatever it holds, not from what
+    // Milah fetched. Converting here, once, is what lets TranscribedWord::box
+    // mean the folio's own pixels everywhere else.
+    const QSize folio = folioPixelSize();
+    double scaleX = 1.0;
+    double scaleY = 1.0;
+    if (folio.isValid() && recognised.imageSize.isValid() && folio != recognised.imageSize) {
+        scaleX = double(folio.width()) / recognised.imageSize.width();
+        scaleY = double(folio.height()) / recognised.imageSize.height();
+    }
+
+    TranscribedVerse verse;
+    verse.words.reserve(recognised.words.size());
+    for (const RecognisedWord &read : recognised.words) {
+        TranscribedWord word;
+        word.hebrew = read.text;
+        // The same lexicon lookup a typed word gets. A machine reading a folio
+        // does not change what the words mean.
+        word.english = suggestedGloss(read.text);
+        word.unchecked = true;
+        if (!read.box.isNull()) {
+            word.box = QRect(
+                qRound(read.box.x() * scaleX),
+                qRound(read.box.y() * scaleY),
+                qRound(read.box.width() * scaleX),
+                qRound(read.box.height() * scaleY));
+        }
+        verse.words.append(word);
+    }
+
+    pushUndo();
+    // One verse with no number, in the order the page was read. Nothing here
+    // knows where the verses of this chapter begin — that is the transcriber's
+    // to say, and typing a number in front of a word is how they say it.
+    mutablePage()->verses = {verse};
+    ensureTypingRoom();
+    m_selectedVerse = -1;
+    m_selectedColumn = -1;
+    setDirty(true);
+    setMessage(QStringLiteral("Read %1 words off the folio. None has been "
+                              "checked yet — editing a word marks it checked.")
+                   .arg(verse.words.size()));
+    emit versesChanged();
+    emit selectionChanged();
+    // Last, and only from here — the refusals above all return before it, so a
+    // folio nobody agreed to overwrite leaves the overlay exactly as it was.
+    emit recognitionApplied();
+    return true;
+}
+
+void TranscriptionController::importRecognisedLayout()
+{
+    if (!currentPage()) {
+        setMessage(QStringLiteral("Open a folio before reading a layout onto it."));
+        return;
+    }
+
+    const QString path = QFileDialog::getOpenFileName(
+        m_dialogParent,
+        QStringLiteral("Open a recognised layout"),
+        QSettings().value(QStringLiteral("paths/lastDirectory")).toString(),
+        QStringLiteral("Layout files (*.xml *.alto);;All files (*)"));
+    if (path.isEmpty()) {
+        return;
+    }
+    QSettings().setValue(
+        QStringLiteral("paths/lastDirectory"), QFileInfo(path).absolutePath());
+
+    QFile file(path);
+    if (!file.open(QIODevice::ReadOnly)) {
+        QMessageBox::warning(
+            m_dialogParent,
+            QStringLiteral("Milah"),
+            QStringLiteral("%1 could not be opened.\n%2")
+                .arg(QFileInfo(path).fileName(), file.errorString()));
+        return;
+    }
+
+    QString error;
+    const RecognisedPage recognised = parseRecognisedPage(file.readAll(), &error);
+    if (!error.isEmpty()) {
+        QMessageBox::warning(m_dialogParent, QStringLiteral("Milah"), error);
+        return;
+    }
+
+    applyRecognition(recognised, QFileInfo(path).fileName());
+}
+
+KrakenEnvironment &TranscriptionController::kraken() const
+{
+    if (!m_kraken) {
+        m_kraken = std::make_unique<KrakenEnvironment>();
+    }
+    return *m_kraken;
+}
+
+KrakenEnvironment::State TranscriptionController::krakenState() const
+{
+    return kraken().state();
+}
+
+bool TranscriptionController::krakenInstalled() const
+{
+    // Anything on disk, not just a working installation — see
+    // KrakenEnvironment::hasInstallation.
+    return kraken().hasInstallation();
+}
+
+void TranscriptionController::setUpKraken()
+{
+    kraken().refresh();
+    HtrSetupDialog dialog(&kraken(), m_dialogParent);
+    dialog.exec();
+    emit documentChanged();
+}
+
+void TranscriptionController::showLastRecognition()
+{
+    HtrLastRunDialog dialog(m_dialogParent);
+    dialog.exec();
+}
+
+void TranscriptionController::manageModels()
+{
+    kraken().refresh();
+    HtrModelsDialog dialog(&kraken(), m_dialogParent);
+    dialog.exec();
+    // So the Transcribe tooltip catches up with whichever model now runs.
+    emit documentChanged();
+}
+
+void TranscriptionController::removeKraken()
+{
+    // Re-asked rather than trusted: the menu's answer is as old as the last
+    // time anything looked, and what is being confirmed is a deletion.
+    kraken().refresh();
+    if (!krakenInstalled()) {
+        setMessage(QStringLiteral("There is no Kraken installation to remove."));
+        return;
+    }
+
+    const qint64 bytes = kraken().installedBytes();
+    const QString size = bytes > 0
+        ? QStringLiteral(" (about %1)")
+              .arg(QLocale().formattedDataSize(bytes, 1, QLocale::DataSizeTraditionalFormat))
+        : QString();
+
+    // Explicit about what survives, so nobody has to guess whether Milah has
+    // just uninstalled their Ubuntu.
+    const QString kept = KrakenEnvironment::usesSubsystem()
+        ? QStringLiteral("<p>WSL2 and your Linux distribution are left exactly "
+                         "as they are.</p>")
+        : QString();
+
+    if (QMessageBox::question(
+            m_dialogParent,
+            QStringLiteral("Milah"),
+            QStringLiteral("Delete Kraken, its Python environment and its "
+                           "models%1?%2")
+                .arg(size, kept),
+            QMessageBox::Yes | QMessageBox::Cancel,
+            QMessageBox::Cancel)
+        != QMessageBox::Yes) {
+        return;
+    }
+
+    QString error;
+    if (!kraken().remove(&error)) {
+        QMessageBox::warning(
+            m_dialogParent,
+            QStringLiteral("Milah"),
+            QStringLiteral("Kraken could not be removed.\n%1").arg(error));
+        return;
+    }
+    setMessage(bytes > 0
+                   ? QStringLiteral("Kraken removed, freeing %1.")
+                         .arg(QLocale().formattedDataSize(
+                             bytes, 1, QLocale::DataSizeTraditionalFormat))
+                   : QStringLiteral("Kraken removed."));
+    emit documentChanged();
+}
+
+void TranscriptionController::transcribeFolio()
+{
+    const TranscribedPage *page = currentPage();
+    if (!page) {
+        setMessage(QStringLiteral("Open a folio before transcribing it."));
+        return;
+    }
+    if (!ensureImageFetched()) {
+        return;
+    }
+    const QByteArray bytes = currentImageBytes();
+    if (bytes.isEmpty()) {
+        setMessage(QStringLiteral("This folio has no picture to read."));
+        return;
+    }
+
+    // Two things have to be true, and they are two different jobs: Kraken has
+    // to be installed, and a model has to be chosen. Walked in that order, each
+    // with its own dialog, because joining them is what made a second model
+    // unreachable.
+    KrakenEnvironment::State state = kraken().refresh();
+
+    if (state == KrakenEnvironment::State::NoSubsystem
+        || state == KrakenEnvironment::State::AwaitingRestart
+        || state == KrakenEnvironment::State::NotInstalled) {
+        HtrSetupDialog setup(&kraken(), m_dialogParent);
+        setup.exec();
+        state = kraken().refresh();
+    }
+
+    if (state == KrakenEnvironment::State::NoModel) {
+        HtrModelsDialog models(&kraken(), m_dialogParent);
+        models.exec();
+        state = kraken().refresh();
+    }
+
+    if (state != KrakenEnvironment::State::Ready) {
+        // Said rather than merely returned. This used to end in silence, so a
+        // press of Transcribe could produce nothing whatever and leave nobody
+        // any the wiser about which of the two pieces was missing.
+        setMessage(KrakenEnvironment::describe(state));
+        emit documentChanged();
+        return;
+    }
+    emit documentChanged();
+
+    // Kept, not temporary. A QTemporaryDir here meant that a run which produced
+    // nothing left nothing to look at — no command, no output, no layout file —
+    // and a feature that takes minutes and can end in silence has to be
+    // answerable afterwards. One run's worth, replaced each time.
+    const QDir workspace(KrakenEnvironment::lastRunDirectory());
+    for (const QString &stale : workspace.entryList(QDir::Files)) {
+        QFile::remove(workspace.filePath(stale));
+    }
+
+    // From the address rather than the label. A scan's imageName is what the
+    // library calls the leaf — "104", or "Ebr. 530, f. 1r" — and asking
+    // QFileInfo for the suffix of that gives "" or, worse, " 1r".
+    //
+    // This is not a tidying. An empty suffix used to make the name "folio.",
+    // and Windows strips a trailing dot when it creates a file, so the bytes
+    // landed in "folio" while Kraken was sent "/mnt/c/…/folio." — a path that
+    // exists on neither side. Kraken spent a minute or two importing itself,
+    // failed to find its input, and the whole silent minute was reported into
+    // the status bar. That is the bug this whole run of repairs is about.
+    QString suffix = QFileInfo(QUrl(page->imageUrl).path()).suffix();
+    if (suffix.isEmpty()) {
+        suffix = QFileInfo(page->imageName).suffix();
+    }
+    const QString imagePath = workspace.filePath(
+        QStringLiteral("folio.%1").arg(suffix.isEmpty() ? QStringLiteral("png") : suffix));
+    const QString altoPath = workspace.filePath(QStringLiteral("folio.xml"));
+
+    QFile image(imagePath);
+    if (!image.open(QIODevice::WriteOnly) || image.write(bytes) != bytes.size()) {
+        QMessageBox::warning(
+            m_dialogParent,
+            QStringLiteral("Milah"),
+            QStringLiteral("The folio could not be written out for the "
+                           "recogniser.\n\n%1\n%2")
+                .arg(imagePath, image.errorString()));
+        return;
+    }
+    image.close();
+
+    // Asked for by the name Kraken will be given, not by the handle that wrote
+    // it. Windows will quietly file bytes under a name other than the one it
+    // was handed — trailing dots and spaces are dropped — so "it opened and it
+    // wrote" is not the same statement as "the recogniser can find it". Cheap,
+    // and it turns a silent two-minute failure into a sentence.
+    if (!QFileInfo::exists(imagePath)) {
+        QMessageBox::warning(
+            m_dialogParent,
+            QStringLiteral("Milah"),
+            QStringLiteral("The folio was written out, but not under the name "
+                           "the recogniser would be given.\n\n%1")
+                .arg(imagePath));
+        return;
+    }
+
+    // The bytes written are the bytes Milah holds, so the coordinates that come
+    // back are in the space of the image on screen and nothing has to be
+    // guessed about how the recogniser saw it.
+    QStringList command = kraken().recognitionCommand(imagePath, altoPath);
+    const QString program = command.takeFirst();
+
+    // Written before the run, so that even a Milah that dies mid-recognition
+    // leaves the exact command behind.
+    QFile record(workspace.filePath(QStringLiteral("command.txt")));
+    if (record.open(QIODevice::WriteOnly)) {
+        record.write(program.toUtf8());
+        for (const QString &argument : command) {
+            record.write("\n    ");
+            record.write(argument.toUtf8());
+        }
+        record.write("\n");
+        record.close();
+    }
+
+    QProgressDialog progress(
+        QStringLiteral("Reading %1 with Kraken. On a processor this takes "
+                       "minutes.")
+            .arg(page->imageLabel.isEmpty() ? page->imageName : page->imageLabel),
+        QStringLiteral("Cancel"),
+        0,
+        0,
+        m_dialogParent);
+    progress.setWindowTitle(QStringLiteral("Milah"));
+    progress.setWindowModality(Qt::WindowModal);
+    progress.setMinimumDuration(0);
+
+    QProcess recogniser;
+    recogniser.setProcessChannelMode(QProcess::MergedChannels);
+
+    // A local event loop rather than a blocking wait: the window keeps
+    // repainting and Cancel keeps working, which for something that runs for
+    // minutes is the difference between waiting and having hung.
+    QEventLoop loop;
+    QString transcript;
+    QObject::connect(&recogniser, &QProcess::readyRead, &loop, [&] {
+        // kraken narrates its progress on stderr. Only the last line is worth
+        // showing; the rest is what the log in the setup dialog is for.
+        transcript += QString::fromUtf8(recogniser.readAll());
+        const QString last =
+            transcript.section(QLatin1Char('\n'), -2, -1).trimmed();
+        if (!last.isEmpty()) {
+            progress.setLabelText(last);
+        }
+    });
+    QObject::connect(
+        &recogniser,
+        &QProcess::finished,
+        &loop,
+        [&loop](int, QProcess::ExitStatus) { loop.quit(); });
+    // Milah's own flag rather than QProgressDialog::wasCanceled(), and only set
+    // while there is something to cancel.
+    //
+    // The dialog emits canceled() on its way off the screen as well as when the
+    // button is pressed — closeEvent() emits it — and Qt connects that signal
+    // to the cancel() slot for you, which is what wasCanceled() reports. So
+    // taking the dialog down at the end of a *successful* run set the flag, and
+    // every reading that arrived whole was announced as cancelled and thrown
+    // away three lines later.
+    bool cancelled = false;
+    QObject::connect(&progress, &QProgressDialog::canceled, &recogniser, [&] {
+        if (recogniser.state() == QProcess::NotRunning) {
+            return;
+        }
+        cancelled = true;
+        recogniser.kill();
+    });
+
+    recogniser.start(program, command);
+    if (!recogniser.waitForStarted(15000)) {
+        QMessageBox::warning(
+            m_dialogParent,
+            QStringLiteral("Milah"),
+            QStringLiteral("Kraken could not be started.\n\n%1\n%2")
+                .arg(program, recogniser.errorString()));
+        return;
+    }
+    // Entered only while there is something to wait for. waitForStarted() runs
+    // an event loop of its own, so a process that fails instantly can finish
+    // inside it — and the quit() would then be delivered to a loop that is not
+    // running yet, leaving exec() to block for ever with the dialog on screen.
+    if (recogniser.state() != QProcess::NotRunning) {
+        loop.exec();
+    }
+    // reset(), not close(): the documented way to take a progress dialog down,
+    // and the one that does not emit canceled(). See the flag above.
+    progress.reset();
+
+    // What it said, kept whatever happened next.
+    QFile said(workspace.filePath(QStringLiteral("output.txt")));
+    if (said.open(QIODevice::WriteOnly)) {
+        said.write(transcript.toUtf8());
+        said.write(QStringLiteral("\n\n--- exit code %1, status %2\n")
+                       .arg(recogniser.exitCode())
+                       .arg(recogniser.exitStatus() == QProcess::NormalExit
+                                ? QStringLiteral("normal")
+                                : QStringLiteral("crashed"))
+                       .toUtf8());
+        said.close();
+    }
+
+    if (cancelled) {
+        // Nothing has been touched: the folio is written to only after a
+        // reading has arrived whole.
+        setMessage(QStringLiteral("Transcription cancelled. The folio is as it "
+                                  "was."));
+        return;
+    }
+
+    if (recogniser.exitStatus() != QProcess::NormalExit || recogniser.exitCode() != 0) {
+        // One failure is worth telling apart from the rest, because it is not
+        // about the folio at all: kraken's repository holds recognition models
+        // for more than one program, and handed one of another program's it
+        // stops at "No loader found" after a page of Python. Saying which
+        // model, and what to do, beats reprinting the traceback.
+        if (transcript.contains(QLatin1String("No loader found"))
+            || transcript.contains(QLatin1String("not in model registry"))) {
+            QMessageBox::warning(
+                m_dialogParent,
+                QStringLiteral("Milah"),
+                QStringLiteral(
+                    "Kraken cannot load the model it was given — it is a model "
+                    "for a different program, not for Kraken.<p>Choose another "
+                    "under the arrow beside Transcribe, or in File ▸ "
+                    "Handwriting recognition ▸ Install Kraken…. One marked "
+                    "<b>Dedicated</b> for your script is the one to want.</p>"));
+            return;
+        }
+        QMessageBox::warning(
+            m_dialogParent,
+            QStringLiteral("Milah"),
+            QStringLiteral("Kraken could not read this folio.\n\n%1")
+                .arg(transcript.trimmed().isEmpty()
+                         ? QStringLiteral("It said nothing about why.")
+                         : transcript.trimmed()));
+        return;
+    }
+
+    QFile alto(altoPath);
+    if (!alto.open(QIODevice::ReadOnly)) {
+        QMessageBox::warning(
+            m_dialogParent,
+            QStringLiteral("Milah"),
+            QStringLiteral("Kraken finished but wrote no layout file.\n\n%1\n%2")
+                .arg(altoPath, alto.errorString()));
+        return;
+    }
+
+    QString error;
+    const RecognisedPage recognised = parseRecognisedPage(alto.readAll(), &error);
+    if (!error.isEmpty()) {
+        QMessageBox::warning(m_dialogParent, QStringLiteral("Milah"), error);
+        return;
+    }
+
+    applyRecognition(recognised, QStringLiteral("Kraken"));
 }
 
 WorkMetadata TranscriptionController::workMetadata() const
@@ -1032,7 +1578,10 @@ void TranscriptionController::exportOsis()
     }
 
     const WorkMetadata metadata = workMetadata();
-    const QString suggested = QStringLiteral("%1.osis").arg(metadata.title);
+    // The header still comes from the Manuscript panel; only the filename is
+    // the book and the manuscript.
+    const QString suggested =
+        QStringLiteral("%1.osis").arg(transcriptionFileStem(m_document, m_currentPage));
     const QString directory =
         QSettings().value(QStringLiteral("paths/lastDirectory")).toString();
     QString path = QFileDialog::getSaveFileName(
@@ -1111,10 +1660,8 @@ void TranscriptionController::exportWord()
         return;
     }
 
-    const QString name = m_document.metadata.manuscriptName.isEmpty()
-        ? QStringLiteral("Transcription")
-        : m_document.metadata.manuscriptName;
-    const QString suggested = QStringLiteral("%1.docx").arg(name);
+    const QString suggested =
+        QStringLiteral("%1.docx").arg(transcriptionFileStem(m_document, m_currentPage));
     const QString directory =
         QSettings().value(QStringLiteral("paths/lastDirectory")).toString();
     QString path = QFileDialog::getSaveFileName(
@@ -1312,6 +1859,22 @@ void TranscriptionController::setWord(int verse, int column, const QString &hebr
     }
     TranscribedPage *page = mutablePage();
     TranscribedWord &word = page->verses[verse].words[column];
+
+    // Before the comparison below, and on purpose. The grid commits a cell when
+    // the caret leaves it, whether or not anything was typed — so this is the
+    // moment a transcriber has finished looking at this word, which is what
+    // checking a machine's reading of it consists of. Requiring an edit would
+    // mean a word the recogniser got right stayed unchecked for ever, and the
+    // count would never reach zero for the folios that went best.
+    //
+    // No pushUndo: having read a word is not a change to undo, and a stack full
+    // of them would bury the edits that are.
+    if (word.unchecked) {
+        word.unchecked = false;
+        setDirty(true);
+        emit wordChecked(verse, column);
+    }
+
     if (word.hebrew == hebrew) {
         return;
     }

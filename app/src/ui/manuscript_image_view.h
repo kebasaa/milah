@@ -1,9 +1,15 @@
 #pragma once
 
+#include "core/transcription.h"
+
 #include <QImage>
+#include <QList>
 #include <QPoint>
 #include <QRect>
+#include <QSize>
 #include <QWidget>
+
+class QPainter;
 
 namespace milah {
 
@@ -32,6 +38,9 @@ public:
     /// failed to fetch from no document at all — they are both an empty
     /// QByteArray — and it used to answer a library's 404 by inviting the
     /// transcriber to open the file they already had open.
+    ///
+    /// Drops any word overlay: the boxes belonged to the folio being replaced.
+    /// Call setWords() after this, never before.
     void setImageData(
         const QByteArray &bytes,
         const QString &name,
@@ -44,6 +53,25 @@ public:
     /// the cursor at all times would be in the way of reading the page whole.
     bool magnifierEnabled() const { return m_magnifying; }
 
+    /// The words to draw over the ink they were read from.
+    ///
+    /// Their boxes are in the folio image's own pixels, which is the invariant
+    /// TranscribedWord::box states and TranscriptionController::applyRecognition
+    /// establishes — a layout file measured against a differently sized copy is
+    /// converted there, once, rather than being carried around in two spaces at
+    /// the risk of a box scaled by the wrong factor landing somewhere plausible
+    /// and wrong.
+    ///
+    /// Words without a box are dropped here rather than at every place that
+    /// draws one, so hasWordBoxes() is the whole of the question the eye button
+    /// has to ask.
+    void setWords(const QList<TranscribedWord> &words);
+
+    /// True when there is anything to show. An eye that toggles nothing is
+    /// worse than a grey one, so the toolbar asks this before offering it.
+    bool hasWordBoxes() const { return !m_words.isEmpty() && !m_image.isNull(); }
+    bool overlayVisible() const { return m_overlayVisible; }
+
     QSize sizeHint() const override;
     /// The image is scaled to the width it is given, so its height depends on
     /// that width — which is what a scroll area needs to be told.
@@ -52,6 +80,7 @@ public:
 
 public slots:
     void setMagnifierEnabled(bool enabled);
+    void setOverlayVisible(bool visible);
 
 protected:
     void paintEvent(QPaintEvent *event) override;
@@ -68,12 +97,21 @@ private:
     QRect pageRect() const;
     /// The circle the loupe occupies at `centre`, in widget coordinates.
     QRect loupeRect(const QPoint &centre) const;
+    /// Draws the recognised words over `page`. `damage` is the region being
+    /// repainted: the loupe asks for a small one on every mouse move, and a
+    /// folio can carry several hundred words, none of which is worth measuring
+    /// to draw somewhere that is not being painted.
+    void drawWordOverlay(QPainter &painter, const QRect &page, const QRect &damage) const;
 
     QImage m_image;
     QString m_name;
     /// Set when the bytes could not be decoded, so the widget can say which
     /// file and why rather than showing nothing.
     QString m_failure;
+
+    /// Only words that have a box, so drawing never has to ask.
+    QList<TranscribedWord> m_words;
+    bool m_overlayVisible = false;
 
     bool m_magnifying = false;
     /// Where the loupe is, and whether it is on screen at all. An invalid point

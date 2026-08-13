@@ -7,6 +7,7 @@
 #include "core/transcription.h"
 #include "transcription_controller.h"
 #include "ui/about_dialog.h"
+#include "ui/htr_last_run_dialog.h"
 #include "ui/icons.h"
 #include "ui/notes_widget.h"
 #include "ui/source_settings_widget.h"
@@ -16,6 +17,7 @@
 #include "ui/verse_grid_widget.h"
 
 #include <QAction>
+#include <QActionGroup>
 #include <QCloseEvent>
 #include <QApplication>
 #include <QComboBox>
@@ -409,6 +411,28 @@ MainWindow::MainWindow(QWidget *parent)
         &QAction::toggled,
         m_transcription,
         &TranscriptionWidget::setMagnifierEnabled);
+    connect(m_overlayAction, &QAction::toggled, this, [this](bool shown) {
+        m_transcription->setOverlayVisible(shown);
+        // The stroke through the eye is the icon, swapped here rather than
+        // drawn: one file for each state is what the recolouring loader already
+        // takes, and a QIcon has no notion of being crossed out.
+        m_overlayAction->setIcon(appIcon(
+            shown ? QStringLiteral("eye") : QStringLiteral("eye-off"), palette()));
+    });
+
+    connect(
+        m_transcriptionController,
+        &TranscriptionController::recognitionApplied,
+        this,
+        [this] {
+            // The enablement first: the eye is grey until the folio has boxes
+            // on it, and it has this instant got them.
+            updateTranscriptionActions();
+            // Through the action rather than the widget, so the toggled lambda
+            // above draws the overlay and un-strikes the icon — one statement
+            // of what "shown" means rather than two that can disagree.
+            m_overlayAction->setChecked(true);
+        });
 
     connect(
         m_transcriptionController,
@@ -814,6 +838,74 @@ void MainWindow::createTranscriptionActions()
     m_magnifyAction->setCheckable(true);
     m_magnifyAction->setToolTip(QStringLiteral(
         "Move a magnifier over the folio. The wheel changes how much it enlarges."));
+
+    m_transcribeAction = new QAction(QStringLiteral("Transcribe"), this);
+    m_transcribeAction->setIcon(
+        appIcon(QStringLiteral("text-recognise"), windowPalette));
+    refreshTranscribeTooltip();
+
+    m_overlayAction = new QAction(QStringLiteral("Show readings"), this);
+    // Struck through, because it opens unchecked and the icon says what the
+    // state is rather than what pressing it would do. A recognition then opens
+    // it — see the recognitionApplied connection — and it stays wherever the
+    // transcriber last put it until the next one.
+    m_overlayAction->setIcon(appIcon(QStringLiteral("eye-off"), windowPalette));
+    m_overlayAction->setCheckable(true);
+    m_overlayAction->setToolTip(QStringLiteral(
+        "Draws each recognised word over the ink it was read from, so you can "
+        "see at a glance what was read where."));
+
+    connect(
+        m_transcribeAction,
+        &QAction::triggered,
+        m_transcriptionController,
+        &TranscriptionController::transcribeFolio);
+
+    m_htrInstallAction = new QAction(this);
+    connect(
+        m_htrInstallAction,
+        &QAction::triggered,
+        m_transcriptionController,
+        &TranscriptionController::setUpKraken);
+
+    m_manageModelsAction = new QAction(QStringLiteral("Manage models…"), this);
+    m_manageModelsAction->setToolTip(QStringLiteral(
+        "Add, remove, and choose which recognition model Transcribe runs."));
+    connect(
+        m_manageModelsAction,
+        &QAction::triggered,
+        m_transcriptionController,
+        &TranscriptionController::manageModels);
+
+    m_lastRunAction = new QAction(QStringLiteral("Show last recognition…"), this);
+    m_lastRunAction->setToolTip(QStringLiteral(
+        "What Milah ran, what Kraken said, and the layout file that came back."));
+    connect(
+        m_lastRunAction,
+        &QAction::triggered,
+        m_transcriptionController,
+        &TranscriptionController::showLastRecognition);
+
+    m_htrRemoveAction = new QAction(QStringLiteral("Remove Kraken…"), this);
+    m_htrRemoveAction->setToolTip(QStringLiteral(
+        "Deletes Kraken, its Python environment and its models. Your Linux "
+        "distribution is left alone."));
+    connect(
+        m_htrRemoveAction,
+        &QAction::triggered,
+        m_transcriptionController,
+        &TranscriptionController::removeKraken);
+
+    m_importLayoutAction =
+        new QAction(QStringLiteral("Import recognised layout…"), this);
+    m_importLayoutAction->setToolTip(QStringLiteral(
+        "Reads an ALTO or PAGE file made elsewhere — by an institution's own "
+        "eScriptorium, or on another machine — onto this folio."));
+    connect(
+        m_importLayoutAction,
+        &QAction::triggered,
+        m_transcriptionController,
+        &TranscriptionController::importRecognisedLayout);
 }
 
 void MainWindow::buildMenuBar()
@@ -892,6 +984,63 @@ void MainWindow::buildMenuBar()
             !recentFiles(QLatin1String(RecentTranscriptionsKey)).isEmpty());
     });
     m_transcriptionFileMenu->addAction(m_saveTranscriptionAction);
+    m_transcriptionFileMenu->addSeparator();
+    m_transcriptionFileMenu->addAction(m_importLayoutAction);
+
+    // Setting kraken up and taking it away again. Filled from its own
+    // aboutToShow, the way Open Recent is, so the two entries are never
+    // offering something the machine has stopped agreeing with — and so that
+    // asking the machine, which on Windows costs a wsl.exe launch, happens when
+    // somebody opens the menu rather than when Milah starts.
+    m_htrMenu =
+        m_transcriptionFileMenu->addMenu(QStringLiteral("&Handwriting recognition"));
+    // The models first, because they are what changes: a new hand means a new
+    // model, where Kraken is installed once and then forgotten about.
+    m_modelMenu = m_htrMenu->addMenu(QStringLiteral("&Use model"));
+    connect(m_modelMenu, &QMenu::aboutToShow, this, [this] {
+        fillModelMenu(m_modelMenu);
+    });
+    m_htrMenu->addAction(m_manageModelsAction);
+    m_htrMenu->addSeparator();
+    m_htrMenu->addAction(m_lastRunAction);
+    m_htrMenu->addSeparator();
+    m_htrMenu->addAction(m_htrInstallAction);
+    m_htrMenu->addAction(m_htrRemoveAction);
+
+    connect(m_htrMenu, &QMenu::aboutToShow, this, [this] {
+        const KrakenEnvironment::State state = m_transcriptionController->krakenState();
+        // "Install WSL2 and Kraken…" where WSL2 is missing, the same rule the
+        // question itself follows, so the menu never promises less than it will
+        // do.
+        m_htrInstallAction->setText(
+            state == KrakenEnvironment::State::NoSubsystem
+                ? QStringLiteral("Install WSL2 and Kraken…")
+                : QStringLiteral("Install Kraken…"));
+
+        // Offered when Kraken is *absent*, not merely when the environment is
+        // short of Ready. NoModel means Kraken is installed and a model is
+        // wanted, and the answer to a missing model is a model — reinstalling
+        // the runtime would be an odd thing to suggest and, when this action
+        // also stood for "choose a model", an actively misleading one.
+        const bool installed = state == KrakenEnvironment::State::NoModel
+            || state == KrakenEnvironment::State::Ready;
+        m_htrInstallAction->setEnabled(!installed);
+        m_htrRemoveAction->setEnabled(m_transcriptionController->krakenInstalled());
+
+        // Models need Kraken to download and verify them, so this waits on the
+        // runtime — and says why rather than being mysteriously grey.
+        m_manageModelsAction->setEnabled(installed);
+        m_manageModelsAction->setToolTip(
+            installed ? QStringLiteral("Add, remove, and choose which recognition "
+                                       "model Transcribe runs.")
+                      : QStringLiteral("Install Kraken first — models are "
+                                       "downloaded and checked with it."));
+
+        // Nothing to show before the first run, and saying so by being grey is
+        // kinder than a window with three empty tabs in it.
+        m_lastRunAction->setEnabled(HtrLastRunDialog::hasRun());
+    });
+
     m_transcriptionFileMenu->addSeparator();
     m_transcriptionFileMenu->addAction(m_exportOsisAction);
     m_transcriptionFileMenu->addAction(m_exportWordAction);
@@ -1158,6 +1307,17 @@ void MainWindow::updateTranscriptionActions()
     m_addToLibraryAction->setEnabled(transcribing && open);
     m_closeTranscriptionAction->setEnabled(transcribing && open);
     m_magnifyAction->setEnabled(transcribing && open);
+    m_transcribeAction->setEnabled(transcribing && open);
+    // Cheap — two QSettings reads — and this is where every path that could
+    // have changed the model already passes: the setup dialog reports a
+    // document change on its way out.
+    refreshTranscribeTooltip();
+    m_importLayoutAction->setEnabled(transcribing && open);
+    // Only when there is something to draw. An eye that toggles nothing is
+    // worse than a grey one: it says the folio has readings on it and then
+    // shows none, which reads as a recogniser that failed silently.
+    m_overlayAction->setEnabled(
+        transcribing && m_transcriptionController->hasRecognisedWords());
 
     m_transcriptionUndoAction->setEnabled(
         transcribing && m_transcriptionController->canUndo());
@@ -1274,6 +1434,74 @@ void MainWindow::buildToolBar()
     toolBar->addAction(m_regenerateAction);
 }
 
+void MainWindow::fillModelMenu(QMenu *menu)
+{
+    menu->clear();
+
+    // Set here as well as in the Handwriting recognition menu, because the
+    // toolbar arrow reaches this without going through that one and would
+    // otherwise show whatever state was last left behind.
+    const KrakenEnvironment::State state = m_transcriptionController->krakenState();
+    m_manageModelsAction->setEnabled(state == KrakenEnvironment::State::NoModel
+                                     || state == KrakenEnvironment::State::Ready);
+
+    const QString active = KrakenEnvironment::modelPath();
+    const QList<KrakenEnvironment::InstalledModel> models =
+        KrakenEnvironment::installedModels();
+
+    auto *group = new QActionGroup(menu);
+    group->setExclusive(true);
+    for (const KrakenEnvironment::InstalledModel &model : models) {
+        QAction *entry = menu->addAction(model.label);
+        entry->setCheckable(true);
+        entry->setChecked(model.path == active);
+        entry->setToolTip(model.path);
+        group->addAction(entry);
+        connect(entry, &QAction::triggered, this, [this, path = model.path] {
+            KrakenEnvironment::setModelPath(path);
+            refreshTranscribeTooltip();
+        });
+    }
+
+    if (models.isEmpty()) {
+        // Not an empty menu. A menu with nothing in it says the feature is
+        // broken; a menu saying there is nothing yet says what to do about it.
+        QAction *none = menu->addAction(QStringLiteral("No models installed"));
+        none->setEnabled(false);
+    }
+
+    // Only on the toolbar arrow, where this menu is the whole of what is behind
+    // the button and there would otherwise be no way out of it. Under File ▸
+    // Handwriting recognition the parent menu already carries Manage models…
+    // one line above, and a submenu repeating its parent only makes the reader
+    // wonder whether the two do different things.
+    if (menu == m_toolbarModelMenu) {
+        menu->addSeparator();
+        menu->addAction(m_manageModelsAction);
+    }
+}
+
+void MainWindow::refreshTranscribeTooltip()
+{
+    const QString active = KrakenEnvironment::modelPath();
+    QString name;
+    for (const KrakenEnvironment::InstalledModel &model :
+         KrakenEnvironment::installedModels()) {
+        if (model.path == active) {
+            name = model.label;
+            break;
+        }
+    }
+
+    const QString explanation = QStringLiteral(
+        "Reads this folio with a handwriting recogniser. What it reads arrives "
+        "unchecked, for you to correct.");
+    m_transcribeAction->setToolTip(
+        name.isEmpty()
+            ? explanation
+            : QStringLiteral("%1\n\nUsing: %2").arg(explanation, name));
+}
+
 void MainWindow::buildTranscriptionToolBar()
 {
     auto *toolBar = addToolBar(QStringLiteral("Transcription"));
@@ -1344,6 +1572,23 @@ void MainWindow::buildTranscriptionToolBar()
 
     toolBar->addSeparator();
     toolBar->addAction(m_magnifyAction);
+
+    toolBar->addAction(m_transcribeAction);
+    // Pressing the button transcribes; pressing its arrow says with what. The
+    // choice belongs beside the thing it changes, which is this button and not
+    // a dialog two menus away.
+    if (auto *button = qobject_cast<QToolButton *>(
+            toolBar->widgetForAction(m_transcribeAction))) {
+        m_toolbarModelMenu = new QMenu(button);
+        connect(m_toolbarModelMenu, &QMenu::aboutToShow, this, [this] {
+            fillModelMenu(m_toolbarModelMenu);
+        });
+        button->setMenu(m_toolbarModelMenu);
+        button->setPopupMode(QToolButton::MenuButtonPopup);
+    }
+
+    toolBar->addAction(m_overlayAction);
+    showIconOnly(toolBar, m_overlayAction);
     // The magnifier is wired to the workspace in the constructor rather than
     // here: the toolbar is built before the page it acts on exists, and a
     // connection to a receiver that is still null is quietly dropped.
