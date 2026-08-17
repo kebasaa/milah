@@ -362,35 +362,23 @@ Ashkenazi, Byzantine, Italian, Oriental, Sephardi, Yemenite. A rapid cursive is 
 different letter-form system, and no amount of resolution closes that: the same
 folio read at 1024 px and at its 3948 px master gives 41% and 38%.
 
-**Resolution does not close the gap in the boxes either**, which is the part that
-matters when the text comes from a published transcription rather than from the
-model. Measured on 158r of MS Oo.1.32, whose 236 words are known from the OSIS:
+**Resolution does not change the boxes either**, which is the part that matters
+when the text comes from a published transcription rather than from the model.
+Measured on 158r of MS Oo.1.32:
 
 | | lines | boxes on text lines |
 |---|---|---|
 | 1024 px | 42 | 493 |
 | 1491×2000 px, the largest single request Cambridge allows | 41 | 505 |
 
-Two per cent more boxes for a fetch nearly half again as large — and the trouble
-was never a shortage. **Kraken returns about twice as many boxes as the leaf has
-words** (493 against 236), because an ALTO `<String>` is a token of the model's
-*own reading*, split where the model thinks a space falls. On a hand it cannot
-read, those splits are noise, and a line of thirteen words comes back as
-nineteen. A fill that treats one box as one word therefore lays too many words on
-each line and runs further ahead of the manuscript with every line. More pixels
-give more of the same tokens, not better ones.
+Two per cent more boxes for a fetch nearly half again as large. Asking for
+`/full/2000,/` does not even give 2000 across: the service caps height as well,
+so it returns 1491×2000.
 
-**So the gaps decide instead of the boxes.** Within a word the pieces nearly
-touch; between words the scribe left space. Milah finds the split between those
-two by Otsu's method over each line's own gaps — no fixed pixel count, because
-spacing depends on the hand, the leaf and the size it was fetched at — and joins
-the pieces back up before counting. On that same folio it gives 14 words for the
-line of 13 and 255 for the leaf of 236: **wrong by 8% where the boxes alone are
-wrong by 109%**. A rail stops it swallowing a line whose spacing is too even for
-a split to be found.
-
-It is a stopgap and worth naming as one. Teaching the model the hand is what
-makes the tokens words again, and then none of this is needed.
+**And the box counts are not the problem.** On the lines that carry James,
+Kraken's segmentation is good: the first line of James on that leaf is thirteen
+words, and Kraken returns thirteen boxes for it. What throws a pour off is
+narrower and easier to miss — see the maqqef below.
 
 **The way through is to teach the model the hand**, which is what Kraken's own
 documentation recommends and what a transcriber correcting a folio is already
@@ -489,6 +477,14 @@ joins the word before it. The cut is an even division and is meant to be read as
 a guess: a box drawn round two words does not record where the space between
 them fell. It costs the training nothing, because what training reads is the
 line's own extent.
+
+**A word joined at a maqqef is one word.** `בכל־דרכיו` is one word on the leaf,
+in one box, so it is poured as one. Milah's tokeniser splits it deliberately —
+for collation, where a compound has to line up against a witness that writes two
+words — but a fill is not collation, and pouring it as two lays an extra word on
+the line and puts **everything below it one place late for the rest of the
+folio**. That was the whole of the drift on 158r: read word by word against the
+source, the pour agreed for 95 words and then diverged exactly once, there.
 
 **The OSIS says nothing about folios** — its elements are verse, chapter, note
 and div, with no page mark of any kind — so where on the leaf the text begins is

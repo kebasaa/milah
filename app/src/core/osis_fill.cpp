@@ -3,6 +3,23 @@
 #include <algorithm>
 
 namespace milah {
+namespace {
+
+/// Whether this token carries the joiner that binds it to the one after it.
+///
+/// The tokeniser leaves a maqqef or hyphen on the *first* piece of a compound —
+/// see core/tokenize.cpp, which explains why it belongs there — so a token
+/// ending in one is half of a word rather than a word.
+bool joinsToTheNext(const QString &token)
+{
+    if (token.isEmpty()) {
+        return false;
+    }
+    const QChar last = token.back();
+    return last == QChar(0x05BE) || last == QLatin1Char('-');
+}
+
+} // namespace
 
 QString bookNamed(const SourceDocument &source, const QString &book)
 {
@@ -47,10 +64,22 @@ Passage gatherPassage(
             started = true;
         }
         for (const SourceToken &token : verse.tokens) {
-            if (token.text.trimmed().isEmpty()) {
+            const QString text = token.text.trimmed();
+            if (text.isEmpty()) {
                 continue;
             }
-            passage.words.append(token.text);
+            // A compound joined at a maqqef is one word on the leaf, so it is
+            // one word here. core/tokenize.cpp splits it on purpose — for
+            // collation, where אֲנִי־יוֹחָנָן has to line up against a witness
+            // that writes two words — but a fill is not collation. The scribe
+            // wrote it once, in one box, and pouring it as two lays an extra
+            // word on the line and puts everything below it one place late for
+            // the rest of the leaf.
+            if (!passage.words.isEmpty() && joinsToTheNext(passage.words.last())) {
+                passage.words.last() += text;
+                continue;
+            }
+            passage.words.append(text);
             passage.verses.append(verse.reference.id);
         }
     }

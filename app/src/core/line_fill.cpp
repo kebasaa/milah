@@ -77,12 +77,6 @@ QMap<int, QList<QRect>> fillableLines(const TranscribedPage &page)
             lines[word.line].append(word.box);
         }
     }
-    // The pieces of a word joined back up before anybody counts them. A box is
-    // the recogniser's guess at a token, not a word of the manuscript — see
-    // LineFill::mergeWords().
-    for (auto line = lines.begin(); line != lines.end(); ++line) {
-        line.value() = LineFill::mergeWords(line.value());
-    }
     return lines;
 }
 
@@ -142,119 +136,6 @@ Direction directionOf(const QList<QRect> &boxes)
     }
     return boxes.first().left() >= boxes.last().left() ? Direction::RightToLeft
                                                        : Direction::LeftToRight;
-}
-
-namespace {
-
-/// The gap between each pair of neighbours along the line, in reading order.
-QList<int> gapsAlong(const QList<QRect> &boxes, Direction direction)
-{
-    QList<int> gaps;
-    for (int index = 0; index + 1 < boxes.size(); ++index) {
-        const QRect &here = boxes.at(index);
-        const QRect &next = boxes.at(index + 1);
-        gaps.append(direction == Direction::RightToLeft ? here.left() - next.right()
-                                                        : next.left() - here.right());
-    }
-    return gaps;
-}
-
-/// The split that best separates `values` into two groups — Otsu's method,
-/// which is the standard way of finding a threshold in a histogram with two
-/// humps in it, here the gaps inside words and the gaps between them.
-///
-/// Chosen from the line's own gaps rather than written down as a pixel count,
-/// because how far apart a scribe set his words depends on the hand, the leaf
-/// and the size the folio happened to be fetched at.
-int splitOf(const QList<int> &values)
-{
-    QList<int> sorted = values;
-    std::sort(sorted.begin(), sorted.end());
-    double best = -1.0;
-    int split = sorted.isEmpty() ? 0 : sorted.first();
-    for (const int candidate : sorted) {
-        int lowCount = 0;
-        int highCount = 0;
-        double lowSum = 0.0;
-        double highSum = 0.0;
-        for (const int value : sorted) {
-            if (value < candidate) {
-                ++lowCount;
-                lowSum += value;
-            } else {
-                ++highCount;
-                highSum += value;
-            }
-        }
-        if (lowCount == 0 || highCount == 0) {
-            continue;
-        }
-        const double difference = highSum / highCount - lowSum / lowCount;
-        const double score = double(lowCount) * highCount * difference * difference;
-        if (score > best) {
-            best = score;
-            split = candidate;
-        }
-    }
-    return split;
-}
-
-} // namespace
-
-QList<QRect> mergeWords(const QList<QRect> &boxes)
-{
-    if (boxes.size() < 2) {
-        return boxes;
-    }
-
-    const Direction direction = directionOf(boxes);
-    QList<QRect> ordered = boxes;
-    std::sort(ordered.begin(), ordered.end(), [direction](const QRect &a, const QRect &b) {
-        return direction == Direction::RightToLeft ? a.left() > b.left()
-                                                   : a.left() < b.left();
-    });
-
-    const QList<int> gaps = gapsAlong(ordered, direction);
-    if (gaps.isEmpty()) {
-        return ordered;
-    }
-
-    // How many words the split says are here, and how few this is willing to
-    // believe. Otsu assumes two humps; a line whose spacing is even has no split
-    // to find and it can pick a threshold that swallows the line whole. The rail
-    // does not fire on a line it reads properly — measured on MS Oo.1.32 it left
-    // every line alone and only caught the degenerate ones.
-    int words = 1;
-    const int split = splitOf(gaps);
-    for (const int gap : gaps) {
-        if (gap >= split) {
-            ++words;
-        }
-    }
-    const int floor = (int(ordered.size()) * 2 + 4) / 5;
-    words = std::clamp(std::max(words, floor), 1, int(ordered.size()));
-
-    // Cut at the widest gaps, which is what makes the count exact: `words`
-    // groups need `words - 1` splits, and the widest gaps are the likeliest
-    // spaces.
-    QList<int> widest = gaps;
-    std::sort(widest.begin(), widest.end(), std::greater<int>());
-    const int threshold = widest.at(words - 2 < 0 ? 0 : words - 2);
-    int cuts = words - 1;
-
-    QList<QRect> merged;
-    merged.append(ordered.first());
-    for (int index = 0; index < gaps.size(); ++index) {
-        // `>=` with a budget, so a line whose widest gaps tie does not come out
-        // with more groups than were asked for.
-        if (gaps.at(index) >= threshold && cuts > 0) {
-            merged.append(ordered.at(index + 1));
-            --cuts;
-            continue;
-        }
-        merged.last() = merged.last().united(ordered.at(index + 1));
-    }
-    return merged;
 }
 
 QList<QRect> place(const QList<QRect> &boxes, int words)

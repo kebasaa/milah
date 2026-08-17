@@ -111,29 +111,6 @@ Direction directionOf(const QList<QRect> &boxes);
 /// boxes to place them in.
 QList<QRect> place(const QList<QRect> &boxes, int words);
 
-/// `boxes` with the ones that are pieces of a single word joined back together.
-///
-/// **A recogniser's box is not a word.** An ALTO `<String>` is a token of the
-/// model's *own reading*, cut wherever the model thought a space fell — so on a
-/// hand it cannot read, the cuts are noise. Measured on 158r of MS Oo.1.32,
-/// whose text is known: Kraken returns 19 boxes for a line of 13 words, and 493
-/// across a leaf holding 236. A fill that takes one box for one word therefore
-/// lays half again too many words on every line and runs further ahead of the
-/// manuscript with each one.
-///
-/// So the gaps decide instead. Within a word the pieces nearly touch; between
-/// words the scribe left space. The split between those two is found by Otsu's
-/// method over the line's own gaps — no fixed pixel count, because a line's
-/// spacing depends on the hand, the folio and the resolution it was fetched at.
-/// On that folio it gives 14 words for the line of 13, and 255 for the leaf of
-/// 236: wrong by 8% where the boxes alone are wrong by 109%.
-///
-/// **A stopgap, and worth naming as one.** The real answer is a model that reads
-/// the hand, after which the tokens are words and none of this is needed. Until
-/// then this is the difference between a pour that drifts a little and one that
-/// is unusable by the foot of the leaf.
-QList<QRect> mergeWords(const QList<QRect> &boxes);
-
 /// Which stretch of a passage falls on one line.
 struct Laid
 {

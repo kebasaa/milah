@@ -128,6 +128,63 @@ private slots:
         QVERIFY(gatherPassage(book(), QStringLiteral("MATT"), 1, 1, 0).isEmpty());
     }
 
+    /// A compound joined at a maqqef is one word, because the scribe wrote it
+    /// once and it sits in one box.
+    ///
+    /// This is the drift on 158r of MS Oo.1.32, found by reading the poured
+    /// text against the source word by word: 95 words agree, then the source's
+    /// `בכל־דרכיו` arrives as two, and from there to the foot of the leaf every
+    /// word sits one place late. core/tokenize.cpp splits it deliberately, and
+    /// rightly — for collation, where the compound has to line up against a
+    /// witness writing two words. A fill is not collation.
+    void aCompoundJoinedAtAMaqqefIsOneWord()
+    {
+        // fromUtf8, not QStringLiteral: the latter reads these bytes as Latin-1
+        // and turns one Hebrew word into nineteen characters of nonsense, which
+        // the tokeniser then splits into nineteen words.
+        const SourceDocument source = parseOsis(
+            QString::fromUtf8(
+                "<?xml version='1.0' encoding='UTF-8'?>"
+                "<osis xmlns='http://www.bibletechnologies.net/2003/OSIS/namespace'>"
+                "<osisText osisIDWork='W' xml:lang='he'><header>"
+                "<work osisWork='W'><title>A witness</title></work></header>"
+                "<div type='book' osisID='Jas'>"
+                "<verse osisID='Jas.1.1'>alpha \xd7\x91\xd7\x9b\xd7\x9c\xd6\xbe"
+                "\xd7\x93\xd7\xa8\xd7\x9b\xd7\x99\xd7\x95 omega</verse>"
+                "</div></osisText></osis>"),
+            ParseOptions{});
+
+        const Passage passage = gatherPassage(source, QStringLiteral("Jas"), 1, 1, 0);
+        QCOMPARE(passage.words.size(), 3);
+        QCOMPARE(passage.words.at(0), QStringLiteral("alpha"));
+        QCOMPARE(passage.words.at(1),
+                 QString::fromUtf8("\xd7\x91\xd7\x9b\xd7\x9c\xd6\xbe"
+                                   "\xd7\x93\xd7\xa8\xd7\x9b\xd7\x99\xd7\x95"));
+        QCOMPARE(passage.words.at(2), QStringLiteral("omega"));
+        // The verse list stays in step, or the folio is cut into verses wrongly.
+        QCOMPARE(passage.verses.size(), 3);
+    }
+
+    /// An ASCII hyphen joins the same way. Sloane 237 writes 48 of its 434
+    /// words in compounds and uses a hyphen for the purpose.
+    void aCompoundJoinedAtAHyphenIsOneWordToo()
+    {
+        const SourceDocument source = parseOsis(
+            QStringLiteral(
+                "<?xml version='1.0' encoding='UTF-8'?>"
+                "<osis xmlns='http://www.bibletechnologies.net/2003/OSIS/namespace'>"
+                "<osisText osisIDWork='W' xml:lang='he'><header>"
+                "<work osisWork='W'><title>A witness</title></work></header>"
+                "<div type='book' osisID='Jas'>"
+                "<verse osisID='Jas.1.1'>ani-yohanan saw</verse>"
+                "</div></osisText></osis>"),
+            ParseOptions{});
+
+        const Passage passage = gatherPassage(source, QStringLiteral("Jas"), 1, 1, 0);
+        QCOMPARE(passage.words.size(), 2);
+        QCOMPARE(passage.words.at(0), QStringLiteral("ani-yohanan"));
+    }
+
     /// One word, one verse id, always — the folio is cut into verses by walking
     /// these two in step.
     void everyWordCarriesItsVerse()

@@ -26,22 +26,36 @@
 namespace milah {
 namespace {
 
-/// The folio's lines as the recogniser left them: its boxes, and what it read.
+/// The folio's lines as the recogniser left them: the boxes a fill may use, and
+/// what was read on each.
+///
+/// The boxes come from fillableLines(), which is what leaves the marginalia out.
+/// This used to gather its own and so never left anything out — a box held out
+/// of the work was still poured onto, but only by this window, which is the one
+/// a transcription is started in.
 QList<FolioLine> linesOf(const TranscribedPage &page)
 {
+    const QMap<int, QList<QRect>> boxes = fillableLines(page);
+
     QMap<int, FolioLine> found;
+    for (auto entry = boxes.constBegin(); entry != boxes.constEnd(); ++entry) {
+        FolioLine &line = found[entry.key()];
+        line.index = entry.key();
+        line.boxes = entry.value();
+    }
+    // What the recogniser read there, for the lines the fill does not reach —
+    // marginalia included, because this is shown to help somebody find their
+    // place against the picture rather than to be poured into.
     for (const TranscribedVerse &verse : page.verses) {
         for (const TranscribedWord &word : verse.words) {
-            if (word.line < 0 || word.box.isNull()) {
+            if (word.line < 0 || word.box.isNull() || word.hebrew.isEmpty()) {
                 continue;
             }
-            FolioLine &line = found[word.line];
-            line.index = word.line;
-            line.boxes.append(word.box);
-            if (!word.hebrew.isEmpty()) {
-                line.read += line.read.isEmpty() ? word.hebrew
-                                                 : QLatin1Char(' ') + word.hebrew;
+            if (!found.contains(word.line)) {
+                continue;
             }
+            QString &read = found[word.line].read;
+            read += read.isEmpty() ? word.hebrew : QLatin1Char(' ') + word.hebrew;
         }
     }
     return found.values();
