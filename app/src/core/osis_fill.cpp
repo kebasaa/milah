@@ -19,6 +19,24 @@ bool joinsToTheNext(const QString &token)
     return last == QChar(0x05BE) || last == QLatin1Char('-');
 }
 
+/// Whether this token is punctuation on its own, with no word in it.
+///
+/// The tokeniser ends with a fallback that matches any single character it did
+/// not otherwise recognise, so a sof pasuq or gershayim written against a word —
+/// `רעים׃` — comes out as the word and then the mark. That is right for
+/// collation, which wants to align the words; it is wrong here, because the
+/// scribe wrote the mark against the word, in the same box, and a token of its
+/// own would take a box from the line and push everything after it along.
+bool isPunctuationAlone(const QString &token)
+{
+    for (const QChar character : token) {
+        if (character.isLetterOrNumber()) {
+            return false;
+        }
+    }
+    return !token.isEmpty();
+}
+
 } // namespace
 
 QString bookNamed(const SourceDocument &source, const QString &book)
@@ -75,7 +93,8 @@ Passage gatherPassage(
             // wrote it once, in one box, and pouring it as two lays an extra
             // word on the line and puts everything below it one place late for
             // the rest of the leaf.
-            if (!passage.words.isEmpty() && joinsToTheNext(passage.words.last())) {
+            if (!passage.words.isEmpty()
+                && (joinsToTheNext(passage.words.last()) || isPunctuationAlone(text))) {
                 passage.words.last() += text;
                 continue;
             }

@@ -185,6 +185,39 @@ private slots:
         QCOMPARE(passage.words.at(0), QStringLiteral("ani-yohanan"));
     }
 
+    /// A mark written against a word belongs to it.
+    ///
+    /// The tokeniser ends with a fallback matching any single character it did
+    /// not recognise, so `רעים׃` comes back as the word and then the sof pasuq.
+    /// Right for collation, which aligns words; wrong here, because the scribe
+    /// wrote the mark against the word in one box, and a token of its own takes
+    /// a box from the line and pushes everything after it along — the same fault
+    /// as the maqqef, from the other side.
+    ///
+    /// Two of these in the whole of James, against one maqqef compound. With
+    /// both mended, gatherPassage reproduces that book **word for word**: 1441
+    /// against 1441, nothing out of place.
+    void aMarkWrittenAgainstAWordBelongsToIt()
+    {
+        const SourceDocument source = parseOsis(
+            QString::fromUtf8(
+                "<?xml version='1.0' encoding='UTF-8'?>"
+                "<osis xmlns='http://www.bibletechnologies.net/2003/OSIS/namespace'>"
+                "<osisText osisIDWork='W' xml:lang='he'><header>"
+                "<work osisWork='W'><title>A witness</title></work></header>"
+                "<div type='book' osisID='Jas'>"
+                "<verse osisID='Jas.1.1'>\xd7\xa8\xd7\xa2\xd7\x99\xd7\x9d\xd7\x83 "
+                "\xd7\x90\xd7\xaa\xd7\x9d</verse>"
+                "</div></osisText></osis>"),
+            ParseOptions{});
+
+        const Passage passage = gatherPassage(source, QStringLiteral("Jas"), 1, 1, 0);
+        QCOMPARE(passage.words.size(), 2);
+        QCOMPARE(passage.words.at(0),
+                 QString::fromUtf8("\xd7\xa8\xd7\xa2\xd7\x99\xd7\x9d\xd7\x83"));
+        QCOMPARE(passage.verses.size(), 2);
+    }
+
     /// One word, one verse id, always — the folio is cut into verses by walking
     /// these two in step.
     void everyWordCarriesItsVerse()
