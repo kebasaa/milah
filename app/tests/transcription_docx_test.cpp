@@ -128,6 +128,38 @@ private slots:
             text.indexOf(QStringLiteral("—")) < text.indexOf(QStringLiteral("God")));
     }
 
+    /// A line break marked for training reaches neither Word document.
+    ///
+    /// Asserted rather than assumed, because it is the sort of thing that would
+    /// be embarrassing to get wrong and invisible until somebody opened a file:
+    /// `endsLine` says where the *manuscript's* line ends, which is a fact about
+    /// a page and not about a text. Word carries the text.
+    void aLineBreakMarkedForTrainingReachesNoDocument()
+    {
+        TranscribedPage page;
+        page.book = QStringLiteral("Gen");
+        page.verses.append(verse(
+            QStringLiteral("1"),
+            {word(QStringLiteral("בראשית"), QStringLiteral("in the beginning")),
+             word(QStringLiteral("ברא"), QStringLiteral("created")),
+             word(QStringLiteral("אלהים"), QStringLiteral("God"))}));
+
+        TranscriptionDocument plain;
+        plain.pages.append(page);
+
+        TranscriptionDocument marked = plain;
+        marked.pages[0].verses[0].words[0].endsLine = true;
+        marked.pages[0].verses[0].words[2].endsLine = true;
+
+        QCOMPARE(textOf(readingWordDocument(marked)), textOf(readingWordDocument(plain)));
+        QCOMPARE(
+            textOf(interlinearWordDocument(marked)),
+            textOf(interlinearWordDocument(plain)));
+        QCOMPARE(
+            paragraphsInStyle(readingWordDocument(marked), QStringLiteral("Heading1")),
+            paragraphsInStyle(readingWordDocument(plain), QStringLiteral("Heading1")));
+    }
+
     void aChapterBreakOpensOneHeading()
     {
         const DocxDocument reading = readingWordDocument(twoChapters());

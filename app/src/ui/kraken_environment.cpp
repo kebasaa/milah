@@ -248,11 +248,21 @@ def do_fetch(doi, into):
     sys.stdout.write("\n")
 
 
+def do_check(path):
+    """The same question do_fetch asks of a download, asked of a file already
+    on disk — a model somebody chose themselves, or one training just made."""
+    loadable, why = verify(path)
+    json.dump({"path": path, "loadable": loadable, "why": why}, sys.stdout)
+    sys.stdout.write("\n")
+
+
 try:
     if len(sys.argv) > 1 and sys.argv[1] == "list":
         do_list()
     elif len(sys.argv) > 3 and sys.argv[1] == "fetch":
         do_fetch(sys.argv[2], sys.argv[3])
+    elif len(sys.argv) > 2 and sys.argv[1] == "check":
+        do_check(sys.argv[2])
     else:
         print("MILAH-ERROR unknown request", file=sys.stderr)
         raise SystemExit(2)
@@ -513,6 +523,79 @@ QStringList KrakenEnvironment::recognitionCommand(
                  quoted(pathFor(image)),
                  quoted(pathFor(alto)),
                  quoted(modelPath())));
+}
+
+QStringList KrakenEnvironment::verifyCommand(
+    const QString &script, const QString &model) const
+{
+    return commandFor(QStringLiteral("%1 %2 check %3")
+                          .arg(quotedPath(QStringLiteral("venv/bin/python")),
+                               quoted(script),
+                               quoted(model)));
+}
+
+QString KrakenEnvironment::trainingOutputDirectory() const
+{
+    return rootDirectory() + QStringLiteral("/training/out");
+}
+
+QString KrakenEnvironment::trainedModelPath(const QString &name) const
+{
+    return QStringLiteral("%1/models/%2/%2.mlmodel").arg(rootDirectory(), name);
+}
+
+QStringList KrakenEnvironment::trainingCommand(
+    const QStringList &sets, const QString &base) const
+{
+    const QString work = quotedPath(QStringLiteral("training"));
+
+    // Emptied first. A set the transcriber has since removed a folio from must
+    // not go on training from the copy of it left behind last time.
+    QStringList lines{
+        QStringLiteral("rm -rf %1 && mkdir -p %1").arg(work),
+    };
+    for (const QString &set : sets) {
+        lines.append(
+            QStringLiteral("cp %1/* %2/").arg(quoted(pathFor(set)), work));
+    }
+
+    // -d cpu said out loud rather than left to auto: there is no CUDA here, and
+    // a device that cannot be found is an error hours after the button.
+    lines.append(
+        QStringLiteral("%1 train -f alto --resize new -d cpu -i %2 -o %3 %4/*.xml")
+            .arg(quotedPath(QStringLiteral("venv/bin/ketos")),
+                 quoted(base),
+                 quotedPath(QStringLiteral("training/out")),
+                 work));
+
+    return commandFor(lines.join(QStringLiteral(" && ")));
+}
+
+QStringList KrakenEnvironment::checkpointsCommand() const
+{
+    // The metric is in the file's own name — checkpoint_<epoch>-<metric>.ckpt —
+    // so which one is best is read rather than guessed. Sorted so the last line
+    // is the one to take.
+    return commandFor(
+        QStringLiteral(
+            "for f in %1/checkpoint_*.ckpt; do "
+            "[ -e \"$f\" ] || continue; "
+            "m=${f##*-}; m=${m%%.ckpt}; "
+            "printf '%s %s\\n' \"$m\" \"$f\"; "
+            "done | sort -n")
+            .arg(quotedPath(QStringLiteral("training/out"))));
+}
+
+QStringList KrakenEnvironment::convertCommand(
+    const QString &checkpoint, const QString &name) const
+{
+    const QString folder = QStringLiteral("models/%1").arg(name);
+    return commandFor(
+        QStringLiteral("mkdir -p %1 && %2 convert --weights-format coreml -o %3 %4")
+            .arg(quotedPath(folder),
+                 quotedPath(QStringLiteral("venv/bin/ketos")),
+                 quotedPath(QStringLiteral("%1/%2.mlmodel").arg(folder, name)),
+                 quoted(checkpoint)));
 }
 
 QString KrakenEnvironment::rootDirectory() const

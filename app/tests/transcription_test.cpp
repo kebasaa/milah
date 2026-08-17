@@ -29,6 +29,22 @@ TranscribedVerse verse(const QString &number, bool newChapter = false)
     return made;
 }
 
+/// A folio of James ending on `number` with `words` words in it, and the empty
+/// verse every folio keeps at the end for typing into — which the resume has to
+/// see past rather than answer with.
+TranscribedPage filledPage(const QString &number, int words)
+{
+    TranscribedPage page;
+    page.book = QStringLiteral("JAS");
+    page.firstChapter = 1;
+    page.verses.append(verse(number));
+    for (int index = 0; index < words; ++index) {
+        page.verses.last().words.append(word("דבר", "word"));
+    }
+    page.verses.append(verse(QString()));
+    return page;
+}
+
 } // namespace
 
 class TranscriptionTest final : public QObject
@@ -551,6 +567,281 @@ private slots:
             QStringLiteral("The second letter is doubtful."));
         // And a word nobody remarked on carries nothing.
         QVERIFY(restored.pages.at(0).verses.at(0).words.at(0).note.isEmpty());
+    }
+
+    /// The two things filling and training write, and the two that a folio
+    /// worked on months apart depends on surviving: which line a word came off
+    /// and where a hand-marked line ends.
+    void aLineAndAMarkedBreakSurviveTheArchive()
+    {
+        TranscriptionDocument document = sampleDocument();
+        document.pages[0].verses[0].words[0].line = 4;
+        document.pages[0].verses[0].words[0].endsLine = true;
+
+        const TranscriptionDocument restored =
+            restoreTranscription(transcriptionPayload(document, {}));
+
+        const TranscribedWord &read = restored.pages.at(0).verses.at(0).words.at(0);
+        QCOMPARE(read.line, 4);
+        QVERIFY(read.endsLine);
+        // A word off no line reads as -1 rather than 0, which would put it on
+        // the first line of the folio.
+        QCOMPARE(restored.pages.at(0).verses.at(0).words.at(1).line, -1);
+        QVERIFY(!restored.pages.at(0).verses.at(0).words.at(1).endsLine);
+    }
+
+    /// Where a fill stopped, so the next leaf can carry on from it — a folio
+    /// ends mid-verse far more often than not, and a verse alone cannot say how
+    /// far in.
+    void whereAFillStoppedSurvivesTheArchive()
+    {
+        TranscriptionDocument document = sampleDocument();
+        document.pages[0].fillEndVerse = QStringLiteral("Jas.1.14");
+        document.pages[0].fillEndWord = 5;
+
+        const TranscribedPage &read =
+            restoreTranscription(transcriptionPayload(document, {})).pages.at(0);
+        QCOMPARE(read.fillEndVerse, QStringLiteral("Jas.1.14"));
+        QCOMPARE(read.fillEndWord, 5);
+
+        // Half an answer is worse than none: a verse with no count says where to
+        // resume without saying how far in, so neither is written.
+        TranscriptionDocument half = sampleDocument();
+        half.pages[0].fillEndVerse = QStringLiteral("Jas.1.14");
+        const TranscribedPage &partial =
+            restoreTranscription(transcriptionPayload(half, {})).pages.at(0);
+        QVERIFY(partial.fillEndVerse.isEmpty());
+        QCOMPARE(partial.fillEndWord, -1);
+    }
+
+    /// Which transcription the folios were filled from, so the next leaf does
+    /// not send the transcriber back through the file dialog for a file they
+    /// already chose.
+    void theTranscriptionRemembersWhatItWasFilledFrom()
+    {
+        TranscriptionDocument document = sampleDocument();
+        document.fillSource = QStringLiteral("C:/manuscripts/JAS_Cochin.osis");
+
+        QCOMPARE(
+            restoreTranscription(transcriptionPayload(document, {})).fillSource,
+            QStringLiteral("C:/manuscripts/JAS_Cochin.osis"));
+
+        // Every file written before this existed has no such key, and must read
+        // as "ask once" rather than fail to open.
+        QCOMPARE(restoreTranscription(transcriptionPayload(sampleDocument(), {})).fillSource,
+                 QString());
+    }
+
+    /// The nearest earlier folio that holds text, not the first one.
+    ///
+    /// A leaf skipped — a blank verso, a plate, a folio left for later — must
+    /// not send the next one back two places in the book. The menu and the fill
+    /// both ask this, so if it were wrong the menu would promise a place the
+    /// fill does not go to.
+    void carryingOnLooksAtTheNearestFolioWithText()
+    {
+        TranscriptionDocument document;
+        document.pages = {filledPage(QStringLiteral("14"), 5), TranscribedPage{},
+                          filledPage(QStringLiteral("9"), 2), TranscribedPage{}};
+
+        // Folio 4 carries on from folio 3, not from folio 1.
+        const ResumePoint fromThird = resumeFill(document, 3);
+        QCOMPARE(fromThird.verse, QStringLiteral("JAS.1.9"));
+        QCOMPARE(fromThird.word, 2);
+
+        // Folio 3 skips the empty folio 2 and reaches back to folio 1.
+        QCOMPARE(resumeFill(document, 2).verse, QStringLiteral("JAS.1.14"));
+
+        // The first folio has nothing behind it, and neither has a document
+        // nobody has filled — which is what makes the menu offer one entry
+        // rather than two.
+        QVERIFY(!resumeFill(document, 0).isValid());
+        QVERIFY(!resumeFill(TranscriptionDocument{}, 0).isValid());
+
+        // A page index past the end answers from the last folio rather than
+        // reading off the end of the list.
+        QCOMPARE(resumeFill(document, 99).verse, QStringLiteral("JAS.1.9"));
+    }
+
+    /// **The reason the resume is read rather than remembered.**
+    ///
+    /// A fill records where it stopped, and then the transcriber walks the folio
+    /// and corrects it — which is the whole point of filling. Deleting a word
+    /// the recogniser invented changes what the leaf holds and cannot change a
+    /// number written before it happened. Counting what is on the page now moves
+    /// with the correction; a stored pair silently does not, and the next folio
+    /// resumes a word late for the rest of the book.
+    void correctingAFolioMovesWhereTheNextOneCarriesOnFrom()
+    {
+        TranscriptionDocument document;
+        document.pages = {filledPage(QStringLiteral("25"), 4), TranscribedPage{}};
+        // Written by the fill and deliberately left stale, which is exactly the
+        // state a corrected folio is in.
+        document.pages[0].fillEndVerse = QStringLiteral("JAS.1.25");
+        document.pages[0].fillEndWord = 4;
+        QCOMPARE(resumeFill(document, 1).word, 4);
+
+        document.pages[0].verses.first().words.removeLast();
+        QCOMPARE(resumeFill(document, 1).word, 3);
+        // The stale note is still there, and is still ignored.
+        QCOMPARE(document.pages.at(0).fillEndWord, 4);
+
+        // A word added by hand counts too — the leaf is the record.
+        document.pages[0].verses.first().words.append(TranscribedWord{});
+        document.pages[0].verses.first().words.append(TranscribedWord{});
+        QCOMPARE(resumeFill(document, 1).word, 5);
+    }
+
+    /// A folio ending on a chapter break resumes inside that chapter, not the
+    /// one the leaf opened in — the id is built from where the verse sits, not
+    /// from the top of the page.
+    void theResumeVerseCarriesTheChapterItIsIn()
+    {
+        TranscriptionDocument document;
+        document.pages = {filledPage(QStringLiteral("3"), 2), TranscribedPage{}};
+        document.pages[0].verses.first().startsNewChapter = true;
+        QCOMPARE(resumeFill(document, 1).verse, QStringLiteral("JAS.2.3"));
+    }
+
+    /// A box held out of the work survives the archive, and a file written
+    /// before boxes could be held out reads as all-text, which is what it was.
+    void aHeldOutBoxSurvivesTheArchive()
+    {
+        TranscriptionDocument document = sampleDocument();
+        document.pages[0].verses[0].words[1].marginal = true;
+
+        const TranscribedPage &read =
+            restoreTranscription(transcriptionPayload(document, {})).pages.at(0);
+        QVERIFY(read.verses.at(0).words.at(1).marginal);
+        QVERIFY(!read.verses.at(0).words.at(0).marginal);
+    }
+
+    /// What the machine read survives the fill that overwrote it, and the line
+    /// the pour began on survives the archive.
+    ///
+    /// Both exist for the same moment: a box turning out to be a marginal note.
+    /// The word of the work poured onto it belongs further down the passage, so
+    /// the leaf is laid again from that line — which needs the start line — and
+    /// the box goes back to what was read there, which needs the reading.
+    void theMachinesReadingAndTheFillsStartSurviveTheArchive()
+    {
+        TranscriptionDocument document = sampleDocument();
+        document.pages[0].verses[0].words[0].recognised = QString::fromUtf8("\xd7\x91\xd7\xa8\xd7\x90");
+        document.pages[0].fillStartLine = 7;
+        document.pages[0].fillStartVerse = QStringLiteral("JAS.1.25");
+        document.pages[0].fillStartWord = 4;
+
+        const TranscribedPage &read =
+            restoreTranscription(transcriptionPayload(document, {})).pages.at(0);
+        QCOMPARE(read.verses.at(0).words.at(0).recognised,
+                 QString::fromUtf8("\xd7\x91\xd7\xa8\xd7\x90"));
+        QCOMPARE(read.fillStartLine, 7);
+        QCOMPARE(read.fillStartVerse, QStringLiteral("JAS.1.25"));
+        QCOMPARE(read.fillStartWord, 4);
+
+        // A file written before any of it existed: nothing to go back to, and no
+        // record of where the pour began. This is the state that has to produce
+        // a message rather than a re-flow laid from the wrong place.
+        const TranscribedPage &old =
+            restoreTranscription(transcriptionPayload(sampleDocument(), {})).pages.at(0);
+        QVERIFY(old.verses.at(0).words.at(0).recognised.isEmpty());
+        QCOMPARE(old.fillStartLine, -1);
+        QVERIFY(old.fillStartVerse.isEmpty());
+        QCOMPARE(old.fillStartWord, -1);
+
+        // Half a start is no start: a verse with no word count says where the
+        // pour began without saying how far in, so neither is written.
+        TranscriptionDocument half = sampleDocument();
+        half.pages[0].fillStartVerse = QStringLiteral("JAS.1.25");
+        const TranscribedPage &partial =
+            restoreTranscription(transcriptionPayload(half, {})).pages.at(0);
+        QVERIFY(partial.fillStartVerse.isEmpty());
+        QCOMPARE(partial.fillStartWord, -1);
+    }
+
+    /// Marginalia leave the running text and arrive as a note on the line they
+    /// stand beside.
+    ///
+    /// They are on the leaf but not in the work: exporting one as a word of a
+    /// verse would put it into the running text of an edition, somewhere the
+    /// scribe never wrote it. Losing it would be worse still, so it becomes a
+    /// note — which is what a marginal gloss is.
+    void marginaliaBecomeNotesOnTheirLine()
+    {
+        TranscriptionDocument document;
+        TranscribedPage page;
+        page.book = QStringLiteral("JAS");
+        TranscribedVerse verse = ::verse(QStringLiteral("1"));
+        verse.words = {word("\xd7\x90", "a"), word("\xd7\x91", "b"), word("\xd7\x92", "c")};
+        for (int index = 0; index < 3; ++index) {
+            verse.words[index].line = 0;
+        }
+        verse.words[2].marginal = true;
+        page.verses = {verse};
+        document.pages = {page};
+
+        const TranscribedVerse &out = withoutMarginalia(document).pages.at(0).verses.at(0);
+        QCOMPARE(out.words.size(), 2);
+        QCOMPARE(out.words.at(1).note, QString::fromUtf8("\xd7\x92"));
+        // And a note the transcriber had already written is kept, not replaced.
+        QCOMPARE(out.words.at(0).note, QString());
+    }
+
+    /// A note the recogniser gave a line of its own — which is most of them,
+    /// since marginalia sit beside the text block rather than inside it —
+    /// attaches to the nearest line above, which is the text it stands next to.
+    void aNoteOnItsOwnLineAttachesToTheLineAbove()
+    {
+        TranscriptionDocument document;
+        TranscribedPage page;
+        page.book = QStringLiteral("JAS");
+        TranscribedVerse verse = ::verse(QStringLiteral("1"));
+        verse.words = {word("\xd7\x90", "a"), word("\xd7\x91", "b"), word("\xd7\x92", "c")};
+        verse.words[0].line = 0;
+        verse.words[1].line = 1;
+        verse.words[2].line = 2;
+        verse.words[2].marginal = true;
+        page.verses = {verse};
+        document.pages = {page};
+
+        const TranscribedVerse &out = withoutMarginalia(document).pages.at(0).verses.at(0);
+        QCOMPARE(out.words.size(), 2);
+        QCOMPARE(out.words.at(1).note, QString::fromUtf8("\xd7\x92"));
+    }
+
+    /// A folio of nothing but marginalia strands them rather than inventing a
+    /// word for them to be a note on — which would put text into an export that
+    /// the transcriber never wrote.
+    void aFolioOfNothingButMarginaliaInventsNoAnchor()
+    {
+        TranscriptionDocument document;
+        TranscribedPage page;
+        page.book = QStringLiteral("JAS");
+        TranscribedVerse verse = ::verse(QStringLiteral("1"));
+        verse.words = {word("\xd7\x90", "a")};
+        verse.words[0].line = 0;
+        verse.words[0].marginal = true;
+        page.verses = {verse};
+        document.pages = {page};
+
+        const TranscribedVerse &out = withoutMarginalia(document).pages.at(0).verses.at(0);
+        QVERIFY(out.words.isEmpty());
+    }
+
+    /// Text with nothing to place it — no book, or a heading rather than a verse
+    /// — is passed over rather than answered with half an id.
+    void aFolioThatCannotSayWhereItIsIsPassedOver()
+    {
+        TranscriptionDocument document;
+        document.pages = {filledPage(QStringLiteral("14"), 5),
+                          filledPage(QStringLiteral("20"), 3), TranscribedPage{}};
+        document.pages[1].book.clear();
+        QCOMPARE(resumeFill(document, 2).verse, QStringLiteral("JAS.1.14"));
+
+        // And a folio whose last verse is an incipit rather than a numbered one.
+        document.pages[1].book = QStringLiteral("JAS");
+        document.pages[1].verses.first().number = QStringLiteral("0");
+        QCOMPARE(resumeFill(document, 2).verse, QStringLiteral("JAS.1.14"));
     }
 
     void aBoxAndAnUncheckedFlagSurviveTheArchive()

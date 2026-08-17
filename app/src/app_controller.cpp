@@ -1137,6 +1137,7 @@ void AppController::closeProject()
     // that outlives one. The dictionary, the Strong's row preference and the
     // last-used folder all stay: they belong to the editor, not the edition.
     m_sources.clear();
+    m_filePath.clear();
     m_associations.clear();
     m_priorityId.clear();
     m_combined.clear();
@@ -1239,6 +1240,7 @@ bool AppController::loadProjectFrom(const QString &path)
     m_undoStack.clear();
     m_redoStack.clear();
     setDirty(false);
+    m_filePath = path;
     rememberRecentFile(QLatin1String(RecentProjectsKey), path);
     setMessage(QStringLiteral("Milah project opened."));
     emit historyChanged();
@@ -1285,9 +1287,12 @@ bool AppController::saveProject()
     }
 
     setDirty(false);
-    // Saving counts as much as opening. This class keeps no path of its own, so
-    // every save is a Save As — which makes this the only way a project's
-    // whereabouts is learned other than the open dialog.
+    // Recorded for the window title only: every save is still a Save As, which
+    // is what it has always been, and this does not change where the next one
+    // goes.
+    m_filePath = path;
+    // Saving counts as much as opening for the recent list, which is the only
+    // other way a project's whereabouts is learned.
     rememberRecentFile(QLatin1String(RecentProjectsKey), path);
     rememberDirectory(path);
     setMessage(QStringLiteral("Milah project saved."));

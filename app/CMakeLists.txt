@@ -5,7 +5,7 @@ cmake_minimum_required(VERSION 3.24)
 # Windows VERSIONINFO resource. It is unrelated to the `.milah` project file
 # format version, which is pinned to 1 in src/core/project.cpp and gates
 # whether a saved project can be opened at all.
-project(Milah VERSION 1.2.0 LANGUAGES CXX)
+project(Milah VERSION 1.3.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -76,6 +76,12 @@ add_library(MilahCore STATIC
     src/core/serialize.h
     src/core/project.cpp
     src/core/project.h
+    src/core/line_fill.cpp
+    src/core/line_fill.h
+    src/core/osis_fill.cpp
+    src/core/osis_fill.h
+    src/core/training_export.cpp
+    src/core/training_export.h
     src/core/transcription.cpp
     src/core/transcription.h
     src/core/recent_files.cpp
@@ -160,6 +166,14 @@ qt_add_executable(Milah WIN32
     src/ui/htr_repository_dialog.h
     src/ui/htr_setup_dialog.cpp
     src/ui/htr_setup_dialog.h
+    src/ui/htr_training_dialog.cpp
+    src/ui/htr_training_dialog.h
+    src/ui/iiif_image.cpp
+    src/ui/iiif_image.h
+    src/ui/osis_fill_dialog.cpp
+    src/ui/osis_fill_dialog.h
+    src/ui/training_set.cpp
+    src/ui/training_set.h
     src/ui/kraken_environment.cpp
     src/ui/kraken_environment.h
     src/ui/manuscript_image_view.cpp
@@ -270,7 +284,8 @@ if(MILAH_BUILD_TESTS)
             project_storage osis consensus apparatus diff acronym lexicon suggestions
             coverage alignment catalogue word_marker transcription books
             scan_catalogue recent_files docx transcription_docx page_layout
-            reading_marks collation_docx name_forms)
+            reading_marks collation_docx name_forms training_export line_fill
+            osis_fill)
         # Plain add_executable, not qt_add_executable: the latter finalises the
         # target as a Windows GUI application, and a GUI-subsystem binary
         # discards the stdout QTest reports through, leaving a failing test
@@ -294,4 +309,39 @@ if(MILAH_BUILD_TESTS)
         )
         add_test(NAME Milah_${test_name}_test COMMAND Milah_${test_name}_test)
     endforeach()
+
+    # The training set lives in the application target rather than in MilahCore,
+    # because where it puts its files is an application question. It is still
+    # worth testing, so this one target takes the source in directly and links
+    # the Gui module it needs to read a picture's size.
+    add_executable(Milah_training_set_test
+        tests/training_set_test.cpp
+        src/ui/training_set.cpp
+        src/ui/training_set.h
+    )
+    target_include_directories(Milah_training_set_test PRIVATE src tests)
+    target_link_libraries(Milah_training_set_test PRIVATE
+        MilahCore
+        Qt6::Core
+        Qt6::Gui
+        Qt6::Test
+    )
+    add_test(NAME Milah_training_set_test COMMAND Milah_training_set_test)
+
+    # Pure string and arithmetic work over what a IIIF service says about
+    # itself, so it takes no network and no widgets.
+    add_executable(Milah_iiif_image_test
+        tests/iiif_image_test.cpp
+        src/ui/iiif_image.cpp
+        src/ui/iiif_image.h
+    )
+    target_include_directories(Milah_iiif_image_test PRIVATE src tests)
+    target_link_libraries(Milah_iiif_image_test PRIVATE Qt6::Core Qt6::Gui Qt6::Test)
+    add_test(NAME Milah_iiif_image_test COMMAND Milah_iiif_image_test)
+
+    # Which line a point on the folio falls on used to be tested here, against a
+    # build of the whole image widget. lineAtPoint() has moved into MilahCore —
+    # the fill dialog needs it too, to turn a click on an unread folio into a
+    # line once it has read one — so its cases moved into line_fill_test above,
+    # where they cost no window and no Widgets link.
 endif()

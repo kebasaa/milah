@@ -9,6 +9,7 @@
 #include "ui/about_dialog.h"
 #include "ui/htr_last_run_dialog.h"
 #include "ui/icons.h"
+#include "ui/training_set.h"
 #include "ui/notes_widget.h"
 #include "ui/source_settings_widget.h"
 #include "ui/transcription_meta_widget.h"
@@ -157,12 +158,30 @@ void describeShortcut(QAction *action)
 }
 
 /// Drops an action's label while keeping it for the tooltip and for assistive
-/// technology. Used for the chapter arrows and the history pair, whose glyphs
-/// say nothing worth the width beside an icon.
+/// technology. Used for the history pair, whose glyphs say nothing worth the
+/// width beside an icon.
 void showIconOnly(QToolBar *toolBar, QAction *action)
 {
     if (auto *button = qobject_cast<QToolButton *>(toolBar->widgetForAction(action))) {
         button->setToolButtonStyle(Qt::ToolButtonIconOnly);
+    }
+}
+
+/// An arrow with a word under it: "prev", "next".
+///
+/// **An arrow alone cannot say which way is forward in a Hebrew manuscript.** A
+/// left-pointing arrow means "back" to anyone reading these interfaces and
+/// "onward" to anyone reading the folio in front of them, and the transcriber is
+/// doing both at once. The word settles it and costs a few pixels.
+///
+/// `label` goes in the action's iconText, which is what a toolbar draws when it
+/// is showing text — the full label stays on the menu entry, the tooltip and the
+/// accessible name, where there is room to say "Previous folio".
+void showArrowWithWord(QToolBar *toolBar, QAction *action, const QString &label)
+{
+    action->setIconText(label);
+    if (auto *button = qobject_cast<QToolButton *>(toolBar->widgetForAction(action))) {
+        button->setToolButtonStyle(Qt::ToolButtonTextUnderIcon);
     }
 }
 
@@ -391,6 +410,11 @@ MainWindow::MainWindow(QWidget *parent)
     });
     connect(
         m_controller,
+        &AppController::sourcesChanged,
+        this,
+        &MainWindow::updateWindowTitle);
+    connect(
+        m_controller,
         &AppController::historyChanged,
         this,
         &MainWindow::updateHistoryActions);
@@ -420,6 +444,11 @@ MainWindow::MainWindow(QWidget *parent)
             shown ? QStringLiteral("eye") : QStringLiteral("eye-off"), palette()));
     });
 
+    // Through the action, so the eye's own state and the overlay stay one thing.
+    connect(m_transcription, &TranscriptionWidget::overlayWanted, this, [this] {
+        m_overlayAction->setChecked(true);
+    });
+
     connect(
         m_transcriptionController,
         &TranscriptionController::recognitionApplied,
@@ -444,6 +473,14 @@ MainWindow::MainWindow(QWidget *parent)
         &TranscriptionController::dirtyChanged,
         this,
         [this](bool) { updateWindowTitle(); });
+    // The file's name is in the title now, and opening one when nothing was
+    // dirty changes the name without changing the flag — so the document itself
+    // has to say when it has been replaced.
+    connect(
+        m_transcriptionController,
+        &TranscriptionController::documentChanged,
+        this,
+        &MainWindow::updateWindowTitle);
     connect(
         m_transcriptionController,
         &TranscriptionController::historyChanged,
@@ -855,11 +892,12 @@ void MainWindow::createTranscriptionActions()
         "Draws each recognised word over the ink it was read from, so you can "
         "see at a glance what was read where."));
 
-    connect(
-        m_transcribeAction,
-        &QAction::triggered,
-        m_transcriptionController,
-        &TranscriptionController::transcribeFolio);
+    // Through a lambda, not straight at the slot: triggered carries a bool, and
+    // both of these now take an argument that a bool would quietly become —
+    // a window pointer in one case and a line number in the other.
+    connect(m_transcribeAction, &QAction::triggered, this, [this] {
+        m_transcriptionController->transcribeFolio();
+    });
 
     m_htrInstallAction = new QAction(this);
     connect(
@@ -885,6 +923,26 @@ void MainWindow::createTranscriptionActions()
         &QAction::triggered,
         m_transcriptionController,
         &TranscriptionController::showLastRecognition);
+
+    m_saveForTrainingAction =
+        new QAction(QStringLiteral("Save this folio for HTR training"), this);
+    connect(
+        m_saveForTrainingAction,
+        &QAction::triggered,
+        m_transcriptionController,
+        &TranscriptionController::saveFolioForTraining);
+
+    m_trainAction = new QAction(QStringLiteral("Train a model…"), this);
+    connect(
+        m_trainAction,
+        &QAction::triggered,
+        m_transcriptionController,
+        &TranscriptionController::showTraining);
+
+    // No menu entry for the fill. Where a published transcription starts on the
+    // leaf is a thing you point at, so the folio's own right-click is the whole
+    // of it — a menu entry could only ever offer the same job with the pointing
+    // left out.
 
     m_htrRemoveAction = new QAction(QStringLiteral("Remove Kraken…"), this);
     m_htrRemoveAction->setToolTip(QStringLiteral(
@@ -1004,6 +1062,9 @@ void MainWindow::buildMenuBar()
     m_htrMenu->addSeparator();
     m_htrMenu->addAction(m_lastRunAction);
     m_htrMenu->addSeparator();
+    m_htrMenu->addAction(m_saveForTrainingAction);
+    m_htrMenu->addAction(m_trainAction);
+    m_htrMenu->addSeparator();
     m_htrMenu->addAction(m_htrInstallAction);
     m_htrMenu->addAction(m_htrRemoveAction);
 
@@ -1039,6 +1100,44 @@ void MainWindow::buildMenuBar()
         // Nothing to show before the first run, and saying so by being grey is
         // kinder than a window with three empty tabs in it.
         m_lastRunAction->setEnabled(HtrLastRunDialog::hasRun());
+
+        // Nothing to teach a recogniser until a line has been checked all the
+        // way through. Asked here rather than kept up to date because the
+        // answer reads the folio, and a menu is opened far less often than a
+        // word is committed.
+        const int lines = m_transcriptionController->trainableLineCount();
+        m_saveForTrainingAction->setEnabled(lines > 0);
+        m_saveForTrainingAction->setToolTip(
+            lines > 0
+                ? QStringLiteral("Puts this folio's %1 finished line(s) into this "
+                                 "manuscript's training set.")
+                      .arg(lines)
+                : QStringLiteral("No line of this folio has been checked all the way "
+                                 "through yet — a line counts once every word on it "
+                                 "has been looked at."));
+
+        // And nothing worth hours of processor until enough has been gathered.
+        // The best set decides, because that is the one that would be trained
+        // on; the dialog says the rest.
+        int best = 0;
+        QString bestLabel;
+        for (const TrainingSet::Set &set : TrainingSet::known()) {
+            if (set.lines > best) {
+                best = set.lines;
+                bestLabel = set.label;
+            }
+        }
+        m_trainAction->setEnabled(best >= TrainingSet::EnoughLines);
+        m_trainAction->setToolTip(
+            best >= TrainingSet::EnoughLines
+                ? QStringLiteral("Teaches a model this hand, from what you have "
+                                 "saved. Hours, and worth them.")
+                : best == 0
+                ? QStringLiteral("Nothing saved for training yet.")
+                : QStringLiteral("%1 has %2 of the %3 lines training needs.")
+                      .arg(bestLabel)
+                      .arg(best)
+                      .arg(TrainingSet::EnoughLines));
     });
 
     m_transcriptionFileMenu->addSeparator();
@@ -1410,9 +1509,9 @@ void MainWindow::buildToolBar()
     toolBar->addWidget(m_chapterCombo);
 
     toolBar->addAction(m_previousAction);
-    showIconOnly(toolBar, m_previousAction);
+    showArrowWithWord(toolBar, m_previousAction, QStringLiteral("prev"));
     toolBar->addAction(m_nextAction);
-    showIconOnly(toolBar, m_nextAction);
+    showArrowWithWord(toolBar, m_nextAction, QStringLiteral("next"));
 
     toolBar->addSeparator();
     toolBar->addWidget(new QLabel(QStringLiteral(" Reference ")));
@@ -1566,9 +1665,9 @@ void MainWindow::buildTranscriptionToolBar()
     toolBar->addWidget(m_chapterField);
 
     toolBar->addAction(m_previousImageAction);
-    showIconOnly(toolBar, m_previousImageAction);
+    showArrowWithWord(toolBar, m_previousImageAction, QStringLiteral("prev"));
     toolBar->addAction(m_nextImageAction);
-    showIconOnly(toolBar, m_nextImageAction);
+    showArrowWithWord(toolBar, m_nextImageAction, QStringLiteral("next"));
 
     toolBar->addSeparator();
     toolBar->addAction(m_magnifyAction);
@@ -1807,9 +1906,27 @@ void MainWindow::updateWindowTitle()
     // Either job having unsaved work marks the window, because the window is
     // what would take it away.
     const bool dirty = m_controller->isDirty() || m_transcriptionController->isDirty();
-    setWindowTitle(dirty
-        ? QStringLiteral("Milah •")
-        : QStringLiteral("Milah"));
+    setWindowModified(dirty);
+
+    // Whichever job is in front. Several transcriptions of one codex are open
+    // over an afternoon and they look identical from outside; the file is the
+    // only thing that tells them apart without looking inside one.
+    const bool editing = editingEdition();
+    const QString path = editing ? m_controller->filePath()
+                                 : m_transcriptionController->filePath();
+    const bool open = editing ? !m_controller->sources().isEmpty()
+                              : m_transcriptionController->hasDocument();
+    if (!open) {
+        setWindowTitle(QStringLiteral("Milah[*]"));
+        return;
+    }
+
+    // [*] rather than a bullet written in by hand: it is the placeholder Qt
+    // substitutes per platform, and it puts the mark where that platform's
+    // users look for it.
+    setWindowTitle(QStringLiteral("%1[*] — Milah")
+                       .arg(path.isEmpty() ? QStringLiteral("Untitled")
+                                           : QFileInfo(path).fileName()));
 }
 
 void MainWindow::markCoverage(
