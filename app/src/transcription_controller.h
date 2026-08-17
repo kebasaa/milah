@@ -8,6 +8,9 @@
 #include <QHash>
 #include <QObject>
 #include <QSize>
+#include "core/osis_fill.h"
+
+#include <QPoint>
 #include <QString>
 #include <QStringList>
 
@@ -146,7 +149,11 @@ public slots:
     void importRecognisedLayout();
     /// Reads the folio on screen with kraken. Sets kraken up first, asking, if
     /// this is the first time.
-    void transcribeFolio();
+    /// `over` is the window the progress and any failures belong to. The fill
+    /// dialog passes itself: QDialog::exec() is application-modal, so a progress
+    /// dialog parented to the main window would be shut out of the input it
+    /// needs and the run would look like a hang.
+    void transcribeFolio(QWidget *over = nullptr);
     /// Opens the setup dialog deliberately rather than by surprise, so it can
     /// be done once at a desk with time for it. The runtime only — models are
     /// manageModels().
@@ -159,6 +166,82 @@ public slots:
     void manageModels();
     /// Shows what the last recognition ran, said and produced.
     void showLastRecognition();
+    /// Puts this folio's corrected lines into its manuscript's training set.
+    ///
+    /// The way out of a hand no shipped model has seen — which is most hands.
+    /// One folio at a time, because that is how a transcriber works; the set
+    /// accumulates between sessions until there is enough to train on. See
+    /// ui/training_set.h.
+    void saveFolioForTraining();
+    /// How many lines of the folio on screen are finished enough to be saved.
+    /// Zero disables the command, and says why in its tooltip.
+    int trainableLineCount() const;
+    /// The folio at the largest size the library will give, fetched in as many
+    /// pieces as its service caps require and put back together.
+    ///
+    /// For training only. A recogniser reads the small picture just as well —
+    /// that was measured — but training shows every line to the model again and
+    /// again, and a line stretched from 56 px to the 120 it wants is invented
+    /// detail. Answers the bytes Milah already holds when the address is not a
+    /// IIIF service, or when anything about the fetch fails.
+    QByteArray fetchMasterImage(const TranscribedPage &page, QString *note);
+    /// The training window: what has been gathered, and running the training.
+    void showTraining();
+    /// Puts a transcription that already exists onto this folio, keeping the
+    /// recogniser's boxes and leaving every word unchecked.
+    ///
+    /// `folioPixel` is where the transcriber pointed, in the folio image's own
+    /// pixels — a place rather than a line, because the folio commonly has no
+    /// lines yet and the dialog reads it. Null for the top of the page.
+    ///
+    /// `carryOn` says this is a continuation of the transcription the last folio
+    /// was filled from, rather than the start of a new one. Asked for by name in
+    /// the folio's own menu and never inferred: the two are indistinguishable
+    /// from the document, and guessing wrong lays down the wrong text.
+    void fillFromOsis(QPoint folioPixel = QPoint(), bool carryOn = false);
+    /// Where the folio before this one stopped filling, for the menu to name.
+    ResumePoint resumePoint() const { return resumeFill(m_document, m_currentPage); }
+
+private:
+    /// Carries the transcription on from `resume` onto this folio, with no
+    /// window of its own.
+    ///
+    /// Every input is settled before it runs — the file from the document, the
+    /// place from the leaf before, the line from where the transcriber clicked —
+    /// so there is nothing to ask and asking would only be ceremony. The one
+    /// thing that appears is the recognition's progress, on a folio nothing has
+    /// read yet, and only then. Ctrl+Z puts the folio back.
+    void continueFill(QPoint folioPixel, const ResumePoint &resume);
+    /// Lays a gathered passage onto the folio and records what it did.
+    ///
+    /// One path for both ways in — the window and the windowless continuation —
+    /// because everything hard is here: which lines are left alone, how the
+    /// folio is cut back into verses, and which chapter each of them is in. Two
+    /// copies of that would differ within a week and the difference would show
+    /// up as a wrong verse number rather than as a crash.
+    ///
+    /// `standalone` is false for a re-flow, which is part of the step that asked
+    /// for it: it pushes no undo of its own, does not move the folio's recorded
+    /// start line, and says something else afterwards.
+    void applyFill(
+        const QList<FilledLine> &filled,
+        const QStringList &verses,
+        const QString &sourcePath,
+        const QString &range,
+        bool standalone = true);
+    /// Which word carries this box, if any. One lookup for the several things
+    /// the folio's right-click can do to a word it points at.
+    bool wordAt(const QRect &box, int *verse, int *column) const;
+    /// Whether anything from `line` down has been checked, so the transcriber
+    /// can be asked before a re-flow replaces it.
+    bool hasCheckedWordsFrom(int line) const;
+    /// Lays the passage again from `line` to the foot of the folio, so a word
+    /// taken off a box goes back into the flow. Everything above is untouched.
+    void reflowFrom(int line);
+
+public:
+    /// Whether there is anything to fill: a folio a machine has read.
+    bool canFillFromOsis() const;
     /// Deletes the venv and the models, after saying what will go and roughly
     /// how much that is. Not WSL2 and not the distribution.
     void removeKraken();
@@ -213,6 +296,19 @@ public slots:
     void pasteAt(int verse, int column, const QString &text);
     /// The transcriber's own remark on a word. Empty removes it.
     void setNote(int verse, int column, const QString &note);
+    /// Says the manuscript's line ends after this word — for training, and for
+    /// nothing else. See TranscribedWord::endsLine.
+    void setLineBreak(int verse, int column, bool endsLine);
+    /// Holds this word out of the work — a marginal note, a catchword, a running
+    /// header — or puts it back. See TranscribedWord::marginal.
+    void setMarginal(int verse, int column, bool marginal);
+    /// The same, for the word the folio's right-click landed on. True when a
+    /// word of that box was found.
+    bool setMarginalAt(const QRect &box, bool marginal);
+    /// What the word at this box currently reads, for the editor to open with.
+    QString wordTextAt(const QRect &box) const;
+    /// Corrects the word at this box, through the same path the grid edits by.
+    bool setWordAt(const QRect &box, const QString &hebrew);
     void setVerseNumber(int verse, const QString &number);
     /// Takes one word off the folio, and nothing else.
     ///

@@ -10,6 +10,21 @@
 #include <QVBoxLayout>
 
 namespace milah {
+namespace {
+
+/// "Jas.1.25" as a reader writes it: "Jas 1:25". Anything not of that shape is
+/// handed back untouched rather than mangled — a menu entry naming a place is
+/// worth less if the place is unrecognisable.
+QString readableVerseId(const QString &id)
+{
+    const QStringList parts = id.split(QLatin1Char('.'));
+    if (parts.size() != 3) {
+        return id;
+    }
+    return QStringLiteral("%1 %2:%3").arg(parts.at(0), parts.at(1), parts.at(2));
+}
+
+} // namespace
 
 TranscriptionWidget::TranscriptionWidget(
     TranscriptionController *controller,
@@ -29,6 +44,29 @@ TranscriptionWidget::TranscriptionWidget(
     // would change that width and with it the height that made it appear.
     // Reserving it is the same bargain the verse list makes.
     m_imageArea->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOn);
+
+    connect(m_image, &ManuscriptImageView::fillRequested, this, [this](QPoint folioPixel, bool carryOn) {
+        // Shown, because checking where the pour landed against the ink is the
+        // whole of the job afterwards and the boxes are the only thing on screen
+        // that says where the lines fall. Only when there are any: an eye
+        // toggled onto a folio with nothing to draw shows nothing.
+        if (m_image->hasWordBoxes() && !m_image->overlayVisible()) {
+            emit overlayWanted();
+        }
+        m_controller->fillFromOsis(folioPixel, carryOn);
+    });
+
+    connect(
+        m_image,
+        &ManuscriptImageView::marginalToggled,
+        this,
+        [this](QRect box, bool marginal) { m_controller->setMarginalAt(box, marginal); });
+
+    connect(
+        m_image,
+        &ManuscriptImageView::wordEdited,
+        this,
+        [this](QRect box, QString hebrew) { m_controller->setWordAt(box, hebrew); });
 
     m_grid = new TranscriptionGridWidget(m_controller);
     m_textArea = new QScrollArea;
@@ -96,6 +134,7 @@ void TranscriptionWidget::refreshOverlay()
     const TranscribedPage *page = m_controller->currentPage();
     if (!page) {
         m_image->setWords({});
+        m_image->setContinuation(QString());
         return;
     }
     QList<TranscribedWord> words;
@@ -103,6 +142,12 @@ void TranscriptionWidget::refreshOverlay()
         words.append(verse.words);
     }
     m_image->setWords(words);
+
+    // Here because this already runs on every change of folio and every change
+    // of text, and where the folio before this one stopped changes with both.
+    const ResumePoint resume = m_controller->resumePoint();
+    m_image->setContinuation(
+        resume.isValid() ? readableVerseId(resume.verse) : QString());
 }
 
 void TranscriptionWidget::showCurrentPage()

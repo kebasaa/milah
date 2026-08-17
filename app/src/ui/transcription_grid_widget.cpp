@@ -188,6 +188,35 @@ void TranscriptionGridWidget::showWordMenu(int verse, int column, const QPoint &
     }
 
     menu.addSeparator();
+    QAction *breaks = menu.addAction(QStringLiteral("Line break after this word"));
+    breaks->setCheckable(true);
+    breaks->setChecked(word.endsLine);
+    breaks->setToolTip(QStringLiteral(
+        "Says the manuscript's line ends here, for training a recogniser on this "
+        "hand. It goes into no export — OSIS and Word carry a text, not a page."));
+    // Only where the recogniser found this word. A line break is a statement
+    // about the picture, and a word nobody has placed on the picture cannot end
+    // a line of it.
+    breaks->setEnabled(word.line >= 0);
+    connect(breaks, &QAction::triggered, this, [this, verse, column](bool marked) {
+        m_controller->setLineBreak(verse, column, marked);
+    });
+
+    QAction *marginal = menu.addAction(QStringLiteral("Not part of the transcribed text"));
+    marginal->setCheckable(true);
+    marginal->setChecked(word.marginal);
+    marginal->setToolTip(QStringLiteral(
+        "A marginal note, a catchword, a running header — on the leaf, but not "
+        "in the work. A fill steps over it instead of pouring a word of the text "
+        "onto it, and the exports carry it as a note on its line."));
+    // The same statement about the picture the line break is, and needing the
+    // same thing: a word nobody has placed on the folio is not beside anything.
+    marginal->setEnabled(word.line >= 0);
+    connect(marginal, &QAction::triggered, this, [this, verse, column](bool marked) {
+        m_controller->setMarginal(verse, column, marked);
+    });
+
+    menu.addSeparator();
     QAction *remove = menu.addAction(QStringLiteral("Delete word"));
     remove->setToolTip(QStringLiteral(
         "Takes this word off the folio, keeping the verse and the words around "

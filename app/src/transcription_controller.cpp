@@ -3,16 +3,24 @@
 #include "core/alignment.h"
 #include "core/books.h"
 #include "core/lexicon.h"
+#include "core/line_fill.h"
 #include "core/manuscript_catalogue.h"
+#include "core/osis.h"
+#include "core/osis_fill.h"
 #include "core/project.h"
 #include "core/recent_files.h"
 #include "core/serialize.h"
+#include "core/training_export.h"
 #include "core/transcription_docx.h"
 #include "core/suggestions.h"
 #include "project_storage.h"
 #include "ui/htr_last_run_dialog.h"
 #include "ui/htr_models_dialog.h"
 #include "ui/htr_setup_dialog.h"
+#include "ui/htr_training_dialog.h"
+#include "ui/iiif_image.h"
+#include "ui/osis_fill_dialog.h"
+#include "ui/training_set.h"
 #include "ui/network_fetch.h"
 #include "ui/online_scan_dialog.h"
 #include "ui/scan_metadata_dialog.h"
@@ -30,6 +38,7 @@
 #include <QLocale>
 #include <QMessageBox>
 #include <QNetworkAccessManager>
+#include <QPainter>
 #include <QNetworkReply>
 #include <QProcess>
 #include <QProgressDialog>
@@ -49,6 +58,13 @@ constexpr int MaxUndoDepth = 200;
 /// Milah asks for, and it caps delivery besides — so this is a bound on what a
 /// reply may be trusted to be, not a limit anything real comes near.
 constexpr qint64 ScanImageLimit = 64 * 1024 * 1024;
+
+/// How many pieces Milah will fetch to build one folio at its largest size.
+///
+/// Cambridge comes to six and Manchester to twelve. A service that advertised an
+/// absurd size against a tiny cap would otherwise fire off hundreds of requests
+/// at somebody's library on a single button press.
+constexpr int MaxTilesPerFolio = 32;
 
 QString transcriptionFilter()
 {
@@ -987,10 +1003,18 @@ bool TranscriptionController::applyRecognition(
     for (const RecognisedWord &read : recognised.words) {
         TranscribedWord word;
         word.hebrew = read.text;
+        // Kept as well as used. A fill overwrites the reading with a word of the
+        // published work, and a box that turns out to be a marginal note has to
+        // be able to go back to what was actually read there.
+        word.recognised = read.text;
         // The same lexicon lookup a typed word gets. A machine reading a folio
         // does not change what the words mean.
         word.english = suggestedGloss(read.text);
         word.unchecked = true;
+        // Which line it came off, so a folio corrected today can be handed back
+        // as training data months from now, when the layout file this reading
+        // came from is long overwritten.
+        word.line = read.line;
         if (!read.box.isNull()) {
             word.box = QRect(
                 qRound(read.box.x() * scaleX),
@@ -1087,6 +1111,641 @@ void TranscriptionController::setUpKraken()
     emit documentChanged();
 }
 
+namespace {
+
+/// The pixel size of an encoded image, without decoding the whole of it.
+QSize sizeOfImage(const QByteArray &bytes)
+{
+    if (bytes.isEmpty()) {
+        return QSize();
+    }
+    QBuffer buffer;
+    buffer.setData(bytes);
+    buffer.open(QIODevice::ReadOnly);
+    QImageReader reader(&buffer);
+    // The same transformation the image pane applies, so the size the boxes
+    // were stored against is the size they are written out against.
+    reader.setAutoTransform(true);
+    return reader.size();
+}
+
+} // namespace
+
+int TranscriptionController::trainableLineCount() const
+{
+    const TranscribedPage *page = currentPage();
+    if (!page) {
+        return 0;
+    }
+    const QSize size = sizeOfImage(m_images.value(page->imageEntry));
+    if (!size.isValid()) {
+        return 0;
+    }
+    // The name does not matter for counting, only for writing, so any non-empty
+    // one will do here.
+    return trainingAlto(*page, QStringLiteral("folio.jpg"), size).lines;
+}
+
+QByteArray TranscriptionController::fetchMasterImage(
+    const TranscribedPage &page, QString *note)
+{
+    const QByteArray held = m_images.value(page.imageEntry);
+    const auto settle = [note](const QString &why) {
+        if (note) {
+            *note = why;
+        }
+    };
+
+    const QUrl address(page.imageUrl);
+    if (!IiifImage::looksLikeImageApi(address)) {
+        // A local file, or a library that serves one fixed size. Nothing to ask.
+        settle(QString());
+        return held;
+    }
+
+    if (!m_network) {
+        m_network = new QNetworkAccessManager(this);
+    }
+    const auto get = [this](const QUrl &url) {
+        QNetworkReply *reply =
+            fetch(m_network, url, Redirects::AnywhereNoLessSafe, m_preferIPv4);
+        QEventLoop waiting;
+        connect(reply, &QNetworkReply::finished, &waiting, &QEventLoop::quit);
+        waiting.exec();
+        reply->deleteLater();
+        return reply->error() == QNetworkReply::NoError ? reply->read(ScanImageLimit)
+                                                        : QByteArray();
+    };
+
+    const IiifImage::Service service = IiifImage::serviceFromInfo(get(IiifImage::infoUrl(address)));
+    if (!service.isValid()) {
+        settle(QStringLiteral("The library did not say what size it holds, so the "
+                              "picture on screen was used."));
+        return held;
+    }
+    const QList<QRect> grid = IiifImage::tiles(service);
+    if (grid.isEmpty() || grid.size() > MaxTilesPerFolio) {
+        settle(QStringLiteral("The library's largest scan would take %1 requests, "
+                              "which Milah will not do; the picture on screen was "
+                              "used.")
+                   .arg(grid.size()));
+        return held;
+    }
+
+    const QString folio = page.imageLabel.isEmpty() ? page.imageName : page.imageLabel;
+    QProgressDialog progress(
+        QStringLiteral("Fetching %1 at full size…").arg(folio),
+        QStringLiteral("Cancel"),
+        0,
+        int(grid.size()),
+        m_dialogParent);
+    progress.setWindowTitle(QStringLiteral("Milah"));
+    progress.setWindowModality(Qt::WindowModal);
+    progress.setMinimumDuration(0);
+
+    QImage composed(service.full, QImage::Format_RGB32);
+    composed.fill(Qt::white);
+    QPainter painter(&composed);
+    for (int index = 0; index < grid.size(); ++index) {
+        progress.setValue(index);
+        progress.setLabelText(QStringLiteral("Fetching %1 at full size, piece %2 of %3…")
+                                  .arg(folio)
+                                  .arg(index + 1)
+                                  .arg(grid.size()));
+        QCoreApplication::processEvents();
+        if (progress.wasCanceled()) {
+            settle(QStringLiteral("Stopped; the picture on screen was used."));
+            return held;
+        }
+
+        const QImage tile = QImage::fromData(get(IiifImage::tileUrl(address, grid.at(index))));
+        if (tile.isNull() || tile.size() != grid.at(index).size()) {
+            // A short or missing piece would leave a hole in the folio, and a
+            // hole is a line the model is taught out of blank paper.
+            settle(QStringLiteral("Piece %1 of the largest scan did not arrive whole, "
+                                  "so the picture on screen was used.")
+                       .arg(index + 1));
+            return held;
+        }
+        painter.drawImage(grid.at(index).topLeft(), tile);
+    }
+    painter.end();
+    progress.setValue(int(grid.size()));
+
+    QByteArray bytes;
+    QBuffer buffer(&bytes);
+    buffer.open(QIODevice::WriteOnly);
+    if (!composed.save(&buffer, "JPG", 92) || bytes.isEmpty()) {
+        settle(QStringLiteral("The pieces could not be put back together, so the "
+                              "picture on screen was used."));
+        return held;
+    }
+    settle(QString());
+    return bytes;
+}
+
+void TranscriptionController::saveFolioForTraining()
+{
+    const TranscribedPage *page = currentPage();
+    if (!page) {
+        setMessage(QStringLiteral("Open a folio before saving it for training."));
+        return;
+    }
+
+    const QString label = page->imageLabel.isEmpty() ? page->imageName : page->imageLabel;
+
+    // Nothing is fetched until there is something worth fetching it for.
+    if (trainableLineCount() == 0) {
+        QMessageBox::information(
+            m_dialogParent,
+            QStringLiteral("Milah"),
+            QStringLiteral(
+                "No line of %1 has been checked all the way through yet, so there "
+                "is nothing a recogniser could be taught from it.<p>A line counts "
+                "once every word on it has been looked at — moving the caret "
+                "through a word is what marks it checked. The status bar says how "
+                "many are left.</p>")
+                .arg(label));
+        return;
+    }
+
+    QString note;
+    const QByteArray master = fetchMasterImage(*page, &note);
+    const QSize onScreen = sizeOfImage(m_images.value(page->imageEntry));
+    const int lines = TrainingSet::add(*page, m_document.metadata, master, onScreen);
+
+    if (lines == 0) {
+        // The count above said there was something, so getting nothing here is
+        // the writing having failed rather than the folio being unfinished.
+        QMessageBox::warning(
+            m_dialogParent,
+            QStringLiteral("Milah"),
+            QStringLiteral("%1 could not be written into the training set.").arg(label));
+        return;
+    }
+
+    const TrainingSet::Set set =
+        TrainingSet::contentsOf(TrainingSet::slugFor(m_document.metadata));
+    const QString standing = set.lines >= TrainingSet::EnoughLines
+        ? QStringLiteral("That is enough to train on — File ▸ Handwriting "
+                         "recognition ▸ Train a model….")
+        : QStringLiteral("Train a model… opens at %1 lines.")
+              .arg(TrainingSet::EnoughLines);
+
+    QMessageBox::information(
+        m_dialogParent,
+        QStringLiteral("Milah"),
+        QStringLiteral("%1 line(s) off %2 saved.<p>%3 now holds %4 line(s) off %5 "
+                       "folio(s). %6</p>%7")
+            .arg(lines)
+            .arg(label, set.label)
+            .arg(set.lines)
+            .arg(set.folios)
+            .arg(
+                standing,
+                // Said, not swallowed. Training on the small picture works, but
+                // it is not what was asked for, and somebody wondering later why
+                // a model came out poor deserves to have been told.
+                note.isEmpty() ? QString()
+                               : QStringLiteral("<p><small>%1</small></p>").arg(note)));
+    setMessage(QStringLiteral("Saved %1 line(s) off %2 for training.").arg(lines).arg(label));
+}
+
+bool TranscriptionController::canFillFromOsis() const
+{
+    const TranscribedPage *page = currentPage();
+    if (!page) {
+        return false;
+    }
+    for (const TranscribedVerse &verse : page->verses) {
+        for (const TranscribedWord &word : verse.words) {
+            if (word.line >= 0 && !word.box.isNull()) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+void TranscriptionController::fillFromOsis(QPoint folioPixel, bool carryOn)
+{
+    if (!currentPage()) {
+        setMessage(QStringLiteral("Open a folio before filling it."));
+        return;
+    }
+
+    // Where the folio before this one stopped, so a book can run on across a
+    // leaf without the place having to be found again. Applied only when it was
+    // asked for by name.
+    const ResumePoint resume = resumePoint();
+    if (carryOn && resume.isValid()) {
+        continueFill(folioPixel, resume);
+        return;
+    }
+
+    // The window opens first and the reading happens inside it. Choosing the
+    // transcription is the part that needs a person, and it needs no recognition
+    // whatever — so the minute of reading is spent after the deciding rather
+    // than in front of it.
+    OsisFillDialog::Setup setup;
+    setup.folio = [this] { return currentPage(); };
+    setup.folioPixel = folioPixel;
+
+    OsisFillDialog dialog(setup, m_dialogParent);
+    // Bound after the dialog exists, because the recognition has to raise its
+    // progress over it.
+    dialog.setReader([this, &dialog] {
+        transcribeFolio(&dialog);
+        return canFillFromOsis();
+    });
+
+    if (dialog.exec() != QDialog::Accepted) {
+        return;
+    }
+
+    applyFill(dialog.filled(), dialog.wordVerses(), dialog.sourcePath(), dialog.range());
+    // Where this folio's text begins, so holding a box out later can lay the
+    // rest of it again. Recorded here rather than derived from the leaf before,
+    // which the first filled folio of a document has not got.
+    if (!dialog.filled().isEmpty()) {
+        if (TranscribedPage *page = mutablePage()) {
+            page->fillStartVerse = dialog.startVerse();
+            page->fillStartWord = dialog.startWord();
+        }
+    }
+}
+
+void TranscriptionController::continueFill(QPoint folioPixel, const ResumePoint &resume)
+{
+    // Nothing here is a question, so nothing here is a window. The file, the
+    // book, the chapter, the verse and the words the last leaf already holds are
+    // all settled before this is called; the only thing that appears is the
+    // recognition's own progress, which is a two-minute job reporting itself
+    // rather than something being asked. Ctrl+Z is what makes that safe.
+    QString path = m_document.fillSource;
+    if (path.isEmpty() || !QFile::exists(path)) {
+        // Only a transcription written before Milah remembered its source, or
+        // one whose edition has moved. Asked once: accepting this fill records
+        // the answer.
+        path = QFileDialog::getOpenFileName(
+            m_dialogParent,
+            QStringLiteral("Which transcription is this folio carrying on?"),
+            QSettings().value(QStringLiteral("paths/lastOsis")).toString(),
+            QStringLiteral("OSIS files (*.osis *.xml);;All files (*)"));
+        if (path.isEmpty()) {
+            return;
+        }
+        QSettings().setValue(QStringLiteral("paths/lastOsis"), path);
+    }
+
+    QFile file(path);
+    if (!file.open(QIODevice::ReadOnly)) {
+        QMessageBox::warning(
+            m_dialogParent,
+            QStringLiteral("Milah"),
+            QStringLiteral("%1 could not be opened.\n%2")
+                .arg(QFileInfo(path).fileName(), file.errorString()));
+        return;
+    }
+    SourceDocument source;
+    try {
+        source = parseOsis(QString::fromUtf8(file.readAll()), ParseOptions{});
+    } catch (const OsisError &failure) {
+        QMessageBox::warning(m_dialogParent, QStringLiteral("Milah"), failure.message());
+        return;
+    }
+
+    // "JAS.1.25" — the folio's own book code, which the OSIS may spell "Jas".
+    const QString book = resume.verse.section(QLatin1Char('.'), 0, 0);
+    if (bookNamed(source, book).isEmpty()) {
+        QMessageBox::warning(
+            m_dialogParent,
+            QStringLiteral("Milah"),
+            QStringLiteral("%1 does not contain %2, which is the book this folio "
+                           "would be carrying on.")
+                .arg(QFileInfo(path).fileName(), book));
+        return;
+    }
+
+    // Read only now, and only if nothing has: the recognition is the slow part
+    // and a folio already read must not be read again.
+    if (!canFillFromOsis()) {
+        transcribeFolio();
+        if (!canFillFromOsis()) {
+            // Cancelled, or nothing came back. Said rather than silently doing
+            // nothing, which would read as the menu entry being broken.
+            setMessage(QStringLiteral("Nothing was read off this folio, so there are "
+                                      "no lines to lay the transcription into."));
+            return;
+        }
+    }
+
+    const TranscribedPage *page = currentPage();
+    if (!page) {
+        return;
+    }
+
+    // The folio's lines, and how many words the recogniser found on each — the
+    // same counts the window starts from before anybody nudges them. Marginalia
+    // are not among them: a note beside the text is not a slot for a word of the
+    // work, and pouring into one shifts everything after it by one.
+    const QMap<int, QList<QRect>> lines = fillableLines(*page);
+    QList<TranscribedWord> words;
+    for (const TranscribedVerse &verse : page->verses) {
+        words += verse.words;
+    }
+    if (lines.isEmpty()) {
+        return;
+    }
+
+    const QList<int> lineIndices = lines.keys();
+    QList<int> counts;
+    for (const int line : lineIndices) {
+        counts.append(int(lines.value(line).size()));
+    }
+
+    // Where the transcriber pointed, resolved now that there are lines to
+    // resolve it against.
+    int startLine = 0;
+    const int pointed = folioPixel.isNull() ? -1 : lineAtPoint(words, folioPixel);
+    if (pointed >= 0) {
+        startLine = std::max(0, int(lineIndices.indexOf(pointed)));
+    }
+
+    const Passage passage = gatherPassage(
+        source,
+        book,
+        resume.verse.section(QLatin1Char('.'), 1, 1).toInt(),
+        resume.verse.section(QLatin1Char('.'), 2, 2).toInt(),
+        resume.word);
+    if (passage.isEmpty()) {
+        setMessage(
+            QStringLiteral("%1 has no more text after %2 — the book ends there.")
+                .arg(QFileInfo(path).fileName(), resume.verse));
+        return;
+    }
+
+    QList<FilledLine> filled;
+    QStringList wordVerses;
+    for (const LineFill::Laid &laid :
+         LineFill::layOut(counts, startLine, 0, int(passage.words.size()))) {
+        FilledLine line;
+        line.index = lineIndices.at(laid.line);
+        line.words = passage.words.mid(laid.from, laid.count);
+        line.boxes = LineFill::place(lines.value(line.index), laid.count);
+        if (line.boxes.size() != line.words.size()) {
+            continue;
+        }
+        wordVerses += passage.verses.mid(laid.from, laid.count);
+        filled.append(line);
+    }
+    if (filled.isEmpty()) {
+        return;
+    }
+
+    const QString range = QStringLiteral("%1 – %2")
+                              .arg(wordVerses.first(), wordVerses.last());
+    applyFill(filled, wordVerses, path, range);
+    // The same record the window's fill keeps: where this leaf's text starts.
+    if (TranscribedPage *page = mutablePage()) {
+        page->fillStartVerse = resume.verse;
+        page->fillStartWord = resume.word;
+    }
+}
+
+void TranscriptionController::applyFill(
+    const QList<FilledLine> &filled,
+    const QStringList &verses,
+    const QString &sourcePath,
+    const QString &range,
+    bool standalone)
+{
+    if (filled.isEmpty() || !currentPage()) {
+        return;
+    }
+
+    // Which lines the fill covers, so everything else is left exactly as it is —
+    // the end of the book before it above, and whatever follows below.
+    QSet<int> covered;
+    for (const FilledLine &line : filled) {
+        covered.insert(line.index);
+    }
+
+    // A re-flow is part of the step that asked for it — marking a box — and
+    // pushes no undo of its own, so Ctrl+Z takes back the mark and the flow
+    // together rather than one at a time.
+    if (standalone) {
+        pushUndo();
+    }
+    TranscribedPage *target = mutablePage();
+
+    // Rebuilt rather than overwritten in place: a line can come out with more
+    // words than the recogniser found on it, which is the whole point, and a
+    // word that was never there cannot be assigned to.
+    // What the machine read where, so a poured word can carry it. Keyed by the
+    // box it was read at; a word poured onto a piece of a box that place() cut
+    // into columns takes the reading of the box it was cut from, since a piece
+    // was never separately read.
+    QList<QPair<QRect, QString>> readings;
+    for (const TranscribedVerse &verse : target->verses) {
+        for (const TranscribedWord &word : verse.words) {
+            if (!word.box.isNull() && !word.recognised.isEmpty()) {
+                readings.append({word.box, word.recognised});
+            }
+        }
+    }
+    const auto readingAt = [&readings](const QRect &box) {
+        for (const QPair<QRect, QString> &known : readings) {
+            if (known.first.contains(box.center())) {
+                return known.second;
+            }
+        }
+        return QString();
+    };
+
+    QList<TranscribedWord> before;
+    QList<TranscribedWord> after;
+    // Marginalia standing on a line the fill covers, kept aside to be woven back
+    // into it. The pour was laid out around them, so they keep their place.
+    QMap<int, QList<TranscribedWord>> heldOut;
+    bool passed = false;
+    for (const TranscribedVerse &verse : target->verses) {
+        for (const TranscribedWord &word : verse.words) {
+            if (covered.contains(word.line)) {
+                passed = true;
+                if (word.marginal) {
+                    heldOut[word.line].append(word);
+                }
+                continue;
+            }
+            (passed ? after : before).append(word);
+        }
+    }
+
+    QList<TranscribedWord> poured;
+    // The verse each poured word belongs to, built alongside rather than by
+    // index into `verses`: the marginalia woven in below have no verse of their
+    // own and would otherwise put every word after them one out.
+    QStringList pouredVerses;
+    int at = 0;
+    for (const FilledLine &line : filled) {
+        QList<TranscribedWord> row;
+        QStringList rowVerses;
+        for (int index = 0; index < line.words.size(); ++index) {
+            TranscribedWord word;
+            word.hebrew = line.words.at(index);
+            word.english = suggestedGloss(word.hebrew);
+            word.box = line.boxes.at(index);
+            word.line = line.index;
+            word.recognised = readingAt(word.box);
+            // Still nobody's reading. A better machine than the recogniser put
+            // these words here, but a machine — and unchecked is exactly the
+            // record of that.
+            word.unchecked = true;
+            row.append(word);
+            rowVerses.append(at < verses.size() ? verses.at(at) : QString());
+            ++at;
+        }
+
+        // Back into reading order, which is what the boxes say. Sorted rather
+        // than appended: a note in the middle of a line belongs in the middle of
+        // it, and a line whose words arrive out of order groups as two lines in
+        // the training export rather than one.
+        const QList<TranscribedWord> notes = heldOut.value(line.index);
+        for (const TranscribedWord &note : notes) {
+            QList<QRect> boxes;
+            for (const TranscribedWord &word : row) {
+                boxes.append(word.box);
+            }
+            const bool rightToLeft =
+                LineFill::directionOf(boxes) == LineFill::Direction::RightToLeft;
+            int place = int(row.size());
+            for (int index = 0; index < row.size(); ++index) {
+                const bool after = rightToLeft ? note.box.left() > row.at(index).box.left()
+                                               : note.box.left() < row.at(index).box.left();
+                if (after) {
+                    place = index;
+                    break;
+                }
+            }
+            row.insert(place, note);
+            // A note is not a word of any verse, so it takes the verse of what
+            // it stands beside — which keeps the verses of this line contiguous.
+            rowVerses.insert(
+                place,
+                rowVerses.isEmpty()
+                    ? QString()
+                    : rowVerses.at(std::clamp(place, 0, int(rowVerses.size()) - 1)));
+        }
+
+        poured += row;
+        pouredVerses += rowVerses;
+    }
+
+    // One verse per verse of the source, so the folio comes out numbered the way
+    // the published transcription is rather than as one undivided block.
+    //
+    // **And carrying the chapters with it.** The id says which chapter each
+    // verse is in, and this used to take only the number off the end of it — so
+    // a leaf running from Jas 1:25 into chapter 2 laid its verses down as 1, 2,
+    // 3 *inside chapter 1*, and chapterOfVerse() agreed. The verse numbers on
+    // screen were then wrong for every leaf after the first chapter break, and
+    // so was every id built from them — including the one the next folio
+    // resumes at.
+    QList<TranscribedVerse> rebuilt;
+    if (!before.isEmpty()) {
+        TranscribedVerse kept;
+        kept.words = before;
+        rebuilt.append(kept);
+    }
+    // What the kept words above are in, so a break is written only where the
+    // chapter really changes.
+    int chapter = before.isEmpty() ? 0 : chapterOfVerse(*target, 0);
+    for (int index = 0; index < poured.size(); ++index) {
+        const QString id = index < pouredVerses.size() ? pouredVerses.at(index) : QString();
+        const QString number = id.section(QLatin1Char('.'), 2, 2);
+        const int itsChapter = id.section(QLatin1Char('.'), 1, 1).toInt();
+        if (rebuilt.isEmpty() || (!before.isEmpty() && rebuilt.size() == 1)
+            || rebuilt.last().number != number) {
+            TranscribedVerse opened;
+            opened.number = number;
+            if (itsChapter > 0 && chapter > 0 && itsChapter != chapter) {
+                opened.startsNewChapter = true;
+            }
+            rebuilt.append(opened);
+        }
+        if (itsChapter > 0) {
+            chapter = itsChapter;
+        }
+        rebuilt.last().words.append(poured.at(index));
+    }
+    if (!after.isEmpty()) {
+        TranscribedVerse rest;
+        rest.words = after;
+        rebuilt.append(rest);
+    }
+    target->verses = rebuilt;
+
+    // Where the pour starts the leaf, the leaf opens in the chapter the pour
+    // does. Where words are kept above it they carry the page's existing
+    // chapter, and rewriting it under them would move them to a chapter they
+    // were never in.
+    if (before.isEmpty() && !verses.isEmpty()) {
+        const int first = verses.first().section(QLatin1Char('.'), 1, 1).toInt();
+        if (first > 0) {
+            target->firstChapter = first;
+        }
+    }
+
+    // Still written, because it records what this fill did and the message below
+    // reports it — but no longer what the next folio trusts. That reads the leaf
+    // itself, so a correction made afterwards moves the resume with it. See
+    // resumeFill().
+    // Where the pour began, so a re-flow can count its way from there. Only a
+    // fill in its own right sets it: a re-flow starts partway down and must not
+    // move the mark it counted from, or the next one would count from there.
+    if (standalone) {
+        target->fillStartLine = filled.first().index;
+    }
+    target->fillEndVerse = verses.isEmpty() ? QString() : verses.last();
+    target->fillEndWord = 0;
+    for (int index = verses.size() - 1;
+         index >= 0 && verses.at(index) == target->fillEndVerse;
+         --index) {
+        ++target->fillEndWord;
+    }
+    // On the document rather than the folio: one transcription is filled from
+    // one published edition, and the next leaf should not have to find it again.
+    m_document.fillSource = sourcePath;
+
+    ensureTypingRoom();
+    m_selectedVerse = -1;
+    m_selectedColumn = -1;
+    setDirty(true);
+    emit versesChanged();
+    emit selectionChanged();
+
+    setMessage(
+        standalone
+            ? QStringLiteral("Filled %1 word(s)%2. None has been checked — walk the "
+                             "folio and confirm the lines. Ctrl+Z puts it back.")
+                  .arg(poured.size())
+                  .arg(range.isEmpty() ? QString()
+                                       : QStringLiteral(" from %1").arg(range))
+            : QStringLiteral("Held that box out of the text and laid the %1 word(s) "
+                             "below it again. Ctrl+Z puts it back.")
+                  .arg(poured.size()));
+}
+
+void TranscriptionController::showTraining()
+{
+    HtrTrainingDialog dialog(&kraken(), m_dialogParent);
+    dialog.exec();
+    // A model may have arrived, which the Transcribe button's tooltip and the
+    // model menus all read from settings.
+    emit documentChanged();
+}
+
 void TranscriptionController::showLastRecognition()
 {
     HtrLastRunDialog dialog(m_dialogParent);
@@ -1153,8 +1812,12 @@ void TranscriptionController::removeKraken()
     emit documentChanged();
 }
 
-void TranscriptionController::transcribeFolio()
+void TranscriptionController::transcribeFolio(QWidget *over)
 {
+    // Whatever window is in front. The fill dialog passes itself, because
+    // QDialog::exec() is application-modal and a progress dialog parented
+    // behind it would never see a mouse.
+    QWidget *const front = over ? over : m_dialogParent;
     const TranscribedPage *page = currentPage();
     if (!page) {
         setMessage(QStringLiteral("Open a folio before transcribing it."));
@@ -1178,13 +1841,13 @@ void TranscriptionController::transcribeFolio()
     if (state == KrakenEnvironment::State::NoSubsystem
         || state == KrakenEnvironment::State::AwaitingRestart
         || state == KrakenEnvironment::State::NotInstalled) {
-        HtrSetupDialog setup(&kraken(), m_dialogParent);
+        HtrSetupDialog setup(&kraken(), front);
         setup.exec();
         state = kraken().refresh();
     }
 
     if (state == KrakenEnvironment::State::NoModel) {
-        HtrModelsDialog models(&kraken(), m_dialogParent);
+        HtrModelsDialog models(&kraken(), front);
         models.exec();
         state = kraken().refresh();
     }
@@ -1229,7 +1892,7 @@ void TranscriptionController::transcribeFolio()
     QFile image(imagePath);
     if (!image.open(QIODevice::WriteOnly) || image.write(bytes) != bytes.size()) {
         QMessageBox::warning(
-            m_dialogParent,
+            front,
             QStringLiteral("Milah"),
             QStringLiteral("The folio could not be written out for the "
                            "recogniser.\n\n%1\n%2")
@@ -1245,7 +1908,7 @@ void TranscriptionController::transcribeFolio()
     // and it turns a silent two-minute failure into a sentence.
     if (!QFileInfo::exists(imagePath)) {
         QMessageBox::warning(
-            m_dialogParent,
+            front,
             QStringLiteral("Milah"),
             QStringLiteral("The folio was written out, but not under the name "
                            "the recogniser would be given.\n\n%1")
@@ -1279,7 +1942,7 @@ void TranscriptionController::transcribeFolio()
         QStringLiteral("Cancel"),
         0,
         0,
-        m_dialogParent);
+        front);
     progress.setWindowTitle(QStringLiteral("Milah"));
     progress.setWindowModality(Qt::WindowModal);
     progress.setMinimumDuration(0);
@@ -1328,7 +1991,7 @@ void TranscriptionController::transcribeFolio()
     recogniser.start(program, command);
     if (!recogniser.waitForStarted(15000)) {
         QMessageBox::warning(
-            m_dialogParent,
+            front,
             QStringLiteral("Milah"),
             QStringLiteral("Kraken could not be started.\n\n%1\n%2")
                 .arg(program, recogniser.errorString()));
@@ -1375,7 +2038,7 @@ void TranscriptionController::transcribeFolio()
         if (transcript.contains(QLatin1String("No loader found"))
             || transcript.contains(QLatin1String("not in model registry"))) {
             QMessageBox::warning(
-                m_dialogParent,
+                front,
                 QStringLiteral("Milah"),
                 QStringLiteral(
                     "Kraken cannot load the model it was given — it is a model "
@@ -1386,7 +2049,7 @@ void TranscriptionController::transcribeFolio()
             return;
         }
         QMessageBox::warning(
-            m_dialogParent,
+            front,
             QStringLiteral("Milah"),
             QStringLiteral("Kraken could not read this folio.\n\n%1")
                 .arg(transcript.trimmed().isEmpty()
@@ -1398,7 +2061,7 @@ void TranscriptionController::transcribeFolio()
     QFile alto(altoPath);
     if (!alto.open(QIODevice::ReadOnly)) {
         QMessageBox::warning(
-            m_dialogParent,
+            front,
             QStringLiteral("Milah"),
             QStringLiteral("Kraken finished but wrote no layout file.\n\n%1\n%2")
                 .arg(altoPath, alto.errorString()));
@@ -1408,7 +2071,7 @@ void TranscriptionController::transcribeFolio()
     QString error;
     const RecognisedPage recognised = parseRecognisedPage(alto.readAll(), &error);
     if (!error.isEmpty()) {
-        QMessageBox::warning(m_dialogParent, QStringLiteral("Milah"), error);
+        QMessageBox::warning(front, QStringLiteral("Milah"), error);
         return;
     }
 
@@ -1477,7 +2140,11 @@ TranscriptionController::Exportable TranscriptionController::exportable() const
     // one function and cannot drift apart.
     Exportable out;
 
-    for (const TranscribedPage &page : m_document.pages) {
+    // The marginalia come out of the running text and go in as notes on the
+    // lines they stand beside: they are on the leaf, but they are not words of
+    // any verse of the work.
+    const TranscriptionDocument document = withoutMarginalia(m_document);
+    for (const TranscribedPage &page : document.pages) {
         for (int index = 0; index < page.verses.size(); ++index) {
             const TranscribedVerse &verse = page.verses.at(index);
             const QString id = transcribedVerseId(page, index);
@@ -1667,7 +2334,11 @@ void TranscriptionController::exportWord()
         return;
     }
 
-    const DocxDocument reading = readingWordDocument(m_document);
+    // The same projection the OSIS export goes through: marginalia are notes on
+    // the lines they stand beside, not words of the running text.
+    const TranscriptionDocument document = withoutMarginalia(m_document);
+
+    const DocxDocument reading = readingWordDocument(document);
     if (reading.blocks.isEmpty()) {
         QMessageBox::warning(
             m_dialogParent,
@@ -1706,7 +2377,7 @@ void TranscriptionController::exportWord()
         setMessage(error);
         return;
     }
-    if (!writeDocx(interlinearPath, interlinearWordDocument(m_document), &error)) {
+    if (!writeDocx(interlinearPath, interlinearWordDocument(document), &error)) {
         QMessageBox::warning(m_dialogParent, QStringLiteral("Milah"), error);
         setMessage(error);
         return;
@@ -1714,7 +2385,7 @@ void TranscriptionController::exportWord()
 
     QSettings().setValue(QStringLiteral("paths/lastDirectory"), chosen.absolutePath());
 
-    const int unnamed = unnamedVerseCount(m_document);
+    const int unnamed = unnamedVerseCount(document);
     const QString notice = unnamed == 0
         ? QString()
         : QStringLiteral(" %1 %2 no book, chapter and number between them, and "
@@ -2120,6 +2791,265 @@ void TranscriptionController::pasteAt(int verse, int column, const QString &text
     setDirty(true);
     emit versesChanged();
     emit selectionChanged();
+}
+
+void TranscriptionController::setLineBreak(int verse, int column, bool endsLine)
+{
+    if (!isValid(verse, column)) {
+        return;
+    }
+    TranscribedPage *page = mutablePage();
+    TranscribedWord &word = page->verses[verse].words[column];
+    if (word.endsLine == endsLine) {
+        return;
+    }
+    pushUndo();
+    word.endsLine = endsLine;
+    setDirty(true);
+    // Nothing on screen shows a break — the grid's bands are Milah's own
+    // wrapping and have nothing to do with the folio's lines, so drawing one
+    // there would say something untrue. What changes is the count of finished
+    // lines, which the Save this folio entry reads when its menu opens.
+    emit versesChanged();
+}
+
+void TranscriptionController::setMarginal(int verse, int column, bool marginal)
+{
+    if (!isValid(verse, column)) {
+        return;
+    }
+    TranscribedPage *page = mutablePage();
+    TranscribedWord &word = page->verses[verse].words[column];
+    if (word.marginal == marginal) {
+        return;
+    }
+    const int line = word.line;
+    // Attempted whenever this transcription was filled from somewhere and the
+    // box is on a line at or below where the pour began. A folio with no
+    // recorded start line is attempted too, and reflowFrom() says why it cannot
+    // — silence there was the whole of the last complaint.
+    const bool poured = !m_document.fillSource.isEmpty() && line >= 0
+        && (page->fillStartLine < 0 || line >= page->fillStartLine);
+
+    // Asked before anything is done, because the answer decides whether to do
+    // any of it — and because a folio somebody has walked through should not
+    // lose that work to a menu tick.
+    if (poured && hasCheckedWordsFrom(line)) {
+        const auto answer = QMessageBox::question(
+            m_dialogParent,
+            QStringLiteral("Milah"),
+            QStringLiteral(
+                "Holding this box out moves every word below it up one place, so "
+                "the lines from here down are laid again from the transcription — "
+                "and some of them you have already checked.<p>Your readings on "
+                "those lines will be replaced. Ctrl+Z puts everything back.</p>"),
+            QMessageBox::Yes | QMessageBox::Cancel,
+            QMessageBox::Cancel);
+        if (answer != QMessageBox::Yes) {
+            return;
+        }
+    }
+
+    // One step for the whole of it: the mark, the reading that comes back, and
+    // the re-flow. Ctrl+Z is one press because it was one decision.
+    pushUndo();
+    word.marginal = marginal;
+    if (marginal && !word.recognised.isEmpty()) {
+        // The word of the work that was poured here belongs further down the
+        // passage; what belongs here is what the machine read.
+        word.hebrew = word.recognised;
+        word.english = suggestedGloss(word.hebrew);
+        word.englishIsOwn = false;
+        word.unchecked = true;
+    }
+    setDirty(true);
+
+    if (poured) {
+        // Laid again from this line to the foot of the leaf, so the word taken
+        // off the note is given back to the passage. Everything above is left
+        // exactly as it is, corrections included.
+        reflowFrom(line);
+    }
+
+    // The overlay draws a held-out box differently, and the fill counts one line
+    // shorter, so both have to hear about it.
+    emit versesChanged();
+}
+
+bool TranscriptionController::hasCheckedWordsFrom(int line) const
+{
+    const TranscribedPage *page = currentPage();
+    if (!page) {
+        return false;
+    }
+    for (const TranscribedVerse &verse : page->verses) {
+        for (const TranscribedWord &word : verse.words) {
+            if (word.line >= line && !word.marginal && !word.unchecked
+                && !word.hebrew.isEmpty()) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+void TranscriptionController::reflowFrom(int line)
+{
+    const TranscribedPage *page = currentPage();
+    if (!page) {
+        return;
+    }
+
+    QFile file(m_document.fillSource);
+    if (!file.open(QIODevice::ReadOnly)) {
+        // The edition has moved since the fill. The mark stands — it is a
+        // statement about the folio — but nothing can be laid again without it.
+        setMessage(QStringLiteral("%1 could not be re-opened, so the text below "
+                                  "was left as it is.")
+                       .arg(QFileInfo(m_document.fillSource).fileName()));
+        return;
+    }
+    SourceDocument source;
+    try {
+        source = parseOsis(QString::fromUtf8(file.readAll()), ParseOptions{});
+    } catch (const OsisError &failure) {
+        setMessage(QStringLiteral("Held that box out, but %1 could not be read, so "
+                                  "the text below was left as it is. %2")
+                       .arg(QFileInfo(m_document.fillSource).fileName(),
+                            failure.message()));
+        return;
+    }
+
+    // This folio's own record first. The leaf before it is only a fallback, and
+    // only ever answered for a continuation — the first filled folio of a
+    // document has nothing behind it, which is why this used to do nothing at
+    // all and say nothing about it.
+    QString startVerse = page->fillStartVerse;
+    int startWord = page->fillStartWord;
+    if (startVerse.isEmpty() || startWord < 0) {
+        const ResumePoint resume = resumePoint();
+        startVerse = resume.verse;
+        startWord = resume.word;
+    }
+    if (startVerse.isEmpty() || startWord < 0) {
+        setMessage(QStringLiteral(
+            "Held that box out. This folio was filled before Milah recorded where "
+            "its text began, so the words below were not laid again — fill it "
+            "again to re-flow them."));
+        return;
+    }
+
+    // Where this folio began, plus everything already standing above the line
+    // being laid again.
+    const Passage passage = gatherPassage(
+        source,
+        startVerse.section(QLatin1Char('.'), 0, 0),
+        startVerse.section(QLatin1Char('.'), 1, 1).toInt(),
+        startVerse.section(QLatin1Char('.'), 2, 2).toInt(),
+        startWord + pouredWordsBefore(*page, line));
+    if (passage.isEmpty()) {
+        setMessage(QStringLiteral("Held that box out. The transcription has no more "
+                                  "text after this point, so nothing was laid again."));
+        return;
+    }
+
+    const QMap<int, QList<QRect>> lines = fillableLines(*page);
+    QList<int> indices;
+    QList<int> counts;
+    for (auto entry = lines.constBegin(); entry != lines.constEnd(); ++entry) {
+        if (entry.key() < line) {
+            continue;
+        }
+        indices.append(entry.key());
+        counts.append(int(entry.value().size()));
+    }
+    if (indices.isEmpty()) {
+        // The marked box was the only thing left on the last line of the folio.
+        setMessage(QStringLiteral("Held that box out. There is nothing below it on "
+                                  "this folio to lay again."));
+        return;
+    }
+
+    QList<FilledLine> filled;
+    QStringList wordVerses;
+    for (const LineFill::Laid &laid :
+         LineFill::layOut(counts, 0, 0, int(passage.words.size()))) {
+        FilledLine row;
+        row.index = indices.at(laid.line);
+        row.words = passage.words.mid(laid.from, laid.count);
+        row.boxes = LineFill::place(lines.value(row.index), laid.count);
+        if (row.boxes.size() != row.words.size()) {
+            continue;
+        }
+        wordVerses += passage.verses.mid(laid.from, laid.count);
+        filled.append(row);
+    }
+    if (filled.isEmpty()) {
+        setMessage(QStringLiteral("Held that box out, but nothing could be laid into "
+                                  "the lines below it."));
+        return;
+    }
+
+    // Through the same path a fill goes through, so the two cannot come out
+    // differently. It pushes no undo of its own — this is one step.
+    applyFill(filled, wordVerses, m_document.fillSource, QString(), false);
+}
+
+bool TranscriptionController::wordAt(const QRect &box, int *verse, int *column) const
+{
+    const TranscribedPage *page = currentPage();
+    if (!page || box.isNull()) {
+        return false;
+    }
+    // By its box, because the callers are the folio's own right-click and what
+    // it has is a place on the picture. A recogniser's boxes are distinct, so a
+    // box names a word.
+    for (int index = 0; index < page->verses.size(); ++index) {
+        const QList<TranscribedWord> &words = page->verses.at(index).words;
+        for (int at = 0; at < words.size(); ++at) {
+            if (words.at(at).box == box) {
+                *verse = index;
+                *column = at;
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+bool TranscriptionController::setMarginalAt(const QRect &box, bool marginal)
+{
+    int verse = -1;
+    int column = -1;
+    if (!wordAt(box, &verse, &column)) {
+        return false;
+    }
+    setMarginal(verse, column, marginal);
+    return true;
+}
+
+QString TranscriptionController::wordTextAt(const QRect &box) const
+{
+    int verse = -1;
+    int column = -1;
+    if (!wordAt(box, &verse, &column)) {
+        return QString();
+    }
+    return currentPage()->verses.at(verse).words.at(column).hebrew;
+}
+
+bool TranscriptionController::setWordAt(const QRect &box, const QString &hebrew)
+{
+    int verse = -1;
+    int column = -1;
+    if (!wordAt(box, &verse, &column)) {
+        return false;
+    }
+    // The same path the grid commits by, so a word corrected on the picture and
+    // one corrected in the text cannot come to mean different things — including
+    // that editing it is what counts as checking it.
+    setWord(verse, column, hebrew);
+    return true;
 }
 
 void TranscriptionController::setNote(int verse, int column, const QString &note)
