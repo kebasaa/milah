@@ -30,6 +30,10 @@ struct FolioLine
     int index = 0;
     /// Its word boxes, in reading order.
     QList<QRect> boxes;
+    /// How many words a fill lays here before anybody nudges it: the box count,
+    /// or what the transcriber has already said this line of the leaf holds.
+    /// See LineFill's wordCounts().
+    int words = 0;
     /// What the recogniser read there — shown for the lines the fill leaves
     /// alone, so the start line can be found against the picture.
     QString read;

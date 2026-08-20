@@ -222,6 +222,8 @@ qt_add_resources(Milah "milah_icons"
     PREFIX "/"
     FILES
         img/milah.png
+        img/icons/boxes-line.svg
+        img/icons/boxes-word.svg
         img/icons/document-open.svg
         img/icons/document-save.svg
         img/icons/document-save-as.svg

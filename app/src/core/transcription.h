@@ -133,6 +133,8 @@ struct TranscribedLine
     int index = 0;
     QList<QPoint> baseline;
     QList<QPoint> boundary;
+
+    bool operator==(const TranscribedLine &) const = default;
 };
 
 struct TranscribedVerse
@@ -215,6 +217,23 @@ struct TranscribedPage
     /// What the recogniser drew for each line of this folio, in the folio
     /// image's own pixels -- the same space the word boxes are in.
     QList<TranscribedLine> lines;
+    /// How many words of the poured text each line takes, where the transcriber
+    /// has said, keyed by line. Absent for a line nothing has been said about,
+    /// which is nearly all of them.
+    ///
+    /// **The box count is a guess and this is the correction.** A line takes as
+    /// many words as the recogniser drew boxes on it, and on a rapid cursive
+    /// that count is not the word count: the segmenter splits one word into two
+    /// boxes as readily as it runs two into one. Where it over-segments, the
+    /// pour lays more words on the line than the manuscript holds and every word
+    /// below is one place out for the rest of the leaf.
+    ///
+    /// Not TranscribedWord::endsLine, which is a different claim and must stay
+    /// one. That says where a *manuscript* line ends inside one thing the
+    /// segmenter drew, splits the training strip, and moves no text — those
+    /// words are already on the right boxes. This says the boxes hold fewer
+    /// words than were poured onto them, and the surplus belongs further down.
+    QMap<int, int> lineWords;
     QList<TranscribedVerse> verses;
 };
 

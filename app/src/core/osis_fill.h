@@ -58,6 +58,15 @@ QString bookNamed(const SourceDocument &source, const QString &book);
 /// a chapter break as readily as not, and stopping at one would leave the bottom
 /// of the leaf empty for no reason the manuscript knows about.
 ///
+/// **The verse numbers the scribe wrote are words of the passage.** In a
+/// manuscript that numbers its verses in the running text, as Oo.1.32 does with
+/// Arabic digits, the segmenter finds a box for each numeral, and a pour that
+/// walks past them lays the verse's first word onto the number's box and puts
+/// every word after it one place out for the rest of the leaf. So a verse opens
+/// with its own number, taken from the OSIS `n=` attribute — except the first
+/// verse of a chapter, which these manuscripts leave unnumbered, and a verse the
+/// edition prints with no text at all.
+///
 /// `skip` is how many words of `firstVerse` the folio before this one already
 /// holds, because a leaf ends mid-verse far more often than not. A skip past the
 /// end of the passage gives nothing rather than reading off the end of it.

@@ -262,6 +262,47 @@ still unchecked are outlined with a dashed box. A finished recognition opens the
 overlay itself, since checking a reading against the ink is what happens next;
 shut it again and it stays shut until the next one.
 
+Beside the eye is a switch between **word boxes** and **line boxes**. Word boxes
+are what it opens with, and they answer where each reading landed. Line boxes
+answer the other question: what the recogniser thought a *line* was. It draws
+one box per line — the segmenter's own outline where the folio has it, the
+rectangle round the line's words where it does not — with the line's number and
+the baseline the training strip is cut along faint underneath, and **the line's
+whole reading written underneath the ink it was laid onto**, nothing behind it,
+so the words and the writing can be read against each other.
+
+This is worth looking at because the line, not the word, is what a recogniser
+trains on: it cuts a strip by straightening the ink along that baseline and
+masking away everything outside that outline. On a hand it was not trained for,
+the grouping is where it goes wrong — two lines of the manuscript run into one
+detection, or one line cut into two — and none of that shows in the word boxes,
+because each box looks right on its own.
+
+Reading the words against the ink is also how you find out that the line is the
+wrong *length*. A line takes as many words as the recogniser drew boxes on it,
+and on a rapid cursive that count is not the word count — it splits one word into
+two boxes as readily as it runs two words into one, and either way every word
+below is one place out for the rest of the leaf. So click a word, in the reading
+or on its box, and say so:
+
+| | |
+|---|---|
+| **Enter** | The line ends **before** this word. The rest of it moves down, and the lines below are laid again. |
+| **Backspace** | With the first word of a line selected, pulls it up onto the line above — one word a press. |
+| **← →** | Back and forward along the reading, in reading order. A line too crowded to write out in full is still walked this way. |
+| **Escape** | Drop the selection. |
+
+The caret beside the selected word shows which side the break falls on. What no
+longer fits at the foot of the leaf is not lost: the folio's recorded end point
+moves back with it, so the next folio's **Continue from the previous
+transcription** begins exactly there, and Milah says how many words went. Ctrl+Z
+takes a break and the whole re-flow back in one press.
+
+What a line holds is remembered on the folio, so a re-flow started somewhere
+above it does not throw the answer away — and it outlives the fill that prompted
+it, because how many words the scribe wrote on a line is a fact about the leaf
+rather than about which transcription was poured onto it.
+
 The first time Transcribe is pressed, Milah asks before it installs anything:
 
 > Install WSL2 and Kraken to automatically attempt transcriptions?
@@ -508,6 +549,26 @@ the line and puts **everything below it one place late for the rest of the
 folio**. That was the whole of the drift on 158r: read word by word against the
 source, the pour agreed for 95 words and then diverged exactly once, there.
 
+**A verse number is a word.** Oo.1.32 writes its verse numbers into the running
+text as Arabic digits — `2:`, `3:` … `20:` — so the segmenter finds a box for
+each, and a pour that walked past them laid the verse's first word onto the
+numeral's box and put everything after it one place out for the rest of the leaf.
+The same fault as the maqqef, in a third disguise. So each verse opens with its
+own number, taken from the OSIS `n=` attribute.
+
+Two exceptions, both read off the leaves themselves. **Verse 1 carries no
+numeral**: James opens `יעקב עבד ה` with nothing before it, and after the `פרק`
+heading on 159r the next chapter opens the same way — a number tells a verse
+apart from the one before it, and the first verse of a chapter has nothing to be
+told apart from. And **a verse the edition prints empty gets none either**, since
+a number on the leaf for a verse that is not on it takes a box from the verse
+that is; this edition prints Jas 1:21 with no text because the manuscript has
+none.
+
+The colon written beside the digit is not poured. The OSIS does not record it —
+a verse's text begins at its first word — and inventing a character for ground
+truth is worse than leaving a box to type into.
+
 **The OSIS says nothing about folios** — its elements are verse, chapter, note
 and div, with no page mark of any kind — so where on the leaf the text begins is
 the one thing you have to supply. Milah tried to work it out, sliding the
@@ -570,10 +631,29 @@ keeps it, Escape abandons it, clicking away keeps it. It commits by the same
 path the text grid does, so a word corrected on the picture and one corrected in
 the text mean the same thing, including that correcting it is what checks it.
 
-**Where the recogniser got a line wrong**, right-click a word and mark **Line
-break after this word**. It says the manuscript's line ends there, splitting one
-recognised line in two. It is for training and reaches nothing else: OSIS and
-Word carry a text, not a page.
+**Where the recogniser got a line wrong**, right-click it on the folio. The
+segmenter fails in two directions and there is an entry for each:
+
+- **The line ends after “…”** — it ran two lines of the manuscript together, and
+  the first of them stops at the word you clicked. The detection is exported as
+  two lines, each with its own strip clipped to its own half.
+- **Join with the line below** — it cut one line of the manuscript in two. The
+  words of the line below come up onto this one and the whole line is laid out
+  again, which is what puts two side-by-side pieces back into a single
+  right-to-left run. The two baselines are joined; the two outlines are given up
+  for the rectangle round the joined line's words, since two separate rings
+  cannot honestly be made into one.
+- **This whole line is not part of the transcribed text** — every word of it
+  held out at once. A margin note or a running header usually has a line to
+  itself, and it is the same mark as the one below, made once instead of nine
+  times.
+
+Both repairs are offered in either view, because the fault is usually noticed in
+the word boxes — where the poured text stops matching the ink — and understood
+in the line boxes. Neither reaches the exports of the *text*: OSIS and Word
+carry a work, not a page. What they change is the training data, and the same
+right-click still carries **Line break after this word** from the text grid,
+which is the same mark under an older name.
 
 ### Marginalia, which the published text does not have
 
@@ -654,7 +734,8 @@ HTR training, Train a model, Install Kraken, Remove Kraken) │ Export to OSIS,
 Export to Word,
 Add to my library, Close Transcription Project │ Quit.
 **Edit:** Undo, Redo │ Move verse to new chapter │ Define word in my dictionary.
-**Toolbar:** Book, " as " acronym, Chapter, ← →, Magnify, Transcribe, eye.
+**Toolbar:** Book, " as " acronym, Chapter, ← →, Magnify, Transcribe, eye,
+word boxes / line boxes.
 
 ### Exports
 

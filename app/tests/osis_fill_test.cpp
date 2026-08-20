@@ -70,7 +70,8 @@ private slots:
     void aPassageRunsToTheEndOfTheBook()
     {
         const Passage passage = gatherPassage(book(), QStringLiteral("JAS"), 1, 1, 0);
-        QCOMPARE(passage.words.size(), 24);
+        // 24 words and the four numerals: verse 1 of each chapter is unnumbered.
+        QCOMPARE(passage.words.size(), 28);
         QCOMPARE(passage.words.first(), QStringLiteral("c1v1w1"));
         QCOMPARE(passage.words.last(), QStringLiteral("c2v3w4"));
         QCOMPARE(passage.verses.first(), QStringLiteral("Jas.1.1"));
@@ -82,13 +83,16 @@ private slots:
     void aPassageStartsAtTheVerseAskedFor()
     {
         const Passage passage = gatherPassage(book(), QStringLiteral("JAS"), 1, 3, 0);
-        QCOMPARE(passage.words.first(), QStringLiteral("c1v3w1"));
-        QCOMPARE(passage.words.size(), 16);
+        // Its numeral first, which is what the scribe wrote first.
+        QCOMPARE(passage.words.first(), QStringLiteral("3"));
+        QCOMPARE(passage.words.at(1), QStringLiteral("c1v3w1"));
+        QCOMPARE(passage.words.size(), 19);
 
         // A verse in the second chapter, reached by naming the chapter.
         const Passage later = gatherPassage(book(), QStringLiteral("JAS"), 2, 2, 0);
-        QCOMPARE(later.words.first(), QStringLiteral("c2v2w1"));
-        QCOMPARE(later.words.size(), 8);
+        QCOMPARE(later.words.first(), QStringLiteral("2"));
+        QCOMPARE(later.words.at(1), QStringLiteral("c2v2w1"));
+        QCOMPARE(later.words.size(), 10);
     }
 
     /// The words the folio before this one already holds are dropped, not
@@ -97,13 +101,16 @@ private slots:
     void theWordsTheLastLeafHoldsAreDropped()
     {
         const Passage passage = gatherPassage(book(), QStringLiteral("JAS"), 1, 2, 3);
-        QCOMPARE(passage.words.first(), QStringLiteral("c1v2w4"));
+        // The numeral and two words gone, so the passage opens on the third.
+        QCOMPARE(passage.words.first(), QStringLiteral("c1v2w3"));
         QCOMPARE(passage.verses.first(), QStringLiteral("Jas.1.2"));
-        QCOMPARE(passage.words.size(), 17);
+        QCOMPARE(passage.words.size(), 21);
 
-        // A whole verse taken: the passage opens on the verse after it.
-        const Passage whole = gatherPassage(book(), QStringLiteral("JAS"), 1, 2, 4);
-        QCOMPARE(whole.words.first(), QStringLiteral("c1v3w1"));
+        // A whole verse taken — its numeral and its four words — so the passage
+        // opens on the numeral of the verse after it.
+        const Passage whole = gatherPassage(book(), QStringLiteral("JAS"), 1, 2, 5);
+        QCOMPARE(whole.words.first(), QStringLiteral("3"));
+        QCOMPARE(whole.words.at(1), QStringLiteral("c1v3w1"));
         QCOMPARE(whole.verses.first(), QStringLiteral("Jas.1.3"));
     }
 
@@ -116,8 +123,9 @@ private slots:
         QVERIFY(passage.isEmpty());
         QVERIFY(passage.verses.isEmpty());
 
-        // And exactly to the end is empty too, not one word over.
-        QVERIFY(gatherPassage(book(), QStringLiteral("JAS"), 2, 3, 4).isEmpty());
+        // And exactly to the end is empty too, not one word over — five here,
+        // the verse's numeral and its four words.
+        QVERIFY(gatherPassage(book(), QStringLiteral("JAS"), 2, 3, 5).isEmpty());
     }
 
     /// A book the source does not hold gives nothing rather than the first book
@@ -216,6 +224,94 @@ private slots:
         QCOMPARE(passage.words.at(0),
                  QString::fromUtf8("\xd7\xa8\xd7\xa2\xd7\x99\xd7\x9d\xd7\x83"));
         QCOMPARE(passage.verses.size(), 2);
+    }
+
+    /// **The verse numbers the scribe wrote are words of the passage.**
+    ///
+    /// Oo.1.32 numbers its verses in the running text, in Arabic digits — `2:`,
+    /// `3:` … `20:` — so the segmenter finds a box for each. A pour that walks
+    /// past them lays the verse's first word onto the numeral's box and puts
+    /// every word after it one place out for the rest of the leaf: the same
+    /// fault as the maqqef and the sof pasuq, in a third disguise.
+    ///
+    /// The number comes from the OSIS `n=` attribute. Where a file omits it,
+    /// core/osis.cpp fills the label in from the verse number itself, so there
+    /// is always one to write.
+    void aVerseOpensWithTheNumberTheScribeWrote()
+    {
+        const SourceDocument source = parseOsis(
+            QStringLiteral(
+                "<?xml version='1.0' encoding='UTF-8'?>"
+                "<osis xmlns='http://www.bibletechnologies.net/2003/OSIS/namespace'>"
+                "<osisText osisIDWork='W' xml:lang='he'><header>"
+                "<work osisWork='W'><title>A witness</title></work></header>"
+                "<div type='book' osisID='Jas'>"
+                "<verse osisID='Jas.1.1' n='1'>alpha beta</verse>"
+                "<verse osisID='Jas.1.2' n='2'>gamma delta</verse>"
+                "<verse osisID='Jas.1.3' n='3'>epsilon</verse>"
+                "</div></osisText></osis>"),
+            ParseOptions{});
+
+        const Passage passage = gatherPassage(source, QStringLiteral("Jas"), 1, 1, 0);
+        const QStringList expected = {
+            QStringLiteral("alpha"),
+            QStringLiteral("beta"),
+            QStringLiteral("2"),
+            QStringLiteral("gamma"),
+            QStringLiteral("delta"),
+            QStringLiteral("3"),
+            QStringLiteral("epsilon"),
+        };
+        QCOMPARE(passage.words, expected);
+        // The numeral belongs to the verse it opens, not the one it follows —
+        // which is what cuts the folio into verses in the right places.
+        QCOMPARE(passage.verses.at(2), QStringLiteral("Jas.1.2"));
+        QCOMPARE(passage.verses.size(), passage.words.size());
+    }
+
+    /// Verse 1 carries no numeral, because the manuscript writes none.
+    ///
+    /// Twice on these folios the numbering starts at 2: James opens `יעקב עבד ה`
+    /// with nothing before it, and after the `פרק` heading on 159r the next
+    /// chapter opens the same way. A number tells a verse apart from the one
+    /// before it, and the first verse of a chapter has nothing to be told apart
+    /// from.
+    void theFirstVerseOfAChapterIsNotNumbered()
+    {
+        const Passage passage = gatherPassage(book(), QStringLiteral("JAS"), 1, 1, 0);
+        QCOMPARE(passage.words.first(), QStringLiteral("c1v1w1"));
+        // And again where the second chapter opens, four words into it.
+        const int opensChapterTwo = passage.words.indexOf(QStringLiteral("c2v1w1"));
+        QVERIFY(opensChapterTwo > 0);
+        QCOMPARE(passage.words.at(opensChapterTwo - 1), QStringLiteral("c1v3w4"));
+    }
+
+    /// A verse the edition prints with no text gets no numeral either. This
+    /// source prints Jas 1:21 empty, because the manuscript has none — and a
+    /// number written onto the leaf for a verse that is not on it would take a
+    /// box from the verse that is.
+    void aVerseWithNoTextGetsNoNumber()
+    {
+        const SourceDocument source = parseOsis(
+            QStringLiteral(
+                "<?xml version='1.0' encoding='UTF-8'?>"
+                "<osis xmlns='http://www.bibletechnologies.net/2003/OSIS/namespace'>"
+                "<osisText osisIDWork='W' xml:lang='he'><header>"
+                "<work osisWork='W'><title>A witness</title></work></header>"
+                "<div type='book' osisID='Jas'>"
+                "<verse osisID='Jas.1.1' n='1'>alpha</verse>"
+                "<verse osisID='Jas.1.2' n='2'></verse>"
+                "<verse osisID='Jas.1.3' n='3'>beta</verse>"
+                "</div></osisText></osis>"),
+            ParseOptions{});
+
+        const Passage passage = gatherPassage(source, QStringLiteral("Jas"), 1, 1, 0);
+        const QStringList expected = {
+            QStringLiteral("alpha"),
+            QStringLiteral("3"),
+            QStringLiteral("beta"),
+        };
+        QCOMPARE(passage.words, expected);
     }
 
     /// One word, one verse id, always — the folio is cut into verses by walking

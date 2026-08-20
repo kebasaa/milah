@@ -80,6 +80,23 @@ QMap<int, QList<QRect>> fillableLines(const TranscribedPage &page)
     return lines;
 }
 
+
+QMap<int, int> wordCounts(const TranscribedPage &page)
+{
+    QMap<int, int> counts;
+    const QMap<int, QList<QRect>> lines = fillableLines(page);
+    for (auto entry = lines.constBegin(); entry != lines.constEnd(); ++entry) {
+        // The transcriber's answer where there is one — including nought, which
+        // says the whole line belongs further down and is not the same as never
+        // having said anything.
+        const auto said = page.lineWords.constFind(entry.key());
+        counts.insert(
+            entry.key(),
+            said != page.lineWords.constEnd() ? *said : int(entry.value().size()));
+    }
+    return counts;
+}
+
 int pouredWordsBefore(const TranscribedPage &page, int line)
 {
     if (page.fillStartLine < 0 || line <= page.fillStartLine) {
@@ -97,6 +114,118 @@ int pouredWordsBefore(const TranscribedPage &page, int line)
         }
     }
     return words;
+}
+
+namespace {
+
+/// Where a run of baseline points lies across the folio, for ordering two of
+/// them. The mean rather than the first point: a segmenter's baseline can start
+/// anywhere along the ink, and one outlying end would decide the order on its
+/// own.
+double meanX(const QList<QPoint> &points)
+{
+    if (points.isEmpty()) {
+        return 0.0;
+    }
+    double total = 0.0;
+    for (const QPoint &point : points) {
+        total += point.x();
+    }
+    return total / points.size();
+}
+
+} // namespace
+
+bool joinLine(TranscribedPage &page, int line)
+{
+    if (line < 0) {
+        return false;
+    }
+
+    // Asked of the words and not of page.lines, because the words are what every
+    // other part of this file groups by, and a folio read before Milah kept the
+    // segmenter's geometry has words with lines and no geometry at all.
+    //
+    // The *next line there is* rather than line + 1. A join leaves the numbering
+    // with a gap in it, and a manuscript line the segmenter cut into three has
+    // to be repairable by joining twice.
+    bool here = false;
+    int next = -1;
+    for (const TranscribedVerse &verse : page.verses) {
+        for (const TranscribedWord &word : verse.words) {
+            if (word.box.isNull()) {
+                continue;
+            }
+            if (word.line == line) {
+                here = true;
+            } else if (word.line > line && (next < 0 || word.line < next)) {
+                next = word.line;
+            }
+        }
+    }
+    if (!here || next < 0) {
+        return false;
+    }
+
+    // The break that used to stand at the seam. Left in place it would be
+    // exported as a cut through the middle of the joined line, which is exactly
+    // what the transcriber has just said is wrong — and the last word of `line`
+    // is the only place it can be, since a break anywhere earlier belongs to a
+    // manuscript line that genuinely ends there.
+    TranscribedWord *lastOfLine = nullptr;
+    for (TranscribedVerse &verse : page.verses) {
+        for (TranscribedWord &word : verse.words) {
+            if (word.line == line && !word.box.isNull()) {
+                lastOfLine = &word;
+            }
+        }
+    }
+    if (lastOfLine) {
+        lastOfLine->endsLine = false;
+    }
+
+    for (TranscribedVerse &verse : page.verses) {
+        for (TranscribedWord &word : verse.words) {
+            if (word.line == next) {
+                word.line = line;
+            }
+        }
+    }
+
+    // The geometry, where the folio has any. Both entries may be missing — an
+    // older file, or an imported ALTO without shapes — and the join is still
+    // worth making; the export falls back to the rectangle round the words.
+    int at = -1;
+    int after = -1;
+    for (int index = 0; index < page.lines.size(); ++index) {
+        if (page.lines.at(index).index == line) {
+            at = index;
+        } else if (page.lines.at(index).index == next) {
+            after = index;
+        }
+    }
+    if (after >= 0) {
+        if (at >= 0) {
+            QList<QPoint> joined;
+            if (meanX(page.lines.at(at).baseline)
+                <= meanX(page.lines.at(after).baseline)) {
+                joined = page.lines.at(at).baseline;
+                joined.append(page.lines.at(after).baseline);
+            } else {
+                joined = page.lines.at(after).baseline;
+                joined.append(page.lines.at(at).baseline);
+            }
+            page.lines[at].baseline = joined;
+            // See the header: dropped rather than stitched.
+            page.lines[at].boundary.clear();
+            page.lines.removeAt(after);
+        } else {
+            page.lines[after].index = line;
+            page.lines[after].boundary.clear();
+        }
+    }
+
+    return true;
 }
 
 namespace LineFill {

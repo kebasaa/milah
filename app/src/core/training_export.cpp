@@ -132,18 +132,28 @@ void writeBox(QXmlStreamWriter &xml, const QRect &box)
 }
 
 /// The points of a line the recogniser drew, scaled and brought inside the
-/// picture, and clipped to the stretch the line's kept words occupy.
+/// picture, and clipped to `clip`.
 ///
-/// The clip is what lets an unread marginal note be trimmed off the end of a
-/// line without squaring the whole line off: the shape still follows the ink,
-/// it simply stops short. Points outside the span are pulled to its edge rather
-/// than dropped, so a boundary stays a closed ring and a baseline keeps its ends.
+/// The clip is what lets one detection be exported as more than one line. Two
+/// cases need it, and they pull in different directions:
+///
+/// - an unread marginal note trimmed off the **end** of a line, where the shape
+///   should still follow the ink and merely stop short;
+/// - a detection the transcriber has cut in two with `endsLine`, because the
+///   segmenter ran two manuscript lines together. Here the two halves are
+///   **stacked**, so a clip in x alone would hand both of them the same polygon
+///   and teach the model a strip with two lines of ink in it.
+///
+/// So both axes are clipped. Points outside are pulled to the edge rather than
+/// dropped, so a boundary stays a closed ring and a baseline keeps its ends.
+/// `clip` is expected to have been grown vertically by the caller: a segmenter's
+/// outline reaches above the word boxes on purpose, round the ascenders, and
+/// squeezing it to their band would shave the very ink the strip is cut for.
 QString pointsInside(
     const QList<QPoint> &points,
     const std::function<QRect(const QRect &)> &scaled,
     const QSize &size,
-    int left,
-    int right)
+    const QRect &clip)
 {
     QStringList parts;
     parts.reserve(points.size() * 2);
@@ -151,8 +161,8 @@ QString pointsInside(
         // Through the same rectangle scaling the boxes go through, so a point
         // and a box that touched on the screen still touch on the master.
         const QRect at = inside(scaled(QRect(point, QSize(1, 1))), size);
-        parts << QString::number(std::clamp(at.x(), left, right))
-              << QString::number(at.y());
+        parts << QString::number(std::clamp(at.x(), clip.left(), clip.right()))
+              << QString::number(std::clamp(at.y(), clip.top(), clip.bottom()));
     }
     return parts.join(QLatin1Char(' '));
 }
@@ -223,6 +233,20 @@ TrainingPage trainingAlto(
 
     const QList<Line> lines = linesOf(page);
 
+    // How many boxed words each detection holds, so an exported line can tell
+    // whether it *is* that detection or only a part of one. Both an unread
+    // marginal note trimmed off an end and a break the transcriber put in with
+    // endsLine leave a group smaller than the detection it came from, and both
+    // mean the segmenter's shape is no longer the shape of what is being taught.
+    QMap<int, int> detectionSize;
+    for (const TranscribedVerse &verse : page.verses) {
+        for (const TranscribedWord &word : verse.words) {
+            if (word.line >= 0 && !word.box.isNull()) {
+                detectionSize[word.line] += 1;
+            }
+        }
+    }
+
     QByteArray document;
     QXmlStreamWriter xml(&document);
     xml.setAutoFormatting(true);
@@ -277,21 +301,30 @@ TrainingPage trainingAlto(
         // Clipped rather than replaced where a marginal word was trimmed off an
         // end, so the shape still follows the ink and merely stops short.
         const TranscribedLine *drawn = drawnLines.value(line.first()->line, nullptr);
-        // Clipped only where a marginal note was actually trimmed off an end.
-        // A line nothing was taken from keeps the shape whole: the segmenter's
-        // outline reaches a little past the word boxes on purpose, round the
-        // ascenders, and squeezing it to their span would shave the very ink
-        // the strip is cut for.
-        const bool trimmed = line.size() != lines.at(index).size();
-        const int left = trimmed ? bounds.left() : 0;
-        const int right = trimmed ? bounds.right() : imageSize.width() - 1;
+        // Clipped only where this line is not the whole of the detection it came
+        // from — a marginal note trimmed off an end, or a break the transcriber
+        // put in with endsLine because the segmenter ran two manuscript lines
+        // together. A line nothing was taken from keeps the shape whole.
+        //
+        // Grown by half its own height before it clips, because the segmenter's
+        // outline reaches past the word boxes on purpose, round the ascenders
+        // and under the descenders, and squeezing it to their band would shave
+        // the very ink the strip is cut for. Two stacked halves therefore still
+        // overlap a little; they are no longer the same shape, which is the
+        // whole of the difference between one usable strip and two useless ones.
+        const bool whole = line.size() == detectionSize.value(line.first()->line);
+        const QRect clip =
+            whole ? QRect(QPoint(0, 0), imageSize)
+                  : inside(
+                        bounds.adjusted(0, -bounds.height() / 2, 0, bounds.height() / 2),
+                        imageSize);
         const QString baseline =
             drawn && drawn->baseline.size() >= 2
-                ? pointsInside(drawn->baseline, scaled, imageSize, left, right)
+                ? pointsInside(drawn->baseline, scaled, imageSize, clip)
                 : baselineOf(bounds);
         const QString outline =
             drawn && drawn->boundary.size() >= 3
-                ? pointsInside(drawn->boundary, scaled, imageSize, left, right)
+                ? pointsInside(drawn->boundary, scaled, imageSize, clip)
                 : polygonOf(bounds);
 
         xml.writeStartElement(QStringLiteral("TextLine"));

@@ -30,6 +30,7 @@ public:
 public slots:
     void setMagnifierEnabled(bool enabled);
     void setOverlayVisible(bool visible);
+    void setLineBoxesVisible(bool visible);
 
 signals:
     /// Asks for the readings to be shown. Sent rather than done, because the

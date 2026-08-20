@@ -245,6 +245,7 @@ private:
     /// icon, which is what puts the stroke through it.
     QAction *m_transcribeAction = nullptr;
     QAction *m_overlayAction = nullptr;
+    QAction *m_lineBoxesAction = nullptr;
     /// Takes an ALTO or PAGE file made elsewhere. Lives in the File menu rather
     /// than on the toolbar: it is the occasional way in, not the daily one.
     QAction *m_importLayoutAction = nullptr;

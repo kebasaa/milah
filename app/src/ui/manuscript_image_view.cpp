@@ -8,11 +8,13 @@
 #include <QImageReader>
 #include <QKeyEvent>
 #include <QLineEdit>
+#include <QMap>
 #include <QMenu>
 #include <QMouseEvent>
 #include <QPainter>
 #include <QPainterPath>
 #include <QPaintEvent>
+#include <QPolygonF>
 #include <QWheelEvent>
 
 #include <algorithm>
@@ -45,6 +47,17 @@ constexpr int LabelBackingAlpha = 205;
 /// without hiding the very ink the transcriber is reading to decide what the
 /// note says.
 constexpr int MarginalWashAlpha = 46;
+
+/// The chip the line number sits in, at the leading edge of a line's label.
+/// Wide enough for two digits, which is every line of every folio Milah has
+/// seen; a third widens the chip rather than being cut off.
+/// The smallest the line view will write a reading at. Below this it is a row
+/// of grey marks rather than words, and the arrows reach whatever the line was
+/// too crowded to fit.
+constexpr double MinimumReadingPoint = 5.5;
+/// How far under the line its reading sits. Close enough to belong to it, clear
+/// enough not to sit on the descenders.
+constexpr double ReadingGap = 3.0;
 
 /// The smallest the word editor is allowed to be. A recogniser's box round a
 /// two-letter word is a dozen pixels across, which is a box you cannot type in.
@@ -222,7 +235,68 @@ void ManuscriptImageView::setWords(const QList<TranscribedWord> &words)
         return;
     }
     m_words = boxed;
+    // A selection is a box, and the folio may no longer have that box on it —
+    // a re-flow moves every word below the break onto a different one.
+    if (!m_selected.isNull()) {
+        bool still = false;
+        for (const TranscribedWord &word : m_words) {
+            if (word.box == m_selected) {
+                still = true;
+                break;
+            }
+        }
+        if (!still) {
+            m_selected = QRect();
+        }
+    }
     update();
+}
+
+void ManuscriptImageView::setLines(const QList<TranscribedLine> &lines)
+{
+    if (lines == m_lines) {
+        return;
+    }
+    m_lines = lines;
+    if (m_lineBoxes) {
+        update();
+    }
+}
+
+bool ManuscriptImageView::hasLines() const
+{
+    if (m_image.isNull()) {
+        return false;
+    }
+    // Of the words and not of m_lines, because a line box can be drawn round a
+    // line's words with no geometry at all — which is every folio read before
+    // Milah started keeping what the segmenter drew.
+    for (const TranscribedWord &word : m_words) {
+        if (word.line >= 0) {
+            return true;
+        }
+    }
+    return false;
+}
+
+void ManuscriptImageView::setLineBoxesVisible(bool visible)
+{
+    if (m_lineBoxes == visible) {
+        return;
+    }
+    m_lineBoxes = visible;
+    // The one state this widget takes the focus in. It is Qt::NoFocus otherwise
+    // because the transcriber is typing constantly and a click on the folio
+    // would cost them their place in the text — which holds for the word view,
+    // where nothing here is typed, and not for this one, where the folio is what
+    // the keys are about.
+    setFocusPolicy(visible ? Qt::ClickFocus : Qt::NoFocus);
+    if (!visible) {
+        m_selected = QRect();
+    }
+    if (m_overlayVisible) {
+        update();
+    }
 }
 
 void ManuscriptImageView::setOverlayVisible(bool visible)
@@ -319,6 +393,86 @@ void ManuscriptImageView::contextMenuEvent(QContextMenuEvent *event)
         menu.addSeparator();
     }
 
+    // The line the click fell on, and the two ways the segmenter can have got it
+    // wrong. Offered in both views on purpose: a fault is usually noticed in the
+    // word boxes, where the poured text stops matching the ink, and corrected
+    // while looking at the line boxes, where you can see why.
+    const int line = lineAtPoint(m_words, folioPixel);
+    if (line >= 0) {
+        // The word a break would go after. The click is usually inside a box,
+        // but a line box is mostly the gaps between its words, and a menu whose
+        // first entry is missing because you were four pixels wide of a letter
+        // is a menu that has to be aimed at rather than used.
+        const TranscribedWord *at = nullptr;
+        int nearest = 0;
+        bool allMarginal = true;
+        bool below = false;
+        for (const TranscribedWord &word : m_words) {
+            if (word.line > line) {
+                below = true;
+            }
+            if (word.line != line || word.box.isNull()) {
+                continue;
+            }
+            allMarginal = allMarginal && word.marginal;
+            if (word.box.contains(folioPixel)) {
+                at = &word;
+                nearest = -1;
+                continue;
+            }
+            if (nearest < 0) {
+                continue;
+            }
+            const int away = std::min(
+                qAbs(word.box.left() - folioPixel.x()),
+                qAbs(word.box.right() - folioPixel.x()));
+            if (!at || away < nearest) {
+                at = &word;
+                nearest = away;
+            }
+        }
+
+        if (at) {
+            const QRect wordBox = at->box;
+            QAction *ends = menu.addAction(
+                QStringLiteral("The line ends after “%1”").arg(at->hebrew));
+            ends->setCheckable(true);
+            ends->setChecked(at->endsLine);
+            ends->setToolTip(QStringLiteral(
+                "The segmenter ran two lines of the manuscript together, and the "
+                "first of them stops here. Training cuts one strip per line, so a "
+                "line that is really two teaches the model a strip with two lines "
+                "of ink squashed onto one baseline."));
+            connect(ends, &QAction::triggered, this, [this, wordBox](bool broken) {
+                emit lineBreakToggled(wordBox, broken);
+            });
+        }
+
+        if (below) {
+            QAction *join = menu.addAction(QStringLiteral("Join with the line below"));
+            join->setToolTip(QStringLiteral(
+                "The other fault: one line of the manuscript cut into two. "
+                "Joining them lays their words out together, which is what puts "
+                "two side-by-side pieces back into one right-to-left run."));
+            connect(join, &QAction::triggered, this, [this, line] {
+                emit lineJoinRequested(line);
+            });
+        }
+
+        QAction *note =
+            menu.addAction(QStringLiteral("This whole line is not part of the transcribed text"));
+        note->setCheckable(true);
+        note->setChecked(allMarginal);
+        note->setToolTip(QStringLiteral(
+            "Every word of it at once. A margin note or a running header usually "
+            "has a line to itself, and marking it a box at a time is the "
+            "fiddliest thing in the program."));
+        connect(note, &QAction::triggered, this, [this, line](bool marked) {
+            emit lineMarginalToggled(line, marked);
+        });
+        menu.addSeparator();
+    }
+
     // Which transcription, before where in it. The first folio of a book has
     // nothing to carry on from and gets only the second entry; every folio after
     // it is either a continuation or a fresh start, and which of the two is
@@ -395,7 +549,11 @@ void ManuscriptImageView::paintEvent(QPaintEvent *event)
     // Over the folio and under the loupe, so that magnifying a word the machine
     // read shows the ink rather than the reading of it.
     if (m_overlayVisible && hasWordBoxes()) {
-        drawWordOverlay(painter, page, event->rect());
+        if (m_lineBoxes && hasLines()) {
+            drawLineOverlay(painter, page, event->rect());
+        } else {
+            drawWordOverlay(painter, page, event->rect());
+        }
     }
 
     if (!m_magnifying || !m_loupeVisible) {
@@ -537,6 +695,254 @@ void ManuscriptImageView::drawWordOverlay(
     }
 }
 
+QList<DrawnLine> ManuscriptImageView::readingLayout(const QRect &page) const
+{
+    QList<DrawnLine> laid;
+    if (m_image.isNull() || page.width() <= 0) {
+        return laid;
+    }
+
+    const double scaleX = double(page.width()) / m_image.width();
+    const double scaleY = double(page.height()) / m_image.height();
+
+    // In the order they were read, which for the words of one line is the order
+    // they are to be spoken — the fill lays them down that way and the verses
+    // keep them that way.
+    QMap<int, QList<int>> byLine;
+    for (int index = 0; index < m_words.size(); ++index) {
+        if (m_words.at(index).line >= 0) {
+            byLine[m_words.at(index).line].append(index);
+        }
+    }
+
+    QFont base = font();
+    const qreal wanted = std::max(7.0, base.pointSizeF() * 0.85);
+
+    for (auto entry = byLine.constBegin(); entry != byLine.constEnd(); ++entry) {
+        DrawnLine line;
+        line.line = entry.key();
+        line.words = entry.value();
+        line.allMarginal = true;
+
+        QRect bounds;
+        QList<QRect> boxes;
+        for (const int index : line.words) {
+            const TranscribedWord &word = m_words.at(index);
+            bounds = bounds.isNull() ? word.box : bounds.united(word.box);
+            line.anyUnchecked = line.anyUnchecked || word.unchecked;
+            line.allMarginal = line.allMarginal && word.marginal;
+            boxes.append(word.box);
+        }
+        if (bounds.isNull()) {
+            continue;
+        }
+        line.box = QRectF(
+            page.x() + bounds.x() * scaleX,
+            page.y() + bounds.y() * scaleY,
+            bounds.width() * scaleX,
+            bounds.height() * scaleY);
+
+        // Shrunk to fit under the line it belongs to, down to a floor. A folio
+        // line here carries twenty-six words, and a reading wider than the line
+        // it is written under stops being a reading of that line.
+        base.setPointSizeF(wanted);
+        QFontMetricsF metrics(base);
+        const double space = metrics.horizontalAdvance(QLatin1Char(' '));
+        double total = space * std::max(0, int(line.words.size()) - 1);
+        for (const int index : line.words) {
+            total += metrics.horizontalAdvance(m_words.at(index).hebrew);
+        }
+        if (total > line.box.width() && total > 0.0) {
+            base.setPointSizeF(std::max(
+                MinimumReadingPoint, wanted * line.box.width() / total));
+            metrics = QFontMetricsF(base);
+        }
+        line.pointSize = base.pointSizeF();
+
+        // Placed word by word, in the direction the boxes say the line runs —
+        // right to left for Hebrew, left to right for a Latin note beside it,
+        // and neither hard-coded when the geometry already says.
+        const bool rightToLeft =
+            LineFill::directionOf(boxes) == LineFill::Direction::RightToLeft;
+        const double top = line.box.bottom() + ReadingGap;
+        const double height = metrics.height();
+        double at = rightToLeft ? line.box.right() : line.box.left();
+        const double gap = metrics.horizontalAdvance(QLatin1Char(' '));
+        for (const int index : line.words) {
+            const double width = metrics.horizontalAdvance(m_words.at(index).hebrew);
+            const QRectF where(rightToLeft ? at - width : at, top, width, height);
+            line.at.append(where);
+            at += rightToLeft ? -(width + gap) : width + gap;
+        }
+        laid.append(line);
+    }
+    return laid;
+}
+
+void ManuscriptImageView::drawLineOverlay(
+    QPainter &painter,
+    const QRect &page,
+    const QRect &damage) const
+{
+    // The same two factors drawWordOverlay uses, and for the same reason: an
+    // imported layout measured against a differently shaped copy has to stretch
+    // with the picture rather than slide down it.
+    const double scaleX = double(page.width()) / m_image.width();
+    const double scaleY = double(page.height()) / m_image.height();
+    const auto onScreen = [&](const QPoint &point) {
+        return QPointF(page.x() + point.x() * scaleX, page.y() + point.y() * scaleY);
+    };
+
+    QColor outline = palette().color(QPalette::Text);
+    outline.setAlphaF(0.72);
+    const QColor dimmed = palette().color(QPalette::Mid);
+    QColor wash = dimmed;
+    wash.setAlpha(MarginalWashAlpha);
+    // The baseline kraken dewarps along, faint under the words it belongs to.
+    // Worth having on the picture: a boundary that looks right round a baseline
+    // that has wandered into the line below still teaches the model nonsense,
+    // and the boundary alone would not say so.
+    QColor spine = palette().color(QPalette::Highlight);
+    spine.setAlphaF(0.55);
+    // The reading carries its own contrast, because nothing is drawn behind it.
+    // Not QPalette::Text: that is near-white in a dark theme and would vanish
+    // against a light scan — the folio is the same colour whatever the window
+    // is set to, so the reading has to be a colour that reads against parchment
+    // in both.
+    const QColor said = palette().color(QPalette::Highlight);
+
+    QMap<int, const TranscribedLine *> drawn;
+    for (const TranscribedLine &line : m_lines) {
+        drawn.insert(line.index, &line);
+    }
+
+    painter.setBrush(Qt::NoBrush);
+
+    for (const DrawnLine &line : readingLayout(page)) {
+        if (line.box.width() < 1.0 || line.box.height() < 1.0) {
+            continue;
+        }
+        // The reading is written below the line, so the region a line can touch
+        // reaches below its box rather than above it.
+        QRectF touched = line.box;
+        for (const QRectF &at : line.at) {
+            touched = touched.united(at);
+        }
+        if (!touched.toAlignedRect().adjusted(-2, -2, 2, 2).intersects(damage)) {
+            continue;
+        }
+
+        // The segmenter's own outline where the folio has one — this is the
+        // shape the training strip is masked to, so drawing anything else here
+        // would be drawing a picture of something that is not being exported.
+        // The rectangle round the words is the fallback, and it is also exactly
+        // what the export falls back to, so the two never disagree.
+        const TranscribedLine *shape = drawn.value(line.line, nullptr);
+        QPolygonF boundary;
+        if (shape && shape->boundary.size() >= 3) {
+            boundary.reserve(shape->boundary.size());
+            for (const QPoint &point : shape->boundary) {
+                boundary << onScreen(point);
+            }
+        }
+
+        QPen pen(outline, 1.4);
+        if (line.allMarginal) {
+            pen.setColor(dimmed);
+            pen.setStyle(Qt::DotLine);
+            if (boundary.isEmpty()) {
+                painter.fillRect(line.box, wash);
+            } else {
+                painter.setPen(Qt::NoPen);
+                painter.setBrush(wash);
+                painter.drawPolygon(boundary);
+                painter.setBrush(Qt::NoBrush);
+            }
+        } else {
+            pen.setStyle(line.anyUnchecked ? Qt::DashLine : Qt::SolidLine);
+        }
+        painter.setPen(pen);
+        if (boundary.isEmpty()) {
+            painter.drawRect(line.box);
+        } else {
+            painter.drawPolygon(boundary);
+        }
+
+        if (shape && shape->baseline.size() >= 2) {
+            QPolygonF spineLine;
+            spineLine.reserve(shape->baseline.size());
+            for (const QPoint &point : shape->baseline) {
+                spineLine << onScreen(point);
+            }
+            painter.setPen(QPen(spine, 1.0));
+            painter.drawPolyline(spineLine);
+        }
+
+        QFont reading = font();
+        reading.setPointSizeF(line.pointSize);
+        const QFontMetricsF metrics(reading);
+
+        // The number at the leading edge of the line, beside the reading rather
+        // than inside it: a digit dropped into a right-to-left string moves as
+        // the bidi algorithm sees fit, and a line labelled 21 that draws its 21
+        // in the middle of the Hebrew is worse than no label.
+        painter.setFont(reading);
+        painter.setPen(dimmed);
+        const QString number = QString::number(line.line + 1);
+        const double chip = metrics.horizontalAdvance(number) + 4.0;
+        painter.drawText(
+            QRectF(line.box.left() - chip - 2.0,
+                   line.box.bottom() + ReadingGap,
+                   chip,
+                   metrics.height()),
+            Qt::AlignCenter,
+            number);
+
+        for (int at = 0; at < line.words.size(); ++at) {
+            const QRectF where = line.at.at(at);
+            if (!where.intersects(QRectF(page))) {
+                // Off the end of a line too crowded to write out even at the
+                // smallest size it is allowed. Reachable with the arrows, which
+                // is what makes that acceptable.
+                continue;
+            }
+            const TranscribedWord &word = m_words.at(line.words.at(at));
+            const bool chosen = !m_selected.isNull() && word.box == m_selected;
+
+            reading.setBold(chosen);
+            reading.setUnderline(chosen);
+            painter.setFont(reading);
+            // Dimmed rather than hidden for a line held out of the work: the
+            // note's reading is what the transcriber types over to make it
+            // training data.
+            painter.setPen(line.allMarginal ? dimmed : said);
+            painter.drawText(where, Qt::AlignCenter, word.hebrew);
+            reading.setBold(false);
+            reading.setUnderline(false);
+
+            if (!chosen) {
+                continue;
+            }
+            // Where a break would go, drawn as a caret at the word's leading
+            // edge — Enter cuts the line *before* this word, and a highlight
+            // round the word alone would not say on which side.
+            const bool rightToLeft = line.at.size() < 2 || line.at.at(0).x() > line.at.last().x();
+            const double edge = rightToLeft ? where.right() : where.left();
+            painter.setPen(QPen(said, 2.0));
+            painter.drawLine(
+                QPointF(edge, where.top()), QPointF(edge, where.bottom()));
+            // And the box it belongs to, on the ink, so the two can be read
+            // against each other without hunting.
+            painter.setPen(QPen(said, 1.6));
+            painter.drawRect(QRectF(
+                page.x() + word.box.x() * scaleX,
+                page.y() + word.box.y() * scaleY,
+                word.box.width() * scaleX,
+                word.box.height() * scaleY));
+        }
+    }
+}
+
 void ManuscriptImageView::resizeEvent(QResizeEvent *event)
 {
     QWidget::resizeEvent(event);
@@ -552,6 +958,112 @@ void ManuscriptImageView::resizeEvent(QResizeEvent *event)
     if (m_editor && !m_editing.isNull()) {
         m_editor->setGeometry(editorGeometry(m_editing));
     }
+}
+
+void ManuscriptImageView::mousePressEvent(QMouseEvent *event)
+{
+    const QRect page = pageRect();
+    if (event->button() != Qt::LeftButton || !m_lineBoxes || !m_overlayVisible
+        || m_image.isNull() || !hasWordBoxes()) {
+        QWidget::mousePressEvent(event);
+        return;
+    }
+
+    // The written reading first, because that is what the transcriber is looking
+    // at — the whole point of writing it under the line is that the words can be
+    // compared with the ink, and the one you have just compared is the one you
+    // want to say something about. The box on the picture answers too, for a
+    // word whose reading was elided off the end of a crowded line.
+    QRect found;
+    for (const DrawnLine &line : readingLayout(page)) {
+        for (int at = 0; at < line.words.size(); ++at) {
+            if (line.at.at(at).contains(event->position())) {
+                found = m_words.at(line.words.at(at)).box;
+                break;
+            }
+        }
+        if (!found.isNull()) {
+            break;
+        }
+    }
+    if (found.isNull() && page.contains(event->pos())) {
+        const QPoint folioPixel(
+            qRound((event->pos().x() - page.x()) * double(m_image.width()) / page.width()),
+            qRound((event->pos().y() - page.y()) * double(m_image.height()) / page.height()));
+        found = wordAtPoint(m_words, folioPixel);
+    }
+    if (found.isNull()) {
+        QWidget::mousePressEvent(event);
+        return;
+    }
+
+    m_selected = found;
+    // Only now, and only here: the widget is Qt::NoFocus in the word view for a
+    // reason that still holds there — see setLineBoxesVisible().
+    setFocus(Qt::MouseFocusReason);
+    update();
+}
+
+void ManuscriptImageView::keyPressEvent(QKeyEvent *event)
+{
+    if (m_selected.isNull()) {
+        QWidget::keyPressEvent(event);
+        return;
+    }
+
+    switch (event->key()) {
+    case Qt::Key_Return:
+    case Qt::Key_Enter:
+        emit lineBrokenBefore(m_selected);
+        event->accept();
+        return;
+    case Qt::Key_Backspace:
+        emit wordPulledUp(m_selected);
+        event->accept();
+        return;
+    case Qt::Key_Right:
+        // Forward and back along the reading, not left and right across the
+        // screen. A Hebrew line runs the other way and a Latin note beside it
+        // does not, so an arrow that meant "leftwards" would mean two different
+        // things on one folio.
+        selectBy(1);
+        event->accept();
+        return;
+    case Qt::Key_Left:
+        selectBy(-1);
+        event->accept();
+        return;
+    case Qt::Key_Escape:
+        m_selected = QRect();
+        update();
+        event->accept();
+        return;
+    default:
+        break;
+    }
+    QWidget::keyPressEvent(event);
+}
+
+void ManuscriptImageView::selectBy(int by)
+{
+    // Over the whole folio rather than one line, so the end of a line runs on to
+    // the start of the next — which is where a break usually needs looking at.
+    QList<QRect> order;
+    for (const DrawnLine &line : readingLayout(pageRect())) {
+        for (const int index : line.words) {
+            order.append(m_words.at(index).box);
+        }
+    }
+    const int at = order.indexOf(m_selected);
+    if (at < 0) {
+        return;
+    }
+    const int to = at + by;
+    if (to < 0 || to >= order.size()) {
+        return;
+    }
+    m_selected = order.at(to);
+    update();
 }
 
 void ManuscriptImageView::mouseMoveEvent(QMouseEvent *event)

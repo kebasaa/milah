@@ -415,6 +415,72 @@ private slots:
                  truth.alto.constData());
     }
 
+    /// **The fault a line box exists to make visible.** The segmenter ran two
+    /// lines of the manuscript together, and the transcriber said so with a
+    /// break. Both halves used to be handed the whole detection's polygon and
+    /// baseline — identical, and covering two lines of ink — so the split fixed
+    /// the *text* of the two strips and left both pictures wrong, which is the
+    /// half that actually teaches the model.
+    void splittingADetectionGivesEachHalfItsOwnShape()
+    {
+        TranscribedPage page;
+        page.imageName = QStringLiteral("150r");
+
+        TranscribedVerse verse;
+        verse.words = {
+            // The upper manuscript line…
+            read("\xd7\x91\xd7\xa8\xd7\x90\xd7\xa9\xd7\x99\xd7\xaa", 0, QRect(700, 100, 90, 40)),
+            read("\xd7\x91\xd7\xa8\xd7\x90", 0, QRect(640, 102, 50, 38)),
+            // …and the lower one, which the segmenter put on the same line.
+            read("\xd7\x90\xd7\x9c\xd7\x94\xd7\x99\xd7\x9d", 0, QRect(700, 160, 80, 42)),
+            read("\xd7\x90\xd7\xaa", 0, QRect(660, 162, 30, 38)),
+        };
+        verse.words[1].endsLine = true;
+        page.verses = {verse};
+
+        TranscribedLine drawn;
+        drawn.index = 0;
+        drawn.baseline = {QPoint(636, 130), QPoint(792, 195)};
+        drawn.boundary = {QPoint(636, 90), QPoint(792, 90), QPoint(792, 210), QPoint(636, 210)};
+        page.lines = {drawn};
+
+        const TrainingPage truth =
+            trainingAlto(page, QStringLiteral("150r.jpg"), QSize(1024, 1373));
+        QCOMPARE(truth.lines, 2);
+        QCOMPARE(truth.words, 4);
+
+        // Each half clipped to its own words, grown by half a line so the
+        // ascenders the segmenter deliberately reached for are still inside.
+        QVERIFY2(truth.alto.contains(QByteArray("POINTS=\"640 90 789 90 789 159 640 159\"")),
+                 truth.alto.constData());
+        QVERIFY2(truth.alto.contains(QByteArray("POINTS=\"660 139 779 139 779 210 660 210\"")),
+                 truth.alto.constData());
+    }
+
+    /// A line that is the whole of its detection keeps the shape whole. The
+    /// segmenter's outline reaches past the word boxes on purpose, round the
+    /// ascenders, and squeezing every line to its words' band would shave the
+    /// very ink the strip is cut for.
+    void anUnsplitLineIsNotClippedAtAll()
+    {
+        TranscribedPage page = samplePage();
+        // Only the first line is exported — the second still has an unchecked
+        // word on it — so give the first a shape that reaches well past it.
+        TranscribedLine drawn;
+        drawn.index = 0;
+        drawn.baseline = {QPoint(600, 130), QPoint(800, 126)};
+        drawn.boundary = {QPoint(600, 60), QPoint(820, 60), QPoint(820, 180)};
+        page.lines = {drawn};
+
+        const TrainingPage truth =
+            trainingAlto(page, QStringLiteral("150r.jpg"), QSize(1024, 1373));
+        QCOMPARE(truth.lines, 1);
+        QVERIFY2(truth.alto.contains(QByteArray("POINTS=\"600 60 820 60 820 180\"")),
+                 truth.alto.constData());
+        QVERIFY2(truth.alto.contains(QByteArray("BASELINE=\"600 130 800 126\"")),
+                 truth.alto.constData());
+    }
+
     /// Trimming an unread marginal note off the end clips the real shape rather
     /// than squaring the line off — it still follows the ink, it merely stops
     /// short of the note.

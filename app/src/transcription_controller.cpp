@@ -924,6 +924,26 @@ bool TranscriptionController::hasRecognisedWords() const
     return false;
 }
 
+bool TranscriptionController::hasRecognisedLines() const
+{
+    const TranscribedPage *page = currentPage();
+    if (!page) {
+        return false;
+    }
+    // Of the words rather than of page->lines, for the same reason the folio
+    // view asks it that way: a line box can be drawn round a line's words with
+    // no stored geometry at all, which is every folio read before Milah began
+    // keeping what the segmenter drew.
+    for (const TranscribedVerse &verse : page->verses) {
+        for (const TranscribedWord &word : verse.words) {
+            if (word.line >= 0 && !word.box.isNull()) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
 QSize TranscriptionController::folioPixelSize() const
 {
     const QByteArray bytes = currentImageBytes();
@@ -1479,10 +1499,14 @@ void TranscriptionController::continueFill(QPoint folioPixel, const ResumePoint 
         return;
     }
 
+    // Through wordCounts(), so a line the transcriber has told how long it is
+    // keeps that answer here as well as in a re-flow. The box count is a guess;
+    // see TranscribedPage::lineWords.
+    const QMap<int, int> held = wordCounts(*page);
     const QList<int> lineIndices = lines.keys();
     QList<int> counts;
     for (const int line : lineIndices) {
-        counts.append(int(lines.value(line).size()));
+        counts.append(held.value(line, int(lines.value(line).size())));
     }
 
     // Where the transcriber pointed, resolved now that there are lines to
@@ -1767,8 +1791,8 @@ void TranscriptionController::applyFill(
                   .arg(poured.size())
                   .arg(range.isEmpty() ? QString()
                                        : QStringLiteral(" from %1").arg(range))
-            : QStringLiteral("Held that box out of the text and laid the %1 word(s) "
-                             "below it again. Ctrl+Z puts it back.")
+            : QStringLiteral("Laid the %1 word(s) below that line again. Ctrl+Z puts "
+                             "it back.")
                   .arg(poured.size()));
 }
 
@@ -3054,8 +3078,8 @@ void TranscriptionController::reflowFrom(int line)
     try {
         source = parseOsis(QString::fromUtf8(file.readAll()), ParseOptions{});
     } catch (const OsisError &failure) {
-        setMessage(QStringLiteral("Held that box out, but %1 could not be read, so "
-                                  "the text below was left as it is. %2")
+        setMessage(QStringLiteral("That stands, but %1 could not be read, so the "
+                                  "text below was left as it is. %2")
                        .arg(QFileInfo(m_document.fillSource).fileName(),
                             failure.message()));
         return;
@@ -3074,9 +3098,8 @@ void TranscriptionController::reflowFrom(int line)
     }
     if (startVerse.isEmpty() || startWord < 0) {
         setMessage(QStringLiteral(
-            "Held that box out. This folio was filled before Milah recorded where "
-            "its text began, so the words below were not laid again — fill it "
-            "again to re-flow them."));
+            "This folio was filled before Milah recorded where its text began, so "
+            "the words below were not laid again — fill it again to re-flow them."));
         return;
     }
 
@@ -3089,12 +3112,16 @@ void TranscriptionController::reflowFrom(int line)
         startVerse.section(QLatin1Char('.'), 2, 2).toInt(),
         startWord + pouredWordsBefore(*page, line));
     if (passage.isEmpty()) {
-        setMessage(QStringLiteral("Held that box out. The transcription has no more "
-                                  "text after this point, so nothing was laid again."));
+        setMessage(QStringLiteral("The transcription has no more text after this "
+                                  "point, so nothing was laid again."));
         return;
     }
 
     const QMap<int, QList<QRect>> lines = fillableLines(*page);
+    // The box count, or what the transcriber has said the line holds instead.
+    // A re-flow rebuilding these from the boxes is what used to throw that
+    // answer away every time a box was held out somewhere above it.
+    const QMap<int, int> held = wordCounts(*page);
     QList<int> indices;
     QList<int> counts;
     for (auto entry = lines.constBegin(); entry != lines.constEnd(); ++entry) {
@@ -3102,12 +3129,12 @@ void TranscriptionController::reflowFrom(int line)
             continue;
         }
         indices.append(entry.key());
-        counts.append(int(entry.value().size()));
+        counts.append(held.value(entry.key(), int(entry.value().size())));
     }
     if (indices.isEmpty()) {
         // The marked box was the only thing left on the last line of the folio.
-        setMessage(QStringLiteral("Held that box out. There is nothing below it on "
-                                  "this folio to lay again."));
+        setMessage(QStringLiteral("There is nothing below that on this folio to "
+                                  "lay again."));
         return;
     }
 
@@ -3126,8 +3153,8 @@ void TranscriptionController::reflowFrom(int line)
         filled.append(row);
     }
     if (filled.isEmpty()) {
-        setMessage(QStringLiteral("Held that box out, but nothing could be laid into "
-                                  "the lines below it."));
+        setMessage(QStringLiteral("That stands, but nothing could be laid into the "
+                                  "lines below it."));
         return;
     }
 
@@ -3166,6 +3193,325 @@ bool TranscriptionController::setMarginalAt(const QRect &box, bool marginal)
         return false;
     }
     setMarginal(verse, column, marginal);
+    return true;
+}
+
+bool TranscriptionController::setLineBreakAt(const QRect &box, bool endsLine)
+{
+    int verse = -1;
+    int column = -1;
+    if (!wordAt(box, &verse, &column)) {
+        return false;
+    }
+    // The same path the text grid commits by. No re-flow: a break says what the
+    // manuscript's line is, not where the words went, and every word is already
+    // standing on the box it was poured onto. What it changes is the strip the
+    // training export cuts, which is the whole reason for saying it.
+    setLineBreak(verse, column, endsLine);
+    return true;
+}
+
+bool TranscriptionController::setLineMarginal(int line, bool marginal)
+{
+    TranscribedPage *page = mutablePage();
+    if (!page || line < 0) {
+        return false;
+    }
+
+    bool any = false;
+    for (const TranscribedVerse &verse : page->verses) {
+        for (const TranscribedWord &word : verse.words) {
+            if (word.line == line && !word.box.isNull() && word.marginal != marginal) {
+                any = true;
+                break;
+            }
+        }
+        if (any) {
+            break;
+        }
+    }
+    if (!any) {
+        return false;
+    }
+
+    // Same reasoning as setMarginal(), which this is the whole-line form of —
+    // one undo step, one warning and one re-flow for what was one decision,
+    // rather than nine of each for a nine-word margin note.
+    const bool poured = !m_document.fillSource.isEmpty()
+        && (page->fillStartLine < 0 || line >= page->fillStartLine);
+    if (poured && hasCheckedWordsFrom(line)) {
+        const auto answer = QMessageBox::question(
+            m_dialogParent,
+            QStringLiteral("Milah"),
+            QStringLiteral(
+                "Holding this whole line out moves every word below it up, so the "
+                "lines from here down are laid again from the transcription — and "
+                "some of them you have already checked.<p>Your readings on those "
+                "lines will be replaced. Ctrl+Z puts everything back.</p>"),
+            QMessageBox::Yes | QMessageBox::Cancel,
+            QMessageBox::Cancel);
+        if (answer != QMessageBox::Yes) {
+            return false;
+        }
+    }
+
+    pushUndo();
+    for (TranscribedVerse &verse : page->verses) {
+        for (TranscribedWord &word : verse.words) {
+            if (word.line != line || word.box.isNull() || word.marginal == marginal) {
+                continue;
+            }
+            word.marginal = marginal;
+            if (marginal && !word.recognised.isEmpty()) {
+                word.hebrew = word.recognised;
+                word.english = suggestedGloss(word.hebrew);
+                word.englishIsOwn = false;
+                word.unchecked = true;
+            }
+        }
+    }
+    setDirty(true);
+
+    if (poured) {
+        reflowFrom(line);
+    }
+    emit versesChanged();
+    return true;
+}
+
+bool TranscriptionController::joinLineAt(int line)
+{
+    TranscribedPage *page = mutablePage();
+    if (!page) {
+        return false;
+    }
+
+    // Asked before the undo step is pushed, because there is no popping one
+    // back off. The menu only offers this where there is a line below, so
+    // getting a no here means the folio changed under an open menu.
+    bool here = false;
+    bool below = false;
+    for (const TranscribedVerse &verse : page->verses) {
+        for (const TranscribedWord &word : verse.words) {
+            if (word.box.isNull()) {
+                continue;
+            }
+            if (word.line == line) {
+                here = true;
+            } else if (word.line > line) {
+                below = true;
+            }
+        }
+    }
+    if (!here || !below) {
+        return false;
+    }
+
+    // A join changes how many boxes the line has, so the passage from here down
+    // is laid again — which is the point of it: two side-by-side pieces of one
+    // manuscript line only fall into a single right-to-left run once
+    // LineFill::directionOf() sees their boxes together.
+    const bool poured = !m_document.fillSource.isEmpty()
+        && (page->fillStartLine < 0 || line >= page->fillStartLine);
+    if (poured && hasCheckedWordsFrom(line)) {
+        const auto answer = QMessageBox::question(
+            m_dialogParent,
+            QStringLiteral("Milah"),
+            QStringLiteral(
+                "Joining these lines lays the transcription out across them "
+                "together, so the lines from here down are filled again — and "
+                "some of them you have already checked.<p>Your readings on those "
+                "lines will be replaced. Ctrl+Z puts everything back.</p>"),
+            QMessageBox::Yes | QMessageBox::Cancel,
+            QMessageBox::Cancel);
+        if (answer != QMessageBox::Yes) {
+            return false;
+        }
+    }
+
+    pushUndo();
+    joinLine(*page, line);
+    setDirty(true);
+
+    if (poured) {
+        reflowFrom(line);
+    }
+    emit versesChanged();
+    return true;
+}
+
+namespace {
+
+/// Where `box` sits among the words a fill may lay into on its own line, or -1
+/// when it is not one of them.
+///
+/// The same rule fillableLines() uses, applied to one word: marginalia are not
+/// slots, so a note beside the text does not count towards a line's length and a
+/// break asked for on one means nothing.
+int placeOnLine(const TranscribedPage &page, const QRect &box, int *line)
+{
+    int found = -1;
+    for (const TranscribedVerse &verse : page.verses) {
+        for (const TranscribedWord &word : verse.words) {
+            if (word.box == box && word.line >= 0 && !word.marginal) {
+                found = word.line;
+                break;
+            }
+        }
+        if (found >= 0) {
+            break;
+        }
+    }
+    if (found < 0) {
+        return -1;
+    }
+    if (line) {
+        *line = found;
+    }
+    int at = 0;
+    for (const TranscribedVerse &verse : page.verses) {
+        for (const TranscribedWord &word : verse.words) {
+            if (word.line != found || word.box.isNull() || word.marginal) {
+                continue;
+            }
+            if (word.box == box) {
+                return at;
+            }
+            ++at;
+        }
+    }
+    return -1;
+}
+
+/// How many words of the poured text stand on `line` and everything below it.
+/// The difference across a re-flow is what fell off the foot of the leaf.
+int pouredFrom(const TranscribedPage &page, int line)
+{
+    int words = 0;
+    for (const TranscribedVerse &verse : page.verses) {
+        for (const TranscribedWord &word : verse.words) {
+            if (word.line >= line && !word.marginal && !word.box.isNull()) {
+                ++words;
+            }
+        }
+    }
+    return words;
+}
+
+} // namespace
+
+bool TranscriptionController::breakLineBefore(const QRect &box)
+{
+    TranscribedPage *page = mutablePage();
+    if (!page) {
+        return false;
+    }
+    int line = -1;
+    const int at = placeOnLine(*page, box, &line);
+    if (at < 0) {
+        setMessage(QStringLiteral(
+            "That box is not one a transcription is laid into, so there is no "
+            "line length to correct."));
+        return false;
+    }
+    if (page->lineWords.value(line, -1) == at) {
+        return false;
+    }
+
+    // Same warning as every other re-flow: the lines below are laid again from
+    // the transcription, and anything already checked down there is replaced.
+    if (hasCheckedWordsFrom(line)) {
+        const auto answer = QMessageBox::question(
+            m_dialogParent,
+            QStringLiteral("Milah"),
+            QStringLiteral(
+                "Ending this line here moves the rest of it down, so the lines "
+                "from here to the foot of the leaf are laid again from the "
+                "transcription — and some of them you have already checked."
+                "<p>Your readings on those lines will be replaced. Ctrl+Z puts "
+                "everything back.</p>"),
+            QMessageBox::Yes | QMessageBox::Cancel,
+            QMessageBox::Cancel);
+        if (answer != QMessageBox::Yes) {
+            return false;
+        }
+    }
+
+    const int before = pouredFrom(*page, line);
+    pushUndo();
+    page->lineWords.insert(line, at);
+    setDirty(true);
+    reflowFrom(line);
+    emit versesChanged();
+
+    // What no longer fits. The words are not lost — the folio's recorded end
+    // point moves back with them, so the next leaf's continuation begins exactly
+    // there — but nobody would guess that from a leaf quietly getting shorter.
+    const TranscribedPage *after = currentPage();
+    const int lost = after ? before - pouredFrom(*after, line) : 0;
+    if (lost > 0) {
+        setMessage(QStringLiteral("%1 word(s) moved past the foot of the leaf. "
+                                  "Continue the next folio to lay them down.")
+                       .arg(lost));
+    }
+    return true;
+}
+
+bool TranscriptionController::pullWordUp(const QRect &box)
+{
+    TranscribedPage *page = mutablePage();
+    if (!page) {
+        return false;
+    }
+    int line = -1;
+    const int at = placeOnLine(*page, box, &line);
+    if (at < 0) {
+        return false;
+    }
+    if (at != 0) {
+        setMessage(QStringLiteral(
+            "Only the first word of a line can be pulled up onto the line "
+            "above. Select it and press Backspace again."));
+        return false;
+    }
+
+    // The line above as the folio has them, which after a join is not always
+    // this one's number less one.
+    const QMap<int, int> counts = wordCounts(*page);
+    int above = -1;
+    for (auto entry = counts.constBegin(); entry != counts.constEnd(); ++entry) {
+        if (entry.key() < line && (above < 0 || entry.key() > above)) {
+            above = entry.key();
+        }
+    }
+    if (above < 0) {
+        setMessage(QStringLiteral(
+            "There is no line above this one on the folio to pull the word up "
+            "onto."));
+        return false;
+    }
+
+    if (hasCheckedWordsFrom(above)) {
+        const auto answer = QMessageBox::question(
+            m_dialogParent,
+            QStringLiteral("Milah"),
+            QStringLiteral(
+                "Pulling this word up lengthens the line above it, so the lines "
+                "from there down are laid again from the transcription — and "
+                "some of them you have already checked.<p>Your readings on those "
+                "lines will be replaced. Ctrl+Z puts everything back.</p>"),
+            QMessageBox::Yes | QMessageBox::Cancel,
+            QMessageBox::Cancel);
+        if (answer != QMessageBox::Yes) {
+            return false;
+        }
+    }
+
+    pushUndo();
+    page->lineWords.insert(above, counts.value(above) + 1);
+    setDirty(true);
+    reflowFrom(above);
+    emit versesChanged();
     return true;
 }
 

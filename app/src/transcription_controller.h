@@ -99,6 +99,9 @@ public:
     /// Asked of the document rather than of the image pane, so the answer does
     /// not depend on which of the two heard about the change first.
     bool hasRecognisedWords() const;
+    /// True when anything on the folio carries a line number — what the line
+    /// view needs, and what the toolbar asks before offering the switch to it.
+    bool hasRecognisedLines() const;
 
     /// Whether there is a kraken installation to remove, for the menu entry
     /// that offers to. Probes the machine the first time and remembers.
@@ -314,6 +317,39 @@ public:
     /// Says the manuscript's line ends after this word — for training, and for
     /// nothing else. See TranscribedWord::endsLine.
     void setLineBreak(int verse, int column, bool endsLine);
+    /// The same, for the word the folio's right-click landed on. True when a
+    /// word of that box was found.
+    ///
+    /// The folio is where this belongs: the break is a claim about the ink, and
+    /// the text grid's bands are Milah's own wrapping with nothing to judge it
+    /// against.
+    bool setLineBreakAt(const QRect &box, bool endsLine);
+    /// Holds a whole recognised line out of the work, or puts it back — the
+    /// same decision setMarginal() makes about one word, made once for all of
+    /// them, with one undo step, one warning and one re-flow. True when
+    /// something changed.
+    bool setLineMarginal(int line, bool marginal);
+    /// Says this line and the next are one line of the manuscript, because the
+    /// segmenter cut one line in two. See LineFill's joinLine(), which does the
+    /// arithmetic; this adds the undo step, the warning where checked readings
+    /// would be lost, and the re-flow that lays the joined line out as one.
+    bool joinLineAt(int line);
+    /// The transcriber has said the poured text's line ends **before** this
+    /// word: the segmenter drew more boxes on the line than the manuscript has
+    /// words there, so everything from here down belongs further along.
+    ///
+    /// Records the line's length on the page — see TranscribedPage::lineWords,
+    /// which explains why this is not setLineBreakAt() — and lays the passage
+    /// out again from that line to the foot of the leaf. Whatever no longer fits
+    /// moves off the folio, and the recorded end point moves back with it, so
+    /// the next leaf's continuation begins exactly there.
+    bool breakLineBefore(const QRect &box);
+    /// The other direction: this word belongs on the line above, because the
+    /// segmenter drew fewer boxes on that line than the manuscript has words on
+    /// it. One word per call. Only the first word of a line can be pulled up,
+    /// and the line above is the previous one the folio *has* — a join leaves
+    /// the numbering with a gap in it.
+    bool pullWordUp(const QRect &box);
     /// Holds this word out of the work — a marginal note, a catchword, a running
     /// header — or puts it back. See TranscribedWord::marginal.
     void setMarginal(int verse, int column, bool marginal);

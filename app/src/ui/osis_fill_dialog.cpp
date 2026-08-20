@@ -37,11 +37,16 @@ QList<FolioLine> linesOf(const TranscribedPage &page)
 {
     const QMap<int, QList<QRect>> boxes = fillableLines(page);
 
+    // The box count is only a guess at how many words a line holds; where the
+    // transcriber has corrected one on the folio, that answer stands here too.
+    const QMap<int, int> held = wordCounts(page);
+
     QMap<int, FolioLine> found;
     for (auto entry = boxes.constBegin(); entry != boxes.constEnd(); ++entry) {
         FolioLine &line = found[entry.key()];
         line.index = entry.key();
         line.boxes = entry.value();
+        line.words = held.value(entry.key(), int(entry.value().size()));
     }
     // What the recogniser read there, for the lines the fill does not reach —
     // marginalia included, because this is shown to help somebody find their
@@ -203,7 +208,7 @@ void OsisFillDialog::takeLines()
     m_lines = page ? linesOf(*page) : QList<FolioLine>();
     m_counts.clear();
     for (const FolioLine &line : m_lines) {
-        m_counts.append(int(line.boxes.size()));
+        m_counts.append(line.words);
     }
 
     // Where the transcriber pointed, turned into a line here rather than at the
@@ -372,10 +377,12 @@ void OsisFillDialog::setStartLine(int line)
         return;
     }
     m_startLine = std::clamp(line, 0, int(m_lines.size()) - 1);
-    // The counts below it start again from what the recogniser found, because a
-    // nudge made against a different starting point means nothing.
+    // The counts below it start again from what the folio says, because a nudge
+    // made against a different starting point means nothing. Back to the line's
+    // own answer, not to the raw box count: a length the transcriber corrected
+    // on the picture is a fact about the leaf and survives moving the start.
     for (int index = 0; index < m_counts.size(); ++index) {
-        m_counts[index] = int(m_lines.at(index).boxes.size());
+        m_counts[index] = m_lines.at(index).words;
     }
     rebuild();
 }

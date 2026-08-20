@@ -47,6 +47,64 @@ QRect wordAtPoint(const QList<TranscribedWord> &words, const QPoint &folioPixel)
 /// that is all marginalia is not a line of the work at all.
 QMap<int, QList<QRect>> fillableLines(const TranscribedPage &page);
 
+/// How many words of the poured text each line takes, keyed by line: the number
+/// of boxes a fill may lay into, or what the transcriber has said instead.
+///
+/// **The box count is a guess.** A recogniser draws a box round each thing it
+/// takes for a word, and on a hand it was not trained for it splits one word
+/// into two boxes as readily as it runs two words into one — so a line's box
+/// count is not its word count, and pouring by it puts every word below one
+/// place out for the rest of the leaf. TranscribedPage::lineWords is where a
+/// person says otherwise, and this is the one place the two are reconciled, so
+/// the fill, the continuation and the re-flow cannot come to different answers.
+///
+/// A count for a line the folio no longer has is ignored rather than added:
+/// re-reading a folio renumbers its lines, and a stale answer must not push the
+/// lines that are still there along.
+///
+/// Lines with nothing to lay into are absent, exactly as fillableLines() leaves
+/// them — a line that is all marginalia is not a line of the work. A stored
+/// count of **zero** is different and is kept: it says the whole line belongs
+/// further down, which layOut() honours by passing over it.
+QMap<int, int> wordCounts(const TranscribedPage &page);
+
+/// Puts the words of the line after `line` onto `line`, undoing a cut the
+/// segmenter made in the wrong place.
+///
+/// Kraken finds lines by tracing baselines through the ink, and on a rapid
+/// cursive it gets the grouping wrong both ways: it runs two manuscript lines
+/// into one detection, and it cuts one line into two pieces lying side by side.
+/// `TranscribedWord::endsLine` is how a transcriber says the first of those — it
+/// only ever adds a break. This is the other direction, and it is the one that
+/// had no answer at all.
+///
+/// What moves: every word of the next line there is takes `line` instead, and the
+/// `endsLine` standing on the last word of `line` is cleared — it would
+/// otherwise put back the very cut this removes, the moment the folio was
+/// exported for training.
+///
+/// **Geometry.** The two baselines are ordered by where they lie across the
+/// folio and joined, which is right for the fault this repairs: two pieces of
+/// one physical line sit side by side, and a baseline read left to right runs
+/// through both. The boundary is **dropped** rather than stitched — two rings
+/// cannot be unioned without QtGui, which is not what this library links, and a
+/// line with no boundary already falls back in the training export to the
+/// rectangle round its words, which for two halves of one line is close to the
+/// truth. A join therefore gives up the ink-following mask and keeps the dewarp.
+///
+/// The next line **there is**, not `line + 1`: a join leaves a gap in the
+/// numbering, and a line the segmenter cut into three has to be repairable by
+/// joining twice.
+///
+/// Returns false and changes nothing when there is no line after `line`,
+/// which is what the foot of a folio always answers.
+///
+/// The words keep their boxes and their order in the verse, so nothing here
+/// moves text. Re-laying the joined line is the caller's business — and worth
+/// doing, since two side-by-side pieces only fall into one right-to-left run
+/// once directionOf() sees them together.
+bool joinLine(TranscribedPage &page, int line);
+
 /// How many words of the passage were laid down before `line` — the lines from
 /// the fill's own start line up to but not including it.
 ///

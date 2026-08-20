@@ -442,6 +442,16 @@ MainWindow::MainWindow(QWidget *parent)
         // takes, and a QIcon has no notion of being crossed out.
         m_overlayAction->setIcon(appIcon(
             shown ? QStringLiteral("eye") : QStringLiteral("eye-off"), palette()));
+        // The switch between the two views lives or dies with the overlay it
+        // switches, and nothing else on this path would notice.
+        updateTranscriptionActions();
+    });
+
+    connect(m_lineBoxesAction, &QAction::toggled, this, [this](bool lines) {
+        m_transcription->setLineBoxesVisible(lines);
+        m_lineBoxesAction->setIcon(appIcon(
+            lines ? QStringLiteral("boxes-line") : QStringLiteral("boxes-word"),
+            palette()));
     });
 
     // Through the action, so the eye's own state and the overlay stay one thing.
@@ -891,6 +901,23 @@ void MainWindow::createTranscriptionActions()
     m_overlayAction->setToolTip(QStringLiteral(
         "Draws each recognised word over the ink it was read from, so you can "
         "see at a glance what was read where."));
+
+    m_lineBoxesAction = new QAction(QStringLiteral("Show lines"), this);
+    // Word boxes are the state it opens in, so the icon shows those — the same
+    // bargain the eye makes, where the picture is what you are looking at rather
+    // than what pressing it would give you.
+    m_lineBoxesAction->setIcon(appIcon(QStringLiteral("boxes-word"), windowPalette));
+    m_lineBoxesAction->setCheckable(true);
+    m_lineBoxesAction->setToolTip(QStringLiteral(
+        "Draws one box per line of the manuscript instead of one per word, with "
+        "the line's whole reading written underneath the ink it was laid onto and "
+        "the baseline the training strip is cut along.<p>What it is for: on a hand "
+        "the recogniser was not trained for it groups the ink into lines wrongly — "
+        "running two lines together, or cutting one in two — and nothing in the "
+        "word boxes shows that, because each box looks right on its own. "
+        "Right-click a line to say where it really ends, or to join it to the one "
+        "below.</p><p>Click a word and press Enter to say the line ends before it, "
+        "or Backspace to pull the first word of a line up onto the line above.</p>"));
 
     // Through a lambda, not straight at the slot: triggered carries a bool, and
     // both of these now take an argument that a bool would quietly become —
@@ -1435,6 +1462,11 @@ void MainWindow::updateTranscriptionActions()
     // shows none, which reads as a recogniser that failed silently.
     m_overlayAction->setEnabled(
         transcribing && m_transcriptionController->hasRecognisedWords());
+    // And only while the overlay is on: a switch between two views of something
+    // that is not being drawn has nothing to switch.
+    m_lineBoxesAction->setEnabled(
+        transcribing && m_overlayAction->isChecked()
+        && m_transcriptionController->hasRecognisedLines());
 
     m_transcriptionUndoAction->setEnabled(
         transcribing && m_transcriptionController->canUndo());
@@ -1705,6 +1737,7 @@ void MainWindow::buildTranscriptionToolBar()
     }
 
     toolBar->addAction(m_overlayAction);
+    toolBar->addAction(m_lineBoxesAction);
     showIconOnly(toolBar, m_overlayAction);
     // The magnifier is wired to the workspace in the constructor rather than
     // here: the toolbar is built before the page it acts on exists, and a

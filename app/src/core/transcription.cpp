@@ -9,6 +9,8 @@
 #include <QJsonObject>
 #include <QRegularExpression>
 
+#include <algorithm>
+
 namespace milah {
 namespace {
 
@@ -281,6 +283,21 @@ QJsonObject pageToJson(const TranscribedPage &page)
     if (!lines.isEmpty()) {
         json.insert(QStringLiteral("lines"), lines);
     }
+    // What the transcriber has said a line holds, where they have said it. In
+    // the same shape as the lines above, and for the same reason: a line number
+    // written down beside its value survives a folio being read again, where a
+    // bare list in line order would not.
+    QJsonArray lineWords;
+    for (auto entry = page.lineWords.constBegin(); entry != page.lineWords.constEnd();
+         ++entry) {
+        QJsonObject held;
+        held.insert(QStringLiteral("line"), entry.key());
+        held.insert(QStringLiteral("words"), entry.value());
+        lineWords.append(held);
+    }
+    if (!lineWords.isEmpty()) {
+        json.insert(QStringLiteral("lineWords"), lineWords);
+    }
     // Both or neither, for the same reason the end pair is: a verse with no word
     // count says where the pour began without saying how far in.
     if (!page.fillStartVerse.isEmpty() && page.fillStartWord >= 0) {
@@ -322,6 +339,17 @@ TranscribedPage pageFromJson(const QJsonObject &json)
         line.baseline = pointsFromText(entry.value(QStringLiteral("baseline")).toString());
         line.boundary = pointsFromText(entry.value(QStringLiteral("boundary")).toString());
         page.lines.append(line);
+    }
+    for (const QJsonValue &value : json.value(QStringLiteral("lineWords")).toArray()) {
+        const QJsonObject entry = value.toObject();
+        // A count of nothing is a real answer — the whole line belongs further
+        // down — so the absent case is the key not being there at all.
+        if (!entry.contains(QStringLiteral("words"))) {
+            continue;
+        }
+        page.lineWords.insert(
+            entry.value(QStringLiteral("line")).toInt(),
+            std::max(0, entry.value(QStringLiteral("words")).toInt()));
     }
     page.fillStartVerse = json.value(QStringLiteral("fillStartVerse")).toString();
     page.fillStartWord = json.value(QStringLiteral("fillStartWord")).toInt(-1);

@@ -68,6 +68,36 @@ TranscriptionWidget::TranscriptionWidget(
         this,
         [this](QRect box, QString hebrew) { m_controller->setWordAt(box, hebrew); });
 
+    connect(
+        m_image,
+        &ManuscriptImageView::lineBreakToggled,
+        this,
+        [this](QRect box, bool endsLine) { m_controller->setLineBreakAt(box, endsLine); });
+
+    connect(
+        m_image,
+        &ManuscriptImageView::lineJoinRequested,
+        this,
+        [this](int line) { m_controller->joinLineAt(line); });
+
+    connect(
+        m_image,
+        &ManuscriptImageView::lineMarginalToggled,
+        this,
+        [this](int line, bool marginal) { m_controller->setLineMarginal(line, marginal); });
+
+    connect(
+        m_image,
+        &ManuscriptImageView::lineBrokenBefore,
+        this,
+        [this](QRect box) { m_controller->breakLineBefore(box); });
+
+    connect(
+        m_image,
+        &ManuscriptImageView::wordPulledUp,
+        this,
+        [this](QRect box) { m_controller->pullWordUp(box); });
+
     m_grid = new TranscriptionGridWidget(m_controller);
     m_textArea = new QScrollArea;
     m_textArea->setWidget(m_grid);
@@ -129,11 +159,17 @@ void TranscriptionWidget::setOverlayVisible(bool visible)
     m_image->setOverlayVisible(visible);
 }
 
+void TranscriptionWidget::setLineBoxesVisible(bool visible)
+{
+    m_image->setLineBoxesVisible(visible);
+}
+
 void TranscriptionWidget::refreshOverlay()
 {
     const TranscribedPage *page = m_controller->currentPage();
     if (!page) {
         m_image->setWords({});
+        m_image->setLines({});
         m_image->setContinuation(QString());
         return;
     }
@@ -142,6 +178,7 @@ void TranscriptionWidget::refreshOverlay()
         words.append(verse.words);
     }
     m_image->setWords(words);
+    m_image->setLines(page->lines);
 
     // Here because this already runs on every change of folio and every change
     // of text, and where the folio before this one stopped changes with both.

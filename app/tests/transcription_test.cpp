@@ -785,6 +785,32 @@ private slots:
                     .lines.isEmpty());
     }
 
+    /// A line whose length the transcriber corrected keeps that length. It is a
+    /// fact about the leaf, read off the picture — not about which transcription
+    /// was poured onto it — so it outlives the fill that prompted it, and the
+    /// re-flows that run over it afterwards.
+    void aCorrectedLineLengthSurvivesTheArchive()
+    {
+        TranscriptionDocument document = sampleDocument();
+        document.pages[0].lineWords.insert(21, 13);
+        // Nought is an answer, not an absence: the whole line belongs further
+        // down. Written as such, and read back as such.
+        document.pages[0].lineWords.insert(22, 0);
+
+        const TranscribedPage &read =
+            restoreTranscription(transcriptionPayload(document, {})).pages.at(0);
+        QCOMPARE(read.lineWords.size(), 2);
+        QCOMPARE(read.lineWords.value(21), 13);
+        QVERIFY(read.lineWords.contains(22));
+        QCOMPARE(read.lineWords.value(22), 0);
+
+        // A file written before this existed reads as nothing said, which sends
+        // every line back to its box count.
+        QVERIFY(restoreTranscription(transcriptionPayload(sampleDocument(), {}))
+                    .pages.at(0)
+                    .lineWords.isEmpty());
+    }
+
     /// Marginalia leave the running text and arrive as a note on the line they
     /// stand beside.
     ///

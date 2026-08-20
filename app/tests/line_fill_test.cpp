@@ -377,6 +377,84 @@ private slots:
         QVERIFY(fillableLines(TranscribedPage{}).isEmpty());
     }
 
+    /// The box count is what a line takes when nobody has said otherwise, and
+    /// what the transcriber said when they have.
+    ///
+    /// This is the one place the two are reconciled, because the fill, the
+    /// continuation and the re-flow all read it — and a re-flow rebuilding the
+    /// counts from the boxes is exactly how a correction used to be thrown away
+    /// the moment a box was held out somewhere above it.
+    void aLineTakesTheBoxCountUnlessSomebodySaidOtherwise()
+    {
+        TranscribedPage page;
+        TranscribedVerse verse;
+        verse.words = folio();
+        page.verses.append(verse);
+
+        QCOMPARE(wordCounts(page), (QMap<int, int>{{0, 2}, {1, 2}, {2, 2}}));
+
+        page.lineWords.insert(1, 5);
+        QCOMPARE(wordCounts(page).value(1), 5);
+        // And the lines nobody spoke about are untouched.
+        QCOMPARE(wordCounts(page).value(0), 2);
+        QCOMPARE(wordCounts(page).value(2), 2);
+    }
+
+    /// A count of nothing is an answer — the whole line belongs further down —
+    /// and is not the same as never having said anything. Treated as absent it
+    /// would silently become the box count, which is the very number being
+    /// contradicted.
+    void sayingALineHoldsNothingIsSayingSomething()
+    {
+        TranscribedPage page;
+        TranscribedVerse verse;
+        verse.words = folio();
+        page.verses.append(verse);
+        page.lineWords.insert(1, 0);
+
+        QCOMPARE(wordCounts(page).value(1), 0);
+        QVERIFY(wordCounts(page).contains(1));
+        // layOut() passes over it rather than laying nothing into it, so the
+        // words that were on it are all on the line below.
+        const QList<int> counts = wordCounts(page).values();
+        const QList<LineFill::Laid> laid = LineFill::layOut(counts, 0, 0, 4);
+        for (const LineFill::Laid &row : laid) {
+            QVERIFY(row.line != 1);
+        }
+    }
+
+    /// A count left over for a line the folio no longer has is ignored, not
+    /// added. Reading a folio again renumbers its lines, and a stale answer that
+    /// crept into the map would push every line still there along by one.
+    void aCountForALineThatIsGoneIsIgnored()
+    {
+        TranscribedPage page;
+        TranscribedVerse verse;
+        verse.words = folio();
+        page.verses.append(verse);
+        page.lineWords.insert(9, 4);
+
+        QCOMPARE(wordCounts(page).size(), 3);
+        QVERIFY(!wordCounts(page).contains(9));
+    }
+
+    /// Marginalia are still not slots. A line that is all notes is absent here
+    /// as it is from fillableLines(), whatever anybody said its length was —
+    /// it is not a line of the work at all.
+    void aCorrectionDoesNotMakeAMarginalLineFillable()
+    {
+        TranscribedPage page;
+        TranscribedVerse verse;
+        verse.words = folio();
+        verse.words[2].marginal = true;
+        verse.words[3].marginal = true;
+        page.verses.append(verse);
+        page.lineWords.insert(1, 6);
+
+        QVERIFY(!wordCounts(page).contains(1));
+        QCOMPARE(wordCounts(page).size(), 2);
+    }
+
     /// Where a re-flow picks the passage up again.
     ///
     /// Wrong by one here and the folio repeats a word or drops one — which is
@@ -417,6 +495,158 @@ private slots:
         QCOMPARE(pouredWordsBefore(page, 2), 0);
     }
 
+
+    /// Undoing a cut the segmenter made in the wrong place. The words of the
+    /// line below come up onto this one, so the two pieces are laid out together
+    /// — which is the whole of the repair, since directionOf() can only put two
+    /// side-by-side fragments into one right-to-left run once it sees them as
+    /// one line's boxes.
+    void joiningTwoLinesBringsTheWordsUp()
+    {
+        TranscribedPage page;
+        TranscribedVerse verse;
+        verse.words = folio();
+        page.verses.append(verse);
+
+        QVERIFY(joinLine(page, 0));
+
+        const QMap<int, QList<QRect>> lines = fillableLines(page);
+        QCOMPARE(lines.size(), 2);
+        QCOMPARE(lines.value(0).size(), 4);
+        QVERIFY(!lines.contains(1));
+        // The numbering is left with a gap in it rather than shuffled up: the
+        // words below never moved, and renumbering them would move every line
+        // reference on the folio for the sake of tidiness.
+        QCOMPARE(lines.value(2).size(), 2);
+    }
+
+    /// The break that stood at the seam has to go. Left in place, the training
+    /// export would cut the joined line in two again at exactly the point the
+    /// transcriber has just said is not a line end.
+    void joiningClearsTheBreakAtTheSeam()
+    {
+        TranscribedPage page;
+        TranscribedVerse verse;
+        verse.words = folio();
+        // The last word of line 0, and a break further up that is none of this
+        // join's business.
+        verse.words[1].endsLine = true;
+        verse.words[0].endsLine = true;
+        page.verses.append(verse);
+
+        QVERIFY(joinLine(page, 0));
+
+        QVERIFY(!page.verses.first().words.at(1).endsLine);
+        QVERIFY(page.verses.first().words.at(0).endsLine);
+    }
+
+    /// A line the segmenter cut into three is repaired by joining twice, which
+    /// only works if a join looks for the next line **there is** rather than for
+    /// this one's number plus one — the first join leaves a gap behind it.
+    void joiningTwiceGathersThreePieces()
+    {
+        TranscribedPage page;
+        TranscribedVerse verse;
+        verse.words = folio();
+        page.verses.append(verse);
+
+        QVERIFY(joinLine(page, 0));
+        QVERIFY(joinLine(page, 0));
+
+        const QMap<int, QList<QRect>> lines = fillableLines(page);
+        QCOMPARE(lines.size(), 1);
+        QCOMPARE(lines.value(0).size(), 6);
+        // And there is nothing left below it to join.
+        QVERIFY(!joinLine(page, 0));
+    }
+
+    /// The foot of a folio always answers no, and so does a line number nothing
+    /// is written on.
+    void thereIsNothingBelowTheLastLine()
+    {
+        TranscribedPage page;
+        TranscribedVerse verse;
+        verse.words = folio();
+        page.verses.append(verse);
+
+        QVERIFY(!joinLine(page, 2));
+        QVERIFY(!joinLine(page, 7));
+        QVERIFY(!joinLine(page, -1));
+        // While the line above the last one has somewhere to go.
+        QVERIFY(joinLine(page, 1));
+    }
+
+    /// The geometry: the two baselines are joined in the order they lie across
+    /// the folio, and the boundary is dropped rather than stitched — see
+    /// joinLine()'s header for why, and note that an empty boundary is exactly
+    /// what makes the training export fall back to the rectangle round the
+    /// line's words.
+    void joiningJoinsTheBaselinesAndDropsTheBoundaries()
+    {
+        TranscribedPage page;
+        TranscribedVerse verse;
+        verse.words = folio();
+        page.verses.append(verse);
+
+        TranscribedLine left;
+        left.index = 1;
+        left.baseline = {QPoint(100, 210), QPoint(300, 214)};
+        left.boundary = {QPoint(100, 190), QPoint(300, 190), QPoint(300, 240)};
+        TranscribedLine right;
+        right.index = 0;
+        right.baseline = {QPoint(600, 138), QPoint(790, 140)};
+        right.boundary = {QPoint(600, 100), QPoint(790, 100), QPoint(790, 140)};
+        page.lines = {left, right};
+
+        QVERIFY(joinLine(page, 0));
+
+        QCOMPARE(page.lines.size(), 1);
+        QCOMPARE(page.lines.first().index, 0);
+        // The left-hand piece first, whichever order the entries arrived in.
+        const QList<QPoint> expected = {
+            QPoint(100, 210), QPoint(300, 214), QPoint(600, 138), QPoint(790, 140)};
+        QCOMPARE(page.lines.first().baseline, expected);
+        QVERIFY(page.lines.first().boundary.isEmpty());
+    }
+
+    /// A folio read before Milah kept the segmenter's shapes has words with
+    /// lines and no geometry at all, and joining two of its lines has to work
+    /// without inventing any.
+    void joiningAFolioWithNoGeometryInventsNone()
+    {
+        TranscribedPage page;
+        TranscribedVerse verse;
+        verse.words = folio();
+        page.verses.append(verse);
+
+        QVERIFY(joinLine(page, 1));
+        QVERIFY(page.lines.isEmpty());
+        QCOMPARE(fillableLines(page).value(1).size(), 4);
+    }
+
+    /// One half of the pair having a shape and the other not. The entry that
+    /// exists moves onto the joined line rather than being left pointing at a
+    /// number nothing carries any more.
+    void joiningKeepsTheShapeThatExists()
+    {
+        TranscribedPage page;
+        TranscribedVerse verse;
+        verse.words = folio();
+        page.verses.append(verse);
+
+        TranscribedLine below;
+        below.index = 1;
+        below.baseline = {QPoint(600, 238), QPoint(790, 240)};
+        below.boundary = {QPoint(600, 200), QPoint(790, 200), QPoint(790, 240)};
+        page.lines = {below};
+
+        QVERIFY(joinLine(page, 0));
+
+        QCOMPARE(page.lines.size(), 1);
+        QCOMPARE(page.lines.first().index, 0);
+        QCOMPARE(page.lines.first().baseline.size(), 2);
+        QVERIFY(page.lines.first().boundary.isEmpty());
+    }
     /// The words need not arrive in any order — they come off the document, and
     /// a folio edited since it was read holds them however the editing left them.
     void theWordsNeedNotBeSorted()
