@@ -944,6 +944,18 @@ void MainWindow::createTranscriptionActions()
     // of it — a menu entry could only ever offer the same job with the pointing
     // left out.
 
+    m_recoverReadingsAction =
+        new QAction(QStringLiteral("Recover the machine's readings"), this);
+    m_recoverReadingsAction->setToolTip(QStringLiteral(
+        "Reads this folio again to fill in what the machine read at each box, "
+        "and changes nothing else. For a folio read before Milah kept them, "
+        "where holding a box out of the work has nothing to put back."));
+    connect(
+        m_recoverReadingsAction,
+        &QAction::triggered,
+        m_transcriptionController,
+        &TranscriptionController::recoverReadings);
+
     m_htrRemoveAction = new QAction(QStringLiteral("Remove Kraken…"), this);
     m_htrRemoveAction->setToolTip(QStringLiteral(
         "Deletes Kraken, its Python environment and its models. Your Linux "
@@ -1062,6 +1074,7 @@ void MainWindow::buildMenuBar()
     m_htrMenu->addSeparator();
     m_htrMenu->addAction(m_lastRunAction);
     m_htrMenu->addSeparator();
+    m_htrMenu->addAction(m_recoverReadingsAction);
     m_htrMenu->addAction(m_saveForTrainingAction);
     m_htrMenu->addAction(m_trainAction);
     m_htrMenu->addSeparator();
@@ -1105,6 +1118,11 @@ void MainWindow::buildMenuBar()
         // way through. Asked here rather than kept up to date because the
         // answer reads the folio, and a menu is opened far less often than a
         // word is committed.
+        // Only where something was read: there is nothing to recover on a folio
+        // nobody has run a recogniser over.
+        m_recoverReadingsAction->setEnabled(
+            m_transcriptionController->hasRecognisedWords());
+
         const int lines = m_transcriptionController->trainableLineCount();
         m_saveForTrainingAction->setEnabled(lines > 0);
         m_saveForTrainingAction->setToolTip(

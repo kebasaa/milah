@@ -5,6 +5,7 @@
 
 #include <QDateTime>
 #include <QJsonArray>
+#include <QStringList>
 #include <QJsonObject>
 #include <QRegularExpression>
 
@@ -217,6 +218,28 @@ TranscribedVerse verseFromJson(const QJsonObject &json)
     return verse;
 }
 
+/// Points as "x y x y", which is how ALTO spells a baseline and so needs no
+/// translating when the training export writes it back out.
+QString pointsToText(const QList<QPoint> &points)
+{
+    QStringList parts;
+    parts.reserve(points.size() * 2);
+    for (const QPoint &point : points) {
+        parts << QString::number(point.x()) << QString::number(point.y());
+    }
+    return parts.join(QLatin1Char(' '));
+}
+
+QList<QPoint> pointsFromText(const QString &text)
+{
+    const QStringList parts = text.split(QLatin1Char(' '), Qt::SkipEmptyParts);
+    QList<QPoint> points;
+    for (int index = 0; index + 1 < parts.size(); index += 2) {
+        points.append(QPoint(parts.at(index).toInt(), parts.at(index + 1).toInt()));
+    }
+    return points;
+}
+
 QJsonObject pageToJson(const TranscribedPage &page)
 {
     QJsonArray verses;
@@ -241,6 +264,22 @@ QJsonObject pageToJson(const TranscribedPage &page)
     }
     if (page.fillStartLine >= 0) {
         json.insert(QStringLiteral("fillStartLine"), page.fillStartLine);
+    }
+    // What the recogniser drew for each line. Only the lines that have any: a
+    // folio read before Milah kept these writes nothing and reads back empty.
+    QJsonArray lines;
+    for (const TranscribedLine &line : page.lines) {
+        if (line.baseline.isEmpty() && line.boundary.isEmpty()) {
+            continue;
+        }
+        QJsonObject entry;
+        entry.insert(QStringLiteral("line"), line.index);
+        put(entry, QStringLiteral("baseline"), pointsToText(line.baseline));
+        put(entry, QStringLiteral("boundary"), pointsToText(line.boundary));
+        lines.append(entry);
+    }
+    if (!lines.isEmpty()) {
+        json.insert(QStringLiteral("lines"), lines);
     }
     // Both or neither, for the same reason the end pair is: a verse with no word
     // count says where the pour began without saying how far in.
@@ -276,6 +315,14 @@ TranscribedPage pageFromJson(const QJsonObject &json)
     page.fillEndVerse = json.value(QStringLiteral("fillEndVerse")).toString();
     page.fillEndWord = json.value(QStringLiteral("fillEndWord")).toInt(-1);
     page.fillStartLine = json.value(QStringLiteral("fillStartLine")).toInt(-1);
+    for (const QJsonValue &value : json.value(QStringLiteral("lines")).toArray()) {
+        const QJsonObject entry = value.toObject();
+        TranscribedLine line;
+        line.index = entry.value(QStringLiteral("line")).toInt();
+        line.baseline = pointsFromText(entry.value(QStringLiteral("baseline")).toString());
+        line.boundary = pointsFromText(entry.value(QStringLiteral("boundary")).toString());
+        page.lines.append(line);
+    }
     page.fillStartVerse = json.value(QStringLiteral("fillStartVerse")).toString();
     page.fillStartWord = json.value(QStringLiteral("fillStartWord")).toInt(-1);
 

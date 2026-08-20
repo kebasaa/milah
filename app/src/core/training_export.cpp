@@ -4,9 +4,11 @@
 
 #include <QMap>
 #include <QRect>
+#include <QStringList>
 #include <QXmlStreamWriter>
 
 #include <algorithm>
+#include <functional>
 
 namespace milah {
 namespace {
@@ -129,13 +131,40 @@ void writeBox(QXmlStreamWriter &xml, const QRect &box)
     xml.writeAttribute(QStringLiteral("HEIGHT"), QString::number(box.height()));
 }
 
-/// The line a baseline model reads: level, through the middle of the words.
+/// The points of a line the recogniser drew, scaled and brought inside the
+/// picture, and clipped to the stretch the line's kept words occupy.
 ///
-/// Invented, and only as far as it has to be. Kraken's segmenter found a real
-/// baseline for this line and Milah kept only the word boxes, so the true one
-/// is gone. A level line through the middle of them is a fair statement of a
-/// manuscript line that runs straight, and it is what makes the difference
-/// between a file a baseline model trains on and one it discards line by line.
+/// The clip is what lets an unread marginal note be trimmed off the end of a
+/// line without squaring the whole line off: the shape still follows the ink,
+/// it simply stops short. Points outside the span are pulled to its edge rather
+/// than dropped, so a boundary stays a closed ring and a baseline keeps its ends.
+QString pointsInside(
+    const QList<QPoint> &points,
+    const std::function<QRect(const QRect &)> &scaled,
+    const QSize &size,
+    int left,
+    int right)
+{
+    QStringList parts;
+    parts.reserve(points.size() * 2);
+    for (const QPoint &point : points) {
+        // Through the same rectangle scaling the boxes go through, so a point
+        // and a box that touched on the screen still touch on the master.
+        const QRect at = inside(scaled(QRect(point, QSize(1, 1))), size);
+        parts << QString::number(std::clamp(at.x(), left, right))
+              << QString::number(at.y());
+    }
+    return parts.join(QLatin1Char(' '));
+}
+
+/// The line a baseline model reads when the folio has no real one: level,
+/// through the middle of the words.
+///
+/// A fallback now rather than the rule. Milah keeps what the segmenter drew
+/// (see TranscribedLine), but a folio read before it did, or an imported file
+/// that records no baseline, still has to produce something a baseline model
+/// will take — and a level line through the middle of the boxes is a fair
+/// statement of a manuscript line that runs straight.
 QString baselineOf(const QRect &bounds)
 {
     const int middle = bounds.y() + bounds.height() / 2;
@@ -184,6 +213,13 @@ TrainingPage trainingAlto(
             qRound(box.width() * scaleX),
             qRound(box.height() * scaleY));
     };
+
+    // Keyed by the line number a word carries, which is how a Line finds the
+    // geometry that belongs to it.
+    QMap<int, const TranscribedLine *> drawnLines;
+    for (const TranscribedLine &drawn : page.lines) {
+        drawnLines.insert(drawn.index, &drawn);
+    }
 
     const QList<Line> lines = linesOf(page);
 
@@ -234,13 +270,37 @@ TrainingPage trainingAlto(
         if (bounds.width() < MinimumLineWidth || bounds.height() < 1) {
             continue;
         }
+        // What the segmenter actually drew, where the folio has it. Kraken
+        // dewarps the strip along the baseline and masks it to the boundary, so
+        // these decide what the model is shown — and Milah's own level line and
+        // rectangle are a poor stand-in for a sloping line on a crowded leaf.
+        // Clipped rather than replaced where a marginal word was trimmed off an
+        // end, so the shape still follows the ink and merely stops short.
+        const TranscribedLine *drawn = drawnLines.value(line.first()->line, nullptr);
+        // Clipped only where a marginal note was actually trimmed off an end.
+        // A line nothing was taken from keeps the shape whole: the segmenter's
+        // outline reaches a little past the word boxes on purpose, round the
+        // ascenders, and squeezing it to their span would shave the very ink
+        // the strip is cut for.
+        const bool trimmed = line.size() != lines.at(index).size();
+        const int left = trimmed ? bounds.left() : 0;
+        const int right = trimmed ? bounds.right() : imageSize.width() - 1;
+        const QString baseline =
+            drawn && drawn->baseline.size() >= 2
+                ? pointsInside(drawn->baseline, scaled, imageSize, left, right)
+                : baselineOf(bounds);
+        const QString outline =
+            drawn && drawn->boundary.size() >= 3
+                ? pointsInside(drawn->boundary, scaled, imageSize, left, right)
+                : polygonOf(bounds);
+
         xml.writeStartElement(QStringLiteral("TextLine"));
         xml.writeAttribute(QStringLiteral("ID"), QStringLiteral("line_%1").arg(index));
-        xml.writeAttribute(QStringLiteral("BASELINE"), baselineOf(bounds));
+        xml.writeAttribute(QStringLiteral("BASELINE"), baseline);
         writeBox(xml, bounds);
         xml.writeStartElement(QStringLiteral("Shape"));
         xml.writeStartElement(QStringLiteral("Polygon"));
-        xml.writeAttribute(QStringLiteral("POINTS"), polygonOf(bounds));
+        xml.writeAttribute(QStringLiteral("POINTS"), outline);
         xml.writeEndElement();
         xml.writeEndElement();
 

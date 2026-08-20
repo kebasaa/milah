@@ -5,6 +5,7 @@
 #include <QHash>
 #include <QList>
 #include <QMap>
+#include <QPoint>
 #include <QRect>
 #include <QString>
 
@@ -113,6 +114,27 @@ struct TranscribedWord
     bool operator==(const TranscribedWord &) const = default;
 };
 
+/// A line of the folio as the recogniser drew it: where it runs, and what it
+/// encloses.
+///
+/// **Kept because training cuts its strips from these two and from nothing
+/// else.** A model is shown a line dewarped along its baseline and masked to
+/// its boundary, so a level baseline through the middle of the word boxes
+/// shears the strip, and a rectangle round them takes in the neighbouring
+/// lines' ascenders and descenders. On 158r of MS Oo.1.32 a baseline falls a
+/// median of 12 pixels across the leaf and a boundary covers 0.65 of its
+/// bounding rectangle -- a third of a letter's height of shear, and half again
+/// as much ink as the line has.
+///
+/// Empty for a folio read before Milah kept these, and for a format that does
+/// not record them. core/training_export.h falls back to the old invention.
+struct TranscribedLine
+{
+    int index = 0;
+    QList<QPoint> baseline;
+    QList<QPoint> boundary;
+};
+
 struct TranscribedVerse
 {
     /// As typed: usually "3", but "12a" is a verse number too. Never an int —
@@ -190,6 +212,9 @@ struct TranscribedPage
     int fillStartLine = -1;
     QString fillStartVerse;
     int fillStartWord = -1;
+    /// What the recogniser drew for each line of this folio, in the folio
+    /// image's own pixels -- the same space the word boxes are in.
+    QList<TranscribedLine> lines;
     QList<TranscribedVerse> verses;
 };
 

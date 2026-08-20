@@ -384,6 +384,28 @@ narrower and easier to miss — see the maqqef below.
 documentation recommends and what a transcriber correcting a folio is already
 doing the work for. Milah runs it, in two steps.
 
+**The line a model is shown is the one the segmenter drew.** Kraken cuts a
+training strip by dewarping the line along its baseline and masking everything
+outside its boundary, so those two decide what the model learns from. Kraken's
+own ALTO gives both — a sloping, multi-point baseline and a boundary of eighty
+or more points that follows the ink — and Milah keeps them now. It used to read
+neither, and rebuild both from the word boxes: a level line through their
+middles, and a rectangle round the outside.
+
+Measured on 158r of MS Oo.1.32, that substitution was costly. The rectangle
+overlapped its neighbouring lines by **45.7%** of its own area against the
+polygon's 20.9%, taking in 3.2 times as much ink belonging to other lines —
+nearly half of every strip was the line above or below. And a baseline there
+falls a median of 12 pixels across a leaf whose letters are some 30 tall, so a
+level one sheared the strip by a third of a letter's height.
+
+A folio read before Milah kept them still falls back to the invention, since a
+line without a baseline is one Kraken skips in silence. **Recover the machine's
+readings** re-reads such a folio for its geometry and its original readings
+alone, leaving the text untouched — Transcribe would recover them too and
+replace the text doing it, which on a folio already filled from a published
+transcription trades the larger thing for the smaller.
+
 **File ▸ Handwriting recognition ▸ Save this folio for HTR training** puts what
 you have corrected into that manuscript's training set. One folio at a time,
 because that is how anybody works: the set accumulates between sessions and

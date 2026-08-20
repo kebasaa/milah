@@ -375,6 +375,71 @@ private slots:
         thin.verses = {sliver};
         QCOMPARE(trainingAlto(thin, QStringLiteral("150r.jpg"), QSize(1024, 1373)).lines, 0);
     }
+
+    /// Kraken's own baseline and boundary are what get written, where the folio
+    /// has them.
+    ///
+    /// It dewarps a training strip along the baseline and masks it to the
+    /// boundary, so these two decide what the model is shown. Milah's level
+    /// line and rectangle are the fallback now, not the rule.
+    void theSegmentersOwnGeometryIsWhatIsWritten()
+    {
+        TranscribedPage page = samplePage();
+        TranscribedLine drawn;
+        drawn.index = 0;
+        drawn.baseline = {QPoint(640, 130), QPoint(720, 126), QPoint(790, 121)};
+        drawn.boundary = {QPoint(636, 96), QPoint(700, 99), QPoint(792, 94),
+                          QPoint(790, 142), QPoint(636, 140)};
+        page.lines = {drawn};
+
+        const TrainingPage truth =
+            trainingAlto(page, QStringLiteral("150r.jpg"), QSize(1024, 1373));
+        QCOMPARE(truth.lines, 1);
+        // Sloping and many-pointed, not the level two-point invention.
+        QVERIFY2(truth.alto.contains(QByteArray("BASELINE=\"640 130 720 126 790 121\"")),
+                 truth.alto.constData());
+        QVERIFY2(truth.alto.contains(QByteArray("636 96 700 99 792 94")),
+                 truth.alto.constData());
+    }
+
+    /// A folio read before Milah kept them still writes something a baseline
+    /// model will take, because a line without one is skipped in silence.
+    void aFolioWithoutItFallsBackToTheInvention()
+    {
+        const TrainingPage truth =
+            trainingAlto(samplePage(), QStringLiteral("150r.jpg"), QSize(1024, 1373));
+        QCOMPARE(truth.lines, 1);
+        QVERIFY2(truth.alto.contains(QByteArray("BASELINE=")), truth.alto.constData());
+        // Level: both y values the same, which is what the invention produces.
+        QVERIFY2(truth.alto.contains(QByteArray("BASELINE=\"640 120 789 120\"")),
+                 truth.alto.constData());
+    }
+
+    /// Trimming an unread marginal note off the end clips the real shape rather
+    /// than squaring the line off — it still follows the ink, it merely stops
+    /// short of the note.
+    void trimmingClipsTheShapeRatherThanSquaringIt()
+    {
+        TranscribedPage page = samplePage();
+        page.verses[0].words[1].marginal = true;
+        page.verses[0].words[1].unchecked = true;
+        TranscribedLine drawn;
+        drawn.index = 0;
+        // Reaches out to 636, where the marginal word is; the kept word starts
+        // at 700.
+        drawn.baseline = {QPoint(636, 130), QPoint(720, 126), QPoint(790, 121)};
+        drawn.boundary = {QPoint(636, 96), QPoint(792, 94), QPoint(790, 142)};
+        page.lines = {drawn};
+
+        const TrainingPage truth =
+            trainingAlto(page, QStringLiteral("150r.jpg"), QSize(1024, 1373));
+        QCOMPARE(truth.lines, 1);
+        QCOMPARE(truth.words, 1);
+        // Clipped to the kept word's span, and still sloping.
+        QVERIFY2(!truth.alto.contains(QByteArray("636")), truth.alto.constData());
+        QVERIFY2(truth.alto.contains(QByteArray("BASELINE=\"700 130 720 126 789 121\"")),
+                 truth.alto.constData());
+    }
 };
 
 QTEST_MAIN(TrainingExportTest)

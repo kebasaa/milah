@@ -1025,11 +1025,32 @@ bool TranscriptionController::applyRecognition(
         verse.words.append(word);
     }
 
+    // What the segmenter drew, carried across in the same space as the boxes.
+    // A recogniser cuts its training strips from these, so keeping Milah's own
+    // invention instead costs the model a sheared and contaminated line — see
+    // TranscribedLine.
+    QList<TranscribedLine> lines;
+    lines.reserve(recognised.lines.size());
+    for (const RecognisedLine &read : recognised.lines) {
+        TranscribedLine line;
+        line.index = read.index;
+        for (const QPoint &point : read.baseline) {
+            line.baseline.append(
+                QPoint(qRound(point.x() * scaleX), qRound(point.y() * scaleY)));
+        }
+        for (const QPoint &point : read.boundary) {
+            line.boundary.append(
+                QPoint(qRound(point.x() * scaleX), qRound(point.y() * scaleY)));
+        }
+        lines.append(line);
+    }
+
     pushUndo();
     // One verse with no number, in the order the page was read. Nothing here
     // knows where the verses of this chapter begin — that is the transcriber's
     // to say, and typing a number in front of a word is how they say it.
     mutablePage()->verses = {verse};
+    mutablePage()->lines = lines;
     ensureTypingRoom();
     m_selectedVerse = -1;
     m_selectedColumn = -1;
@@ -1546,6 +1567,20 @@ void TranscriptionController::applyFill(
     // box it was read at; a word poured onto a piece of a box that place() cut
     // into columns takes the reading of the box it was cut from, since a piece
     // was never separately read.
+    // On a folio nothing has poured onto, a boxed word's own text *is* what the
+    // machine read there — nothing else could have put it in a box. Kept before
+    // the pour overwrites it, which recovers the reading for every folio
+    // recognised before Milah started storing it.
+    if (target->fillStartLine < 0) {
+        for (TranscribedVerse &verse : target->verses) {
+            for (TranscribedWord &word : verse.words) {
+                if (!word.box.isNull() && word.recognised.isEmpty() && word.unchecked) {
+                    word.recognised = word.hebrew;
+                }
+            }
+        }
+    }
+
     QList<QPair<QRect, QString>> readings;
     for (const TranscribedVerse &verse : target->verses) {
         for (const TranscribedWord &word : verse.words) {
@@ -1812,7 +1847,7 @@ void TranscriptionController::removeKraken()
     emit documentChanged();
 }
 
-void TranscriptionController::transcribeFolio(QWidget *over)
+void TranscriptionController::transcribeFolio(QWidget *over, bool readingsOnly)
 {
     // Whatever window is in front. The fill dialog passes itself, because
     // QDialog::exec() is application-modal and a progress dialog parented
@@ -2075,7 +2110,113 @@ void TranscriptionController::transcribeFolio(QWidget *over)
         return;
     }
 
+    if (readingsOnly) {
+        harvestReadings(recognised);
+        return;
+    }
     applyRecognition(recognised, QStringLiteral("Kraken"));
+}
+
+void TranscriptionController::recoverReadings()
+{
+    const TranscribedPage *page = currentPage();
+    if (!page) {
+        setMessage(QStringLiteral("Open a folio first."));
+        return;
+    }
+    int missing = 0;
+    for (const TranscribedVerse &verse : page->verses) {
+        for (const TranscribedWord &word : verse.words) {
+            if (!word.box.isNull() && word.recognised.isEmpty()) {
+                ++missing;
+            }
+        }
+    }
+    if (missing == 0) {
+        setMessage(QStringLiteral("Every box on this folio already carries what the "
+                                  "machine read there."));
+        return;
+    }
+    // Read again, but only to fill those in. Transcribe would replace the text
+    // outright, which on a folio already filled from a transcription would throw
+    // that away to recover something smaller.
+    transcribeFolio(nullptr, true);
+}
+
+void TranscriptionController::harvestReadings(const RecognisedPage &recognised)
+{
+    TranscribedPage *page = mutablePage();
+    if (!page) {
+        return;
+    }
+
+    // The same conversion applyRecognition does, for the same reason: the
+    // reading may have been made from a differently sized copy of the folio.
+    const QSize folio = folioPixelSize();
+    double scaleX = 1.0;
+    double scaleY = 1.0;
+    if (folio.isValid() && recognised.imageSize.isValid() && folio != recognised.imageSize) {
+        scaleX = double(folio.width()) / recognised.imageSize.width();
+        scaleY = double(folio.height()) / recognised.imageSize.height();
+    }
+
+    QList<QPair<QRect, QString>> read;
+    read.reserve(recognised.words.size());
+    for (const RecognisedWord &word : recognised.words) {
+        if (word.box.isNull() || word.text.isEmpty()) {
+            continue;
+        }
+        read.append({QRect(qRound(word.box.x() * scaleX),
+                           qRound(word.box.y() * scaleY),
+                           qRound(word.box.width() * scaleX),
+                           qRound(word.box.height() * scaleY)),
+                     word.text});
+    }
+
+    pushUndo();
+    int filled = 0;
+    for (TranscribedVerse &verse : page->verses) {
+        for (TranscribedWord &word : verse.words) {
+            if (word.box.isNull() || !word.recognised.isEmpty()) {
+                continue;
+            }
+            // By where it sits rather than by an exact rectangle: the same model
+            // over the same picture draws the same boxes, but a rounding away is
+            // not worth losing a reading over.
+            for (const QPair<QRect, QString> &candidate : read) {
+                if (candidate.first.contains(word.box.center())
+                    || word.box.contains(candidate.first.center())) {
+                    word.recognised = candidate.second;
+                    ++filled;
+                    break;
+                }
+            }
+        }
+    }
+
+    // The line geometry too, which a folio read before Milah kept it also lacks
+    // — and it is what the training strips are cut from.
+    if (page->lines.isEmpty()) {
+        for (const RecognisedLine &line : recognised.lines) {
+            TranscribedLine kept;
+            kept.index = line.index;
+            for (const QPoint &point : line.baseline) {
+                kept.baseline.append(
+                    QPoint(qRound(point.x() * scaleX), qRound(point.y() * scaleY)));
+            }
+            for (const QPoint &point : line.boundary) {
+                kept.boundary.append(
+                    QPoint(qRound(point.x() * scaleX), qRound(point.y() * scaleY)));
+            }
+            page->lines.append(kept);
+        }
+    }
+
+    setDirty(true);
+    emit versesChanged();
+    setMessage(QStringLiteral("Recovered what the machine read at %1 box(es). The "
+                              "text on the folio is unchanged.")
+                   .arg(filled));
 }
 
 WorkMetadata TranscriptionController::workMetadata() const

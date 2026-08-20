@@ -252,6 +252,9 @@ private:
     /// moment, which is the whole of the state the menu has to convey.
     QMenu *m_htrMenu = nullptr;
     QAction *m_htrInstallAction = nullptr;
+    /// Reads a folio again for the machine's own readings alone, leaving the
+    /// text alone. See TranscriptionController::recoverReadings().
+    QAction *m_recoverReadingsAction = nullptr;
     QAction *m_htrRemoveAction = nullptr;
     /// Its own action, and that is the fix rather than a tidying. The way to
     /// the model chooser used to *be* m_htrInstallAction, which the menu greys

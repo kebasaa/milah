@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QList>
+#include <QPoint>
 #include <QRect>
 #include <QSize>
 #include <QString>
@@ -30,6 +31,33 @@ struct RecognisedWord
     int line = 0;
 };
 
+/// One line of the folio as the segmenter drew it, before any of it was read.
+///
+/// **Kept because a recogniser trains on lines and cuts them out itself.** It
+/// dewarps a line along its baseline and masks everything outside its boundary
+/// to zero, so these two decide the strip a model is shown. Milah used to keep
+/// only the word boxes and rebuild both from them -- a level baseline through
+/// the middle of the boxes, and a rectangle round the outside.
+///
+/// Measured on 158r of MS Oo.1.32, that substitution is not close. A baseline
+/// there falls a median of 12 pixels across a leaf whose letters are some 30
+/// tall, so a level one shears the strip by a third of its own height; and the
+/// boundary covers 0.65 of its bounding rectangle, so the rectangle takes in
+/// half again as much ink -- the ascenders and descenders of the lines above
+/// and below.
+struct RecognisedLine
+{
+    /// Counting from zero, the same numbering a word carries.
+    int index = 0;
+    /// Along the line, in the same pixel space as the boxes. Two points for a
+    /// straight line, more where the segmenter followed a curve.
+    QList<QPoint> baseline;
+    /// The outline of the line's own ink, which the mask is cut from.
+    QList<QPoint> boundary;
+
+    bool isEmpty() const { return baseline.size() < 2; }
+};
+
 struct RecognisedPage
 {
     /// The page size the file declares, not assumed equal to the folio Milah
@@ -37,6 +65,10 @@ struct RecognisedPage
     /// wrong, which is the worst way for this to fail.
     QSize imageSize;
     QList<RecognisedWord> words;
+    /// The lines the segmenter found, where the file records them. Empty for a
+    /// writer that does not, which is what the fallback in
+    /// core/training_export.h is for.
+    QList<RecognisedLine> lines;
 };
 
 /// Reads an ALTO or PAGE document, told apart by its root element.

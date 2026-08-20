@@ -759,6 +759,32 @@ private slots:
         QCOMPARE(partial.fillStartWord, -1);
     }
 
+    /// The line the segmenter drew survives the archive, because training cuts
+    /// its strips from it and a folio is trained on months after it was read.
+    void theLineTheSegmenterDrewSurvivesTheArchive()
+    {
+        TranscriptionDocument document = sampleDocument();
+        TranscribedLine drawn;
+        drawn.index = 3;
+        drawn.baseline = {QPoint(588, 73), QPoint(658, 72), QPoint(720, 66)};
+        drawn.boundary = {QPoint(597, 54), QPoint(660, 57), QPoint(679, 103)};
+        document.pages[0].lines = {drawn};
+
+        const TranscribedPage &read =
+            restoreTranscription(transcriptionPayload(document, {})).pages.at(0);
+        QCOMPARE(read.lines.size(), 1);
+        QCOMPARE(read.lines.first().index, 3);
+        QCOMPARE(read.lines.first().baseline.size(), 3);
+        QCOMPARE(read.lines.first().baseline.at(2), QPoint(720, 66));
+        QCOMPARE(read.lines.first().boundary.size(), 3);
+
+        // A file written before Milah kept them reads as none, which is what
+        // sends the training export back to its own invention.
+        QVERIFY(restoreTranscription(transcriptionPayload(sampleDocument(), {}))
+                    .pages.at(0)
+                    .lines.isEmpty());
+    }
+
     /// Marginalia leave the running text and arrive as a note on the line they
     /// stand beside.
     ///

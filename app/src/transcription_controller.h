@@ -153,7 +153,19 @@ public slots:
     /// dialog passes itself: QDialog::exec() is application-modal, so a progress
     /// dialog parented to the main window would be shut out of the input it
     /// needs and the run would look like a hang.
-    void transcribeFolio(QWidget *over = nullptr);
+    /// Reads the folio with the installed model.
+    ///
+    /// `readingsOnly` keeps what is on the folio and fills in only what the
+    /// machine read at each box — see recoverReadings().
+    void transcribeFolio(QWidget *over = nullptr, bool readingsOnly = false);
+    /// Reads the folio again to recover the machine's own readings, changing
+    /// nothing else.
+    ///
+    /// For a folio read before Milah kept them, where a box held out of the work
+    /// has nothing to go back to. Transcribe would recover them too and replace
+    /// the text doing it, which on a folio already filled from a published
+    /// transcription trades the larger thing for the smaller.
+    void recoverReadings();
     /// Opens the setup dialog deliberately rather than by surprise, so it can
     /// be done once at a desk with time for it. The runtime only — models are
     /// manageModels().
@@ -229,6 +241,9 @@ private:
         const QString &sourcePath,
         const QString &range,
         bool standalone = true);
+    /// Takes only the readings and the line geometry off a fresh recognition,
+    /// leaving the folio's text alone.
+    void harvestReadings(const RecognisedPage &recognised);
     /// Which word carries this box, if any. One lookup for the several things
     /// the folio's right-click can do to a word it points at.
     bool wordAt(const QRect &box, int *verse, int *column) const;
