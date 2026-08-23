@@ -39,6 +39,24 @@ public:
         QWidget *parent = nullptr);
 
 private:
+    /// Where this folio stands on the path, which is what the button is.
+    ///
+    /// A plain enum rather than a QAction per state: only one of them is ever
+    /// offered, and the thing that changes is which. `Nothing` is the resting
+    /// state — the button still says Save, greyed unless there is something to
+    /// save, because that is what it will be next whatever happens.
+    enum class Step {
+        Nothing,
+        Read,
+        Fill,
+        Continue,
+        Save,
+        Train,
+    };
+
+    /// Does whatever the folio's step is, by calling what the toolbar and the
+    /// right-click call.
+    void act();
     /// Reads the folio and the set and redraws. Never called straight from a
     /// signal — see m_soon.
     void refresh();
@@ -49,7 +67,8 @@ private:
     QLabel *m_setSaid = nullptr;
     QProgressBar *m_setBar = nullptr;
     QLabel *m_state = nullptr;
-    QPushButton *m_save = nullptr;
+    QPushButton *m_do = nullptr;
+    Step m_step = Step::Nothing;
     /// Coalesces the refreshes. Every keystroke in the grid reports the verses
     /// changed, and answering each one means building this folio's whole
     /// training layout to count its finished lines — a third of a megabyte of

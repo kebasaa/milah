@@ -191,6 +191,15 @@ QString bookName(const QString &osisId)
     return names.value(osisId, osisId);
 }
 
+QString readableVerseId(const QString &id)
+{
+    const QStringList parts = id.split(QLatin1Char('.'));
+    if (parts.size() != 3) {
+        return id;
+    }
+    return QStringLiteral("%1 %2:%3").arg(parts.at(0), parts.at(1), parts.at(2));
+}
+
 int compareBooks(const QString &left, const QString &right)
 {
     const int unknown = std::numeric_limits<int>::max();

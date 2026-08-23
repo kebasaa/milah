@@ -33,6 +33,21 @@ struct TrainingStrip;
 /// project state, and every one of its saves is a Save As. A transcription
 /// wants none of that: it remembers where it lives, because leaving a folio has
 /// to write the file without asking again.
+/// How far a folio is from having anything to teach a recogniser.
+///
+/// Two numbers that have to come from one answer. They did not: the count of
+/// finished lines was what trainingAlto() would *write*, and the panel's
+/// denominator was what the segmenter drew — and linesOf() cuts a detection
+/// wherever a transcriber said the manuscript's line ends, so a folio with
+/// breaks in it read "35 of 31 lines".
+struct FolioProgress
+{
+    /// Lines wholly read, which is what would be written into the set.
+    int finished = 0;
+    /// Lines there are to read at all.
+    int lines = 0;
+};
+
 class TranscriptionController final : public QObject
 {
     Q_OBJECT
@@ -189,6 +204,17 @@ public slots:
     /// accumulates between sessions until there is enough to train on. See
     /// ui/training_set.h.
     void saveFolioForTraining();
+    /// Every folio of the transcription that has a line read all the way
+    /// through, in one go.
+    ///
+    /// The single-folio save is what anybody uses while working; this is for
+    /// the end of it, and for catching up a project whose folios were corrected
+    /// after they were saved — saving replaces rather than adds beside, so
+    /// running it again is safe and is the way to do that.
+    ///
+    /// Counts each folio before fetching anything: a folio with nothing finished
+    /// must not cost a scan pulled across the network to say so.
+    void saveEveryFolioForTraining();
     /// Shows what training would actually be shown for this folio: one strip
     /// per finished line, cut the way ketos compile cuts it.
     ///
@@ -205,6 +231,9 @@ public slots:
     /// How many lines of the folio on screen are finished enough to be saved.
     /// Zero disables the command, and says why in its tooltip.
     int trainableLineCount() const;
+    /// How many of this folio's lines are wholly read, and how many there are.
+    /// One call, so the two cannot disagree about what a line is.
+    FolioProgress trainingProgress() const;
     /// The folio at the largest size the library will give, fetched in as many
     /// pieces as its service caps require and put back together.
     ///
@@ -232,6 +261,10 @@ public slots:
     ResumePoint resumePoint() const { return resumeFill(m_document, m_currentPage); }
 
 private:
+    /// The same, for any folio of the document rather than the open one — what
+    /// the batch save asks before deciding whether a folio is worth fetching a
+    /// scan for.
+    FolioProgress progressOn(const TranscribedPage &page) const;
     /// Cuts `page`'s finished lines the way training cuts them, and answers with
     /// one strip apiece — the picture, its ground truth, or why kraken refused
     /// it. Empty when the cut could not be run at all, and `failure` then says

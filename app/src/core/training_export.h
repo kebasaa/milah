@@ -26,6 +26,17 @@ struct TrainingPage
     QByteArray alto;
     int lines = 0;
     int words = 0;
+    /// How many line groups the folio offers, whether or not they are finished.
+    ///
+    /// The denominator a progress bar fills towards, and **not** the number of
+    /// things the segmenter drew: linesOf() cuts a detection wherever the
+    /// transcriber said the manuscript's line ends, so a folio with breaks in it
+    /// has more lines to read than the recogniser found. Counting one against
+    /// the other put "35 of 31" on the training panel.
+    ///
+    /// Survives the empty case: a folio with nothing finished still has lines
+    /// to read, and saying how many is the whole of what the panel is for.
+    int candidates = 0;
 
     bool isEmpty() const { return alto.isEmpty(); }
 };

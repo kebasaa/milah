@@ -390,6 +390,7 @@ turns up.
 | **Show last recognition…** | What Milah ran, what Kraken said, and the layout file that came back. One run's worth, replaced each time, so a reading that goes wrong can be looked at rather than guessed about. |
 | **See what training will be shown…** | This folio's finished lines, cut the way training cuts them, with the ground truth under each and the lines Kraken refuses beside them. Grey until a line has been checked all the way through. |
 | **Save this folio for HTR training** | This folio's checked lines, into its manuscript's training set, with the library's largest scan, and a word on what of it a model will actually see. Grey until a line has been checked all the way through. |
+| **Save every folio for training** | The whole transcription in one go: counts each folio before fetching anything, saves the ones with lines read, and says which were passed over. Also how to catch up the folios you corrected after saving. |
 | **Train a model…** | Teaches a model the hand, from what has been saved. Grey until a set holds 50 lines. |
 | **Install Kraken…** | Only when Kraken is absent. |
 | **Remove Kraken…** | Deletes the Python environment and the models, and leaves WSL2 and your Linux distribution alone. |
@@ -475,6 +476,13 @@ right-click on the picture, Space on a line, an entry three levels into File —
 and nothing anywhere said what the sequence was or how far along it you were.
 The counts existed too, and were spent on greying out a menu item.
 
+**The button is whatever comes next.** On a folio nothing has read it says *Read
+this folio*; once read, *Fill from a transcription…* or *Continue from Jas 1:25*;
+once there is something read, *Save*; once the hand has fifty lines, *Train a
+model…*. It calls exactly what the toolbar and the right-click call — a second
+route to the same things, never a second way of doing them — so the whole path
+from an unread leaf to a trained model is one place you keep pressing.
+
 It also says **when a folio has been corrected since it was saved**. The set is
 then holding the older reading of a line, and a model taught it learns the older
 one; saving again replaces rather than duplicates, so putting it right costs one
@@ -483,6 +491,15 @@ file in the set *is* the training layout: it compares the ground truth there
 with the ground truth the folio would write now. Coordinates are not compared —
 they move with whichever picture the save happened to get — and no picture is
 fetched to answer it, because the answer does not depend on one.
+
+**File ▸ Handwriting recognition ▸ Save every folio for training** does the whole
+transcription in one go: it counts each folio before fetching anything, so a
+folio with nothing read costs no scan, saves the rest, and says which were passed
+over and why. Because saving replaces a folio rather than adding beside it, this
+is also how to catch up every folio you corrected after saving it. It does not
+ask Kraken what it can make of each one — that is seconds apiece and the point of
+this entry is to be quick; the single-folio save asks, and the strip preview
+shows.
 
 **The picture saved is the largest the library holds, not the one on screen.**
 Milah shows a folio at 1024 px, which a recogniser reads just as well — that was
@@ -546,9 +563,12 @@ two bindings, and a model shown both sees more of it than a model shown either.
 Training runs on the processor and takes hours; the window says so before it
 starts, keeps a log and an elapsed clock, and Stop leaves the model you are using
 untouched. What comes out is checked by being loaded, exactly as a downloaded
-model is, and then joins the model list under whatever name you gave it. **Name
-it after the hand rather than the manuscript** — it is offered on every
-manuscript you open, which is the point of having trained it.
+model is, and **then becomes the model Transcribe uses** — it used to join the
+list and sit there, so hours of processor could be spent and the next folio still
+read by whatever was running before. Any of the others is one click away under
+the arrow beside Transcribe. **Name it after the hand rather than the
+manuscript** — it is offered on every manuscript you open, which is the point of
+having trained it.
 
 Then do it again: five folios corrected, train, transcribe five more with the
 result, correct those. Each round starts from a better reading than the last.
@@ -801,8 +821,8 @@ inches above it.
 **File:** Open Image, Get Online Manuscript Scan, Open Transcription Project,
 Open Recent, Save Transcription project │ Import recognised layout, Handwriting
 recognition (Use model, Manage models, Show last recognition, See what training
-will be shown, Save this folio for HTR training, Train a model, Install Kraken,
-Remove Kraken) │ Export to OSIS,
+will be shown, Save this folio for HTR training, Save every folio for training,
+Train a model, Install Kraken, Remove Kraken) | Export to OSIS,│ Export to OSIS,
 Export to Word,
 Add to my library, Close Transcription Project │ Quit.
 **Edit:** Undo, Redo │ Move verse to new chapter │ Define word in my dictionary.

@@ -69,6 +69,71 @@ private slots:
         QCOMPARE(read.words.at(0).line, 0);
         QCOMPARE(read.words.at(1).line, 0);
     }
+    /// **The number a progress bar fills towards**, and the reason it is here
+    /// rather than counted off the folio somewhere else.
+    ///
+    /// The training panel put the count of finished lines over the count of
+    /// things the *segmenter* drew, and linesOf() cuts a detection wherever a
+    /// transcriber said the manuscript's line ends — so a folio with a break in
+    /// it read "35 of 31 lines". Two meaningful numbers that are not the same
+    /// quantity. Both now come out of this one call.
+    void everyLineToBeReadIsCounted()
+    {
+        const TrainingPage truth =
+            trainingAlto(samplePage(), QStringLiteral("150r.jpg"), QSize(1024, 1373));
+        // Two lines on the folio; one is finished and one still has an unread
+        // word on it, so one is written and both are there to be read.
+        QCOMPARE(truth.lines, 1);
+        QCOMPARE(truth.candidates, 2);
+    }
+
+    /// A break makes two lines to read out of one detection, which is exactly
+    /// the case the panel got wrong: the finished count already followed the
+    /// break and the denominator did not.
+    void aBreakAddsALineToRead()
+    {
+        TranscribedPage page = samplePage();
+        // The first line is the finished one; cut it in two.
+        page.verses[0].words[0].endsLine = true;
+
+        const TrainingPage truth =
+            trainingAlto(page, QStringLiteral("150r.jpg"), QSize(1024, 1373));
+        QCOMPARE(truth.candidates, 3);
+        // And both halves of the finished line are written, so the finished
+        // count moves with the denominator rather than past it.
+        QCOMPARE(truth.lines, 2);
+        QVERIFY(truth.lines <= truth.candidates);
+    }
+
+    /// A folio with nothing finished still says how many lines there are to
+    /// read. Answering nought would leave the panel dividing by a denominator
+    /// of zero on precisely the folios somebody is about to start work on.
+    void aFolioWithNothingFinishedStillCountsItsLines()
+    {
+        TranscribedPage page = samplePage();
+        for (TranscribedWord &word : page.verses[0].words) {
+            word.unchecked = true;
+        }
+
+        const TrainingPage truth =
+            trainingAlto(page, QStringLiteral("150r.jpg"), QSize(1024, 1373));
+        QVERIFY(truth.isEmpty());
+        QCOMPARE(truth.lines, 0);
+        QCOMPARE(truth.candidates, 2);
+    }
+
+    /// And a folio nothing has read has no lines to read either, so the bar has
+    /// no denominator rather than a wrong one.
+    void aFolioNothingHasReadCountsNothing()
+    {
+        TranscribedPage page;
+        page.imageName = QStringLiteral("150r");
+        const TrainingPage truth =
+            trainingAlto(page, QStringLiteral("150r.jpg"), QSize(1024, 1373));
+        QCOMPARE(truth.candidates, 0);
+        QCOMPARE(truth.lines, 0);
+    }
+
 
     /// A line holding one unchecked word is the machine's guess, not anybody's
     /// reading, and training on it teaches the model the mistakes it already

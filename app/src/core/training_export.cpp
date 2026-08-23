@@ -232,6 +232,7 @@ TrainingPage trainingAlto(
     }
 
     const QList<Line> lines = linesOf(page);
+    result.candidates = int(lines.size());
 
     // How many boxed words each detection holds, so an exported line can tell
     // whether it *is* that detection or only a part of one. Both an unread
@@ -367,7 +368,11 @@ TrainingPage trainingAlto(
     // An empty file is worse than none: it looks like ground truth, trains on
     // nothing, and says nothing about why.
     if (result.lines == 0) {
-        return TrainingPage();
+        // The count of what there is to read stands even so — that is what a
+        // folio nobody has been through yet has to be able to say.
+        TrainingPage none;
+        none.candidates = result.candidates;
+        return none;
     }
     result.alto = document;
     return result;

@@ -1,5 +1,6 @@
 #include "ui/transcription_widget.h"
 
+#include "core/books.h"
 #include "transcription_controller.h"
 #include "ui/manuscript_image_view.h"
 #include "ui/transcription_grid_widget.h"
@@ -10,21 +11,6 @@
 #include <QVBoxLayout>
 
 namespace milah {
-namespace {
-
-/// "Jas.1.25" as a reader writes it: "Jas 1:25". Anything not of that shape is
-/// handed back untouched rather than mangled — a menu entry naming a place is
-/// worth less if the place is unrecognisable.
-QString readableVerseId(const QString &id)
-{
-    const QStringList parts = id.split(QLatin1Char('.'));
-    if (parts.size() != 3) {
-        return id;
-    }
-    return QStringLiteral("%1 %2:%3").arg(parts.at(0), parts.at(1), parts.at(2));
-}
-
-} // namespace
 
 TranscriptionWidget::TranscriptionWidget(
     TranscriptionController *controller,

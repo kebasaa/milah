@@ -34,6 +34,17 @@ int compareBooks(const QString &left, const QString &right);
 /// outside the canon comes back unchanged, so it still names its own book.
 QString bookName(const QString &osisId);
 
+/// "Jas.1.25" as a reader writes it: "Jas 1:25".
+///
+/// Anything not of that shape is handed back untouched rather than mangled — a
+/// menu entry or a button naming a place is worth less if the place is
+/// unrecognisable, and worth nothing if it is wrong.
+///
+/// Here rather than beside one of the two widgets that says it, because both of
+/// them name the same place for the same reason: continuing a transcription
+/// without saying where from asks the transcriber to trust it blindly.
+QString readableVerseId(const QString &id);
+
 /// Natural-order comparison, so that verse "10" sorts after verse "9". Kept
 /// locale-independent on purpose: exported OSIS must not depend on the
 /// machine's regional settings.

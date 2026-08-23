@@ -375,10 +375,17 @@ void HtrTrainingDialog::stageFinished(int code, QProcess::ExitStatus status)
         }
 
         KrakenEnvironment::rememberModel(m_modelPath, m_name->text().trimmed());
+        // And run it. Remembering a model only puts it in the list, so this used
+        // to end with hours of somebody's processor spent and the thing it made
+        // sitting unused until they made a separate trip to a submenu — the next
+        // folio still read by whatever was running before. Nobody opens this
+        // window except to have a hand read better than it is being read.
+        KrakenEnvironment::setModelPath(m_modelPath);
         finishWith(
-            QStringLiteral("%1 is trained and in the list. It is offered on every "
-                           "manuscript, not just the ones it learnt from — pick it "
-                           "under the arrow beside Transcribe.")
+            QStringLiteral("%1 is trained, and is now the model Transcribe uses. "
+                           "It is offered on every manuscript, not just the ones "
+                           "it learnt from, and any of the others is still one "
+                           "click away under the arrow beside Transcribe.")
                 .arg(m_name->text().trimmed()),
             false);
         return;

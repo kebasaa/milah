@@ -1177,19 +1177,34 @@ QSize sizeOfImage(const QByteArray &bytes)
 
 } // namespace
 
-int TranscriptionController::trainableLineCount() const
+FolioProgress TranscriptionController::progressOn(const TranscribedPage &page) const
 {
-    const TranscribedPage *page = currentPage();
-    if (!page) {
-        return 0;
-    }
-    const QSize size = sizeOfImage(m_images.value(page->imageEntry));
+    FolioProgress progress;
+    const QSize size = sizeOfImage(m_images.value(page.imageEntry));
     if (!size.isValid()) {
-        return 0;
+        return progress;
     }
     // The name does not matter for counting, only for writing, so any non-empty
     // one will do here.
-    return trainingAlto(*page, QStringLiteral("folio.jpg"), size).lines;
+    const TrainingPage truth = trainingAlto(page, QStringLiteral("folio.jpg"), size);
+    progress.finished = truth.lines;
+    progress.lines = truth.candidates;
+    return progress;
+}
+
+FolioProgress TranscriptionController::trainingProgress() const
+{
+    const TranscribedPage *page = currentPage();
+    return page ? progressOn(*page) : FolioProgress();
+}
+
+int TranscriptionController::trainableLineCount() const
+{
+    // Both numbers out of one answer, so that nothing can put two different
+    // ideas of what a line is either side of an "of". The panel read "35 of 31"
+    // on a folio whose lines had been split, because this counted what would be
+    // written and the panel counted what the segmenter drew.
+    return trainingProgress().finished;
 }
 
 QByteArray TranscriptionController::fetchMasterImage(
@@ -1540,6 +1555,118 @@ void TranscriptionController::previewTrainingStrips()
 
     HtrStripsDialog dialog(label, note, strips, front);
     dialog.exec();
+}
+
+void TranscriptionController::saveEveryFolioForTraining()
+{
+    if (m_document.pages.isEmpty()) {
+        setMessage(QStringLiteral("There are no folios to save."));
+        return;
+    }
+    QWidget *front = m_dialogParent;
+
+    // Asked of every folio before anything is fetched. A folio with no finished
+    // line has nothing to give, and finding that out after pulling a
+    // four-thousand-pixel scan across the network would be the slowest possible
+    // way to learn it.
+    QList<int> worth;
+    int passedOver = 0;
+    for (int index = 0; index < m_document.pages.size(); ++index) {
+        if (progressOn(m_document.pages.at(index)).finished > 0) {
+            worth.append(index);
+        } else {
+            ++passedOver;
+        }
+    }
+    if (worth.isEmpty()) {
+        QMessageBox::information(
+            front,
+            QStringLiteral("Milah"),
+            QStringLiteral(
+                "No folio of this transcription has a line read all the way "
+                "through yet, so there is nothing a recogniser could be taught "
+                "from.<p>In the line view, read a line against the ink and press "
+                "Space over it; the number beside each line says how many of its "
+                "words are still unread.</p>"));
+        return;
+    }
+
+    QProgressDialog progress(
+        QStringLiteral("Saving %1 folio(s) for training.").arg(worth.size()),
+        QStringLiteral("Cancel"),
+        0,
+        int(worth.size()),
+        front);
+    progress.setWindowTitle(QStringLiteral("Milah"));
+    progress.setWindowModality(Qt::WindowModal);
+    progress.setMinimumDuration(0);
+
+    QStringList said;
+    int folios = 0;
+    int lines = 0;
+    bool small = false;
+    for (int done = 0; done < worth.size(); ++done) {
+        const TranscribedPage &page = m_document.pages.at(worth.at(done));
+        const QString label = page.imageLabel.isEmpty() ? page.imageName : page.imageLabel;
+        progress.setValue(done);
+        progress.setLabelText(QStringLiteral("Saving %1.").arg(label));
+        QCoreApplication::processEvents();
+        if (progress.wasCanceled()) {
+            said << QStringLiteral("Stopped here — the folios after this one were "
+                                   "not looked at.");
+            break;
+        }
+
+        QString note;
+        const QByteArray master = fetchMasterImage(page, &note);
+        small = small || !note.isEmpty();
+        const int written =
+            TrainingSet::add(page, m_document.metadata, master, sizeOfImage(m_images.value(page.imageEntry)));
+        if (written == 0) {
+            // The count above said there was something, so nothing here is the
+            // writing having failed rather than the folio being unfinished.
+            said << QStringLiteral("<b>%1</b> — could not be written").arg(label.toHtmlEscaped());
+            continue;
+        }
+        ++folios;
+        lines += written;
+        said << QStringLiteral("<b>%1</b> — %2 line(s)").arg(label.toHtmlEscaped()).arg(written);
+    }
+    progress.reset();
+
+    const TrainingSet::Set set =
+        TrainingSet::contentsOf(TrainingSet::slugFor(m_document.metadata));
+    const QString standing = set.lines >= TrainingSet::EnoughLines
+        ? QStringLiteral("That is enough to train on — File ▸ Handwriting "
+                         "recognition ▸ Train a model….")
+        : QStringLiteral("Train a model… opens at %1 lines.")
+              .arg(TrainingSet::EnoughLines);
+
+    QMessageBox::information(
+        front,
+        QStringLiteral("Milah"),
+        QStringLiteral("%1 folio(s), %2 line(s) saved.<p>%3 now holds %4 line(s) "
+                       "off %5 folio(s). %6</p><p><small>%7</small></p>%8%9")
+            .arg(folios)
+            .arg(lines)
+            .arg(set.label, QString::number(set.lines))
+            .arg(set.folios)
+            .arg(standing, said.join(QStringLiteral("<br>")))
+            .arg(passedOver > 0
+                     ? QStringLiteral("<p><small>%1 folio(s) had no line read all "
+                                      "the way through and were passed over.</small></p>")
+                           .arg(passedOver)
+                     : QString())
+            .arg(small ? QStringLiteral(
+                     "<p><small>Some folios were saved from the picture on screen "
+                     "rather than the library's largest scan.</small></p>")
+                       : QString()));
+    // Deliberately not cut here. Asking Kraken what it can make of each folio is
+    // seconds apiece, and the point of this entry is to be quick — see the
+    // single-folio save, which does ask, and the strip preview, which shows.
+    setMessage(QStringLiteral("Saved %1 folio(s), %2 line(s) for training.")
+                   .arg(folios)
+                   .arg(lines));
 }
 
 void TranscriptionController::saveFolioForTraining()

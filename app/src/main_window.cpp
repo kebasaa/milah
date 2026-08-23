@@ -974,6 +974,14 @@ void MainWindow::createTranscriptionActions()
         m_transcriptionController,
         &TranscriptionController::saveFolioForTraining);
 
+    m_saveAllForTrainingAction =
+        new QAction(QStringLiteral("Save every folio for training"), this);
+    connect(
+        m_saveAllForTrainingAction,
+        &QAction::triggered,
+        m_transcriptionController,
+        &TranscriptionController::saveEveryFolioForTraining);
+
     m_trainAction = new QAction(QStringLiteral("Train a model…"), this);
     connect(
         m_trainAction,
@@ -1119,6 +1127,7 @@ void MainWindow::buildMenuBar()
     m_htrMenu->addAction(m_recoverReadingsAction);
     m_htrMenu->addAction(m_previewStripsAction);
     m_htrMenu->addAction(m_saveForTrainingAction);
+    m_htrMenu->addAction(m_saveAllForTrainingAction);
     m_htrMenu->addAction(m_trainAction);
     m_htrMenu->addSeparator();
     m_htrMenu->addAction(m_htrInstallAction);
@@ -1192,6 +1201,16 @@ void MainWindow::buildMenuBar()
                 : QStringLiteral("No line of this folio has been checked all the way "
                                  "through yet — a line counts once every word on it "
                                  "has been looked at."));
+        // Not gated on this folio: the point of it is the folios that are not
+        // open. Enabled whenever there is a transcription with more than the one
+        // leaf in it, and it says for itself which of them had nothing to give.
+        m_saveAllForTrainingAction->setEnabled(
+            m_transcriptionController->document().pages.size() > 1);
+        m_saveAllForTrainingAction->setToolTip(QStringLiteral(
+            "Goes through every folio of this transcription, saves the ones with "
+            "lines read all the way through, and passes over the rest. Saving "
+            "replaces a folio rather than adding beside it, so this is also how "
+            "to catch up the ones you corrected after saving."));
 
         // And nothing worth hours of processor until enough has been gathered.
         // The best set decides, because that is the one that would be trained
