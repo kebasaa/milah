@@ -10,6 +10,7 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QSaveFile>
+#include <QXmlStreamReader>
 #include <QStandardPaths>
 
 namespace milah {
@@ -60,6 +61,51 @@ bool write(const QString &path, const QByteArray &bytes)
     QSaveFile file(path);
     return file.open(QIODevice::WriteOnly) && file.write(bytes) == bytes.size()
         && file.commit();
+}
+
+/// The stem a folio's files are filed under, so add() and savedFolio() cannot
+/// disagree about which folio is which.
+QString stemFor(const TranscribedPage &page)
+{
+    const QString label = page.imageLabel.isEmpty() ? page.imageName : page.imageLabel;
+    const QString stem = archiveNameFragment(label);
+    return stem.isEmpty() ? QStringLiteral("folio") : stem;
+}
+
+/// The ground truth of each line of a training layout, in order.
+///
+/// Read off the ALTO rather than worked out from the folio, on both sides of the
+/// comparison, so that what is compared is what was written and what would be
+/// written — and not two different ideas of how to assemble a line.
+QStringList lineTextsIn(const QByteArray &alto)
+{
+    QStringList lines;
+    QXmlStreamReader xml(alto);
+    QString current;
+    bool inside = false;
+    while (!xml.atEnd()) {
+        xml.readNext();
+        if (xml.isStartElement()) {
+            if (xml.name() == QLatin1String("TextLine")) {
+                inside = true;
+                current.clear();
+            } else if (inside && xml.name() == QLatin1String("String")) {
+                current += xml.attributes().value(QLatin1String("CONTENT")).toString();
+            } else if (inside && xml.name() == QLatin1String("SP")) {
+                current += QLatin1Char(' ');
+            }
+        } else if (xml.isEndElement() && xml.name() == QLatin1String("TextLine")) {
+            lines.append(current);
+            inside = false;
+        }
+    }
+    return lines;
+}
+
+QByteArray contentsOfFile(const QString &path)
+{
+    QFile file(path);
+    return file.open(QIODevice::ReadOnly) ? file.readAll() : QByteArray();
 }
 
 } // namespace
@@ -150,6 +196,35 @@ QList<Set> known()
     return sets;
 }
 
+
+Saved savedFolio(const TranscribedPage &page, const TranscriptionMetadata &metadata)
+{
+    Saved saved;
+    const QDir folder(QDir(root()).filePath(slugFor(metadata)));
+    const QByteArray held =
+        contentsOfFile(folder.filePath(stemFor(page) + QStringLiteral(".xml")));
+    if (held.isEmpty()) {
+        return saved;
+    }
+
+    const QStringList before = lineTextsIn(held);
+    saved.present = !before.isEmpty();
+    saved.lines = int(before.size());
+    if (!saved.present) {
+        return saved;
+    }
+
+    // What would be written now. The size is nominal: it scales the coordinates
+    // and this compares nothing but the text, so it need only be valid. The
+    // folio's own picture is not fetched for a question that does not depend on
+    // it — that fetch can cross the network, and this runs whenever the folio
+    // changes.
+    const TrainingPage truth =
+        trainingAlto(page, QStringLiteral("folio.jpg"), QSize(1000, 1000));
+    saved.stale = lineTextsIn(truth.alto) != before;
+    return saved;
+}
+
 int add(
     const TranscribedPage &page,
     const TranscriptionMetadata &metadata,
@@ -165,11 +240,7 @@ int add(
     // corrected further is a better statement of the same lines, not a second
     // one — and a model shown the same line twice, once wrong, learns the wrong
     // one as readily.
-    const QString label = page.imageLabel.isEmpty() ? page.imageName : page.imageLabel;
-    QString stem = archiveNameFragment(label);
-    if (stem.isEmpty()) {
-        stem = QStringLiteral("folio");
-    }
+    const QString stem = stemFor(page);
 
     const QString imageName = stem + QStringLiteral(".jpg");
     const TrainingPage truth = trainingAlto(page, imageName, size, boxSize);

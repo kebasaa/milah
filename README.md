@@ -467,6 +467,23 @@ between files, so Matthew and James of one manuscript feed one set. Saving a
 folio again replaces it rather than adding beside it — going back over a folio
 makes a better statement of the same lines, not a second folio.
 
+**The Training panel, at the foot of the Manuscript dock**, is where all of this
+is visible at once: how many of this folio's lines have been read, how many the
+hand's set holds against the fifty that open training, and a button for the one
+thing worth pressing next. Every step of the path had a home already — a
+right-click on the picture, Space on a line, an entry three levels into File —
+and nothing anywhere said what the sequence was or how far along it you were.
+The counts existed too, and were spent on greying out a menu item.
+
+It also says **when a folio has been corrected since it was saved**. The set is
+then holding the older reading of a line, and a model taught it learns the older
+one; saving again replaces rather than duplicates, so putting it right costs one
+press and the only thing ever missing was being told. Milah knows because the
+file in the set *is* the training layout: it compares the ground truth there
+with the ground truth the folio would write now. Coordinates are not compared —
+they move with whichever picture the save happened to get — and no picture is
+fetched to answer it, because the answer does not depend on one.
+
 **The picture saved is the largest the library holds, not the one on screen.**
 Milah shows a folio at 1024 px, which a recogniser reads just as well — that was
 measured. But training cuts every line out and shows it to the model again and
@@ -768,6 +785,11 @@ Reading onto a folio that already has text on it asks first.
 The right-hand dock records what the folio is, as against what it says, all
 optional: **Manuscript**, **Transcriber**, **Origin**, **Library**,
 **Shelfmark**, **Date**, **Language**, **Notes**, then **Save details**.
+
+Beneath them sits the **Training** panel — this folio's finished lines, the
+hand's set against the fifty that open training, and the next thing to press.
+Here because a set is kept per shelfmark, and the shelfmark is the field three
+inches above it.
 
 #### Exporting
 

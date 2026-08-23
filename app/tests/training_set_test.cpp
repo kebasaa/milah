@@ -125,6 +125,83 @@ private slots:
         QVERIFY(set.bytes > 0);
     }
 
+    /// A folio the set has never held is not in it, and nothing is claimed
+    /// about it. The panel shows the plain "Save this folio" for this case.
+    void aFolioNeverSavedIsNotInTheSet()
+    {
+        const TrainingSet::Saved saved =
+            TrainingSet::savedFolio(folio(QStringLiteral("160r"), 3), cochin());
+        QVERIFY(!saved.present);
+        QVERIFY(!saved.stale);
+        QCOMPARE(saved.lines, 0);
+    }
+
+    /// Saved and untouched since: the set holds what the folio says, and there
+    /// is nothing to do about it.
+    void aFolioSavedAndLeftAloneIsNotStale()
+    {
+        const QByteArray image = picture(QSize(400, 200));
+        const TranscribedPage page = folio(QStringLiteral("151r"), 3);
+        QCOMPARE(TrainingSet::add(page, cochin(), image), 1);
+
+        const TrainingSet::Saved saved = TrainingSet::savedFolio(page, cochin());
+        QVERIFY(saved.present);
+        QVERIFY(!saved.stale);
+        QCOMPARE(saved.lines, 1);
+    }
+
+    /// **Corrected since it was saved.** The set is still holding the older
+    /// reading of a line, and a model taught it learns the older reading — so
+    /// the one thing that was ever missing is being told, since saving again
+    /// replaces rather than duplicates.
+    ///
+    /// Compared on the ground truth alone. A save carries the picture the
+    /// library gave that day, and the coordinates move with it; the text is
+    /// what a correction changes and what a model is taught.
+    void aFolioCorrectedSinceIsStale()
+    {
+        const QByteArray image = picture(QSize(400, 200));
+        QCOMPARE(TrainingSet::add(folio(QStringLiteral("152r"), 3), cochin(), image), 1);
+
+        TranscribedPage corrected = folio(QStringLiteral("152r"), 3);
+        corrected.verses[0].words[1].hebrew = QString::fromUtf8("\xd7\x90\xd7\x97\xd7\xa8");
+        const TrainingSet::Saved saved = TrainingSet::savedFolio(corrected, cochin());
+        QVERIFY(saved.present);
+        QVERIFY(saved.stale);
+
+        // And saving again settles it.
+        QCOMPARE(TrainingSet::add(corrected, cochin(), image), 1);
+        QVERIFY(!TrainingSet::savedFolio(corrected, cochin()).stale);
+    }
+
+    /// A word added to the folio counts as a correction too — the line's ground
+    /// truth is longer than what the set holds, which is a different thing to
+    /// teach a model even though every word already there is unchanged.
+    void aLineThatGrewIsStale()
+    {
+        const QByteArray image = picture(QSize(400, 200));
+        QCOMPARE(TrainingSet::add(folio(QStringLiteral("153r"), 3), cochin(), image), 1);
+        QVERIFY(TrainingSet::savedFolio(folio(QStringLiteral("153r"), 4), cochin()).stale);
+    }
+
+    /// The picture is not fetched to answer this. It is asked whenever the
+    /// folio changes, and a folio off a library holds an address rather than
+    /// bytes — going to the network for it would put a wait behind every
+    /// keystroke.
+    void askingWhatIsSavedFetchesNothing()
+    {
+        const QByteArray image = picture(QSize(400, 200));
+        TranscribedPage page = folio(QStringLiteral("154r"), 3);
+        QCOMPARE(TrainingSet::add(page, cochin(), image), 1);
+
+        // No picture on it at all, and the answer is the same.
+        page.imageUrl.clear();
+        page.sourcePath.clear();
+        const TrainingSet::Saved saved = TrainingSet::savedFolio(page, cochin());
+        QVERIFY(saved.present);
+        QVERIFY(!saved.stale);
+    }
+
     /// A folio with nothing finished on it writes nothing, and does not create
     /// a set that then sits in the list offering nothing to train on.
     void aFolioWithNothingFinishedIsNotSaved()

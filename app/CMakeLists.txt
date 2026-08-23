@@ -194,6 +194,8 @@ qt_add_executable(Milah WIN32
     src/ui/transcription_meta_widget.h
     src/ui/transcription_notes_widget.cpp
     src/ui/transcription_notes_widget.h
+    src/ui/transcription_training_widget.cpp
+    src/ui/transcription_training_widget.h
     src/ui/transcription_widget.cpp
     src/ui/transcription_widget.h
     src/ui/icons.cpp

@@ -14,6 +14,7 @@
 #include "ui/source_settings_widget.h"
 #include "ui/transcription_meta_widget.h"
 #include "ui/transcription_notes_widget.h"
+#include "ui/transcription_training_widget.h"
 #include "ui/transcription_widget.h"
 #include "ui/verse_grid_widget.h"
 
@@ -366,6 +367,10 @@ MainWindow::MainWindow(QWidget *parent)
     // Beneath the codex's details, the way the comparison puts a word's notes
     // beneath its sources: what is being worked on, then what is said about it.
     metaLayout->addWidget(new TranscriptionNotesWidget(m_transcriptionController));
+    // And beneath those, how far the folio and the hand are from being worth
+    // training on. Here because a training set is kept per shelfmark, and the
+    // shelfmark is the field three inches above it.
+    metaLayout->addWidget(new TranscriptionTrainingWidget(m_transcriptionController));
     metaLayout->addStretch(1);
 
     m_metadataDock = new QDockWidget(QStringLiteral("Manuscript"), this);

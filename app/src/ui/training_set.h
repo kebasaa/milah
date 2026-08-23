@@ -57,6 +57,29 @@ QList<Set> known();
 /// One set, or an empty one where nothing has been saved for it yet.
 Set contentsOf(const QString &slug);
 
+/// What a manuscript's set already holds for one folio.
+struct Saved
+{
+    /// False where this folio has never been saved into the set.
+    bool present = false;
+    /// How many lines of it the set holds.
+    int lines = 0;
+    /// The folio has been corrected since. Saving again replaces what is there
+    /// rather than adding beside it, so this is a thing to be told rather than
+    /// a thing to be careful about — but nothing said it, and a set quietly
+    /// holding an older reading of a line teaches the older reading.
+    bool stale = false;
+};
+
+/// What the set holds for `page`, and whether it is still what the folio says.
+///
+/// The comparison is of the ground truth alone, read off both layouts with one
+/// parser: what was written against what would be written. Coordinates are not
+/// compared — they move with whichever picture the save happened to get — and
+/// no picture is fetched to answer this, because the answer does not depend on
+/// one and the fetch can cross the network.
+Saved savedFolio(const TranscribedPage &page, const TranscriptionMetadata &metadata);
+
 /// Writes this folio's corrected lines into its manuscript's set.
 ///
 /// **Replaces** what was there for the same folio rather than adding beside it,
