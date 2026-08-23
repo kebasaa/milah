@@ -17,6 +17,7 @@
 #include "ui/htr_last_run_dialog.h"
 #include "ui/htr_models_dialog.h"
 #include "ui/htr_setup_dialog.h"
+#include "ui/htr_strips_dialog.h"
 #include "ui/htr_training_dialog.h"
 #include "ui/iiif_image.h"
 #include "ui/osis_fill_dialog.h"
@@ -35,6 +36,9 @@
 #include <QApplication>
 #include <QEventLoop>
 #include <QImageReader>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QLocale>
 #include <QMessageBox>
 #include <QNetworkAccessManager>
@@ -44,6 +48,7 @@
 #include <QProgressDialog>
 #include <QSaveFile>
 #include <QSettings>
+#include <QTemporaryDir>
 
 namespace milah {
 namespace {
@@ -1283,6 +1288,218 @@ QByteArray TranscriptionController::fetchMasterImage(
     }
     settle(QString());
     return bytes;
+}
+
+void TranscriptionController::previewTrainingStrips()
+{
+    const TranscribedPage *page = currentPage();
+    if (!page) {
+        setMessage(QStringLiteral("Open a folio before asking what training would "
+                                  "be shown."));
+        return;
+    }
+    QWidget *front = m_dialogParent;
+    const QString label = page->imageLabel.isEmpty() ? page->imageName : page->imageLabel;
+
+    if (trainableLineCount() == 0) {
+        QMessageBox::information(
+            front,
+            QStringLiteral("Milah"),
+            QStringLiteral(
+                "No line of %1 has been checked all the way through yet, so there "
+                "is nothing training would be shown.<p>Read a line against the ink "
+                "and press Space over it in the line view; the number beside each "
+                "line says how many of its words are still unread.</p>")
+                .arg(label));
+        return;
+    }
+
+    if (kraken().refresh() != KrakenEnvironment::State::Ready) {
+        // A model is not needed to cut a strip — this reads no text — but the
+        // installation is, and describe() is where the difference between the
+        // several ways of not having one is already written down.
+        setMessage(KrakenEnvironment::describe(kraken().state()));
+        return;
+    }
+
+    // The same picture and the same layout the save would use, so that a preview
+    // cannot be a preview of something else. The note says which picture that
+    // turned out to be, and travels to the window with the strips.
+    QString note;
+    const QByteArray master = fetchMasterImage(*page, &note);
+    if (master.isEmpty()) {
+        QMessageBox::warning(
+            front,
+            QStringLiteral("Milah"),
+            QStringLiteral("%1 has no picture to cut lines out of.").arg(label));
+        return;
+    }
+    const QSize onScreen = sizeOfImage(m_images.value(page->imageEntry));
+    const QSize size = sizeOfImage(master);
+    const TrainingPage truth = trainingAlto(
+        *page,
+        QStringLiteral("folio.jpg"),
+        size,
+        onScreen == size ? QSize() : onScreen);
+    if (truth.isEmpty()) {
+        QMessageBox::warning(
+            front,
+            QStringLiteral("Milah"),
+            QStringLiteral("%1 could not be written out as a training layout.")
+                .arg(label));
+        return;
+    }
+
+    QTemporaryDir workspace;
+    if (!workspace.isValid()) {
+        setMessage(QStringLiteral("A working folder could not be made for the strips."));
+        return;
+    }
+    const QString imagePath = workspace.filePath(QStringLiteral("folio.jpg"));
+    const QString altoPath = workspace.filePath(QStringLiteral("folio.xml"));
+    QFile image(imagePath);
+    QFile alto(altoPath);
+    if (!image.open(QIODevice::WriteOnly) || image.write(master) != master.size()
+        || !alto.open(QIODevice::WriteOnly)
+        || alto.write(truth.alto) != truth.alto.size()) {
+        setMessage(QStringLiteral("The folio could not be written out for cutting."));
+        return;
+    }
+    image.close();
+    alto.close();
+
+    const QString script = kraken().writeStripScript();
+    if (script.isEmpty()) {
+        setMessage(QStringLiteral("The strip helper could not be written out."));
+        return;
+    }
+    QStringList command =
+        kraken().stripsCommand(script, altoPath, imagePath, workspace.path());
+    const QString program = command.takeFirst();
+
+    QProgressDialog progress(
+        QStringLiteral("Cutting %1's lines the way training cuts them.").arg(label),
+        QStringLiteral("Cancel"),
+        0,
+        truth.lines,
+        front);
+    progress.setWindowTitle(QStringLiteral("Milah"));
+    progress.setWindowModality(Qt::WindowModal);
+    progress.setMinimumDuration(0);
+
+    QProcess cutter;
+    QEventLoop loop;
+    QString said;
+    QByteArray answer;
+    // The manifest comes back on stdout and the progress on stderr, so unlike
+    // the recogniser these two are kept apart rather than merged: one of them
+    // is going to be parsed.
+    QObject::connect(&cutter, &QProcess::readyReadStandardOutput, &loop, [&] {
+        answer += cutter.readAllStandardOutput();
+    });
+    QObject::connect(&cutter, &QProcess::readyReadStandardError, &loop, [&] {
+        said += QString::fromUtf8(cutter.readAllStandardError());
+        const QStringList spoken = said.split(QLatin1Char('\n'));
+        for (const QString &line : spoken) {
+            if (!line.startsWith(QLatin1String(KrakenEnvironment::progressMarker()))) {
+                continue;
+            }
+            const QStringList parts = line.split(QLatin1Char(' '), Qt::SkipEmptyParts);
+            if (parts.size() >= 2) {
+                progress.setValue(parts.at(1).toInt());
+            }
+        }
+    });
+    QObject::connect(
+        &cutter,
+        &QProcess::finished,
+        &loop,
+        [&loop](int, QProcess::ExitStatus) { loop.quit(); });
+    // Milah's own flag, for the reason spelled out in transcribeFolio(): a
+    // progress dialog emits canceled() on its way off the screen as well as
+    // when the button is pressed.
+    bool cancelled = false;
+    QObject::connect(&progress, &QProgressDialog::canceled, &cutter, [&] {
+        if (cutter.state() == QProcess::NotRunning) {
+            return;
+        }
+        cancelled = true;
+        cutter.kill();
+    });
+
+    cutter.start(program, command);
+    if (!cutter.waitForStarted(15000)) {
+        QMessageBox::warning(
+            front,
+            QStringLiteral("Milah"),
+            QStringLiteral("The strip helper could not be started.\n\n%1\n%2")
+                .arg(program, cutter.errorString()));
+        return;
+    }
+    if (cutter.state() != QProcess::NotRunning) {
+        loop.exec();
+    }
+    progress.reset();
+
+    if (cancelled) {
+        setMessage(QStringLiteral("Stopped. Nothing was changed — this only looks."));
+        return;
+    }
+    if (cutter.exitStatus() != QProcess::NormalExit || cutter.exitCode() != 0) {
+        const int marker = said.indexOf(QLatin1String(KrakenEnvironment::errorMarker()));
+        QMessageBox::warning(
+            front,
+            QStringLiteral("Milah"),
+            QStringLiteral("The lines could not be cut.\n\n%1")
+                .arg(marker >= 0
+                         ? said.mid(marker).section(QLatin1Char('\n'), 0, 0)
+                         : said.right(2000)));
+        return;
+    }
+
+    QList<TrainingStrip> strips;
+    const QJsonArray lines = QJsonDocument::fromJson(answer)
+                                 .object()
+                                 .value(QStringLiteral("lines"))
+                                 .toArray();
+    for (const QJsonValue &value : lines) {
+        const QJsonObject entry = value.toObject();
+        TrainingStrip strip;
+        // Kraken carries the ALTO's own line id through, and the ALTO's is the
+        // recogniser's line number: core/training_export writes them as line_N.
+        // One-based here, to match the number the line view draws.
+        strip.line = entry.value(QStringLiteral("id"))
+                         .toString()
+                         .section(QLatin1Char('_'), -1)
+                         .toInt()
+            + 1;
+        strip.text = entry.value(QStringLiteral("text")).toString();
+        strip.refused = entry.value(QStringLiteral("refused")).toString();
+        const QString file = entry.value(QStringLiteral("file")).toString();
+        if (!file.isEmpty()) {
+            strip.image = QImage(workspace.filePath(file));
+            if (strip.image.isNull()) {
+                strip.refused =
+                    QStringLiteral("The strip was cut but could not be read back.");
+            }
+        }
+        strips.append(strip);
+    }
+
+    if (strips.isEmpty()) {
+        QMessageBox::warning(
+            front,
+            QStringLiteral("Milah"),
+            QStringLiteral("Nothing came back from the strip helper.\n\n%1")
+                .arg(said.right(2000)));
+        return;
+    }
+
+    // Shown while the temporary folder is still standing. It dies with this
+    // function, and the images are read above rather than held as paths for
+    // exactly that reason.
+    HtrStripsDialog dialog(label, note, strips, front);
+    dialog.exec();
 }
 
 void TranscriptionController::saveFolioForTraining()

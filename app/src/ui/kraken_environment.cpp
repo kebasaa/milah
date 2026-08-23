@@ -54,6 +54,73 @@ const QLatin1String kPythonVersion("3.12");
 /// are. Deciding which of them read Hebrew, or read anything at all, belongs to
 /// the dialog — the question has a parameter now (which script?), and one rule
 /// in one place beats the same rule stated in two languages.
+/// What the model will actually be shown, cut the way training cuts it.
+///
+/// **Kraken's own code, not an imitation of it.** `extract_polygons` is the
+/// function `ketos compile` calls: it dewarps the line along its baseline and
+/// zeroes everything outside its boundary. Redrawing that here in C++ would
+/// produce a picture of what Milah believes training does, which is the one
+/// thing a preview must not be.
+///
+/// A line at a time rather than the whole page in one call, because the whole
+/// page is where the silence is. `_extract_line` catches per line and carries
+/// on with a log warning, so a folio of forty lines can compile to thirty-five
+/// and say nothing; asking for each line on its own turns that into an
+/// exception with a message, which is what the transcriber needs to read.
+const char *const kStripSource = R"PY(import dataclasses
+import json
+import sys
+
+try:
+    from PIL import Image
+    from kraken.lib.xml import XMLPage
+    from kraken.lib.segmentation import extract_polygons
+except Exception as problem:
+    print("MILAH-ERROR kraken is not available: %s" % problem, file=sys.stderr)
+    raise SystemExit(1)
+
+
+def main(alto, image, out):
+    try:
+        page = XMLPage(alto, filetype="alto").to_container()
+    except Exception as problem:
+        print("MILAH-ERROR the layout file could not be read: %s" % problem,
+              file=sys.stderr)
+        raise SystemExit(1)
+    try:
+        picture = Image.open(image)
+    except Exception as problem:
+        print("MILAH-ERROR the folio could not be opened: %s" % problem,
+              file=sys.stderr)
+        raise SystemExit(1)
+
+    lines = []
+    for index, line in enumerate(page.lines):
+        print("MILAH-PROGRESS %d %d" % (index, len(page.lines)),
+              file=sys.stderr, flush=True)
+        record = {"id": line.id, "text": line.text or ""}
+        alone = dataclasses.replace(page, lines=[line])
+        try:
+            strip, _ = next(iter(extract_polygons(picture, alone)))
+        except StopIteration:
+            record["refused"] = ("kraken passed over this line without saying "
+                                 "why.")
+        except Exception as problem:
+            record["refused"] = "%s: %s" % (type(problem).__name__, problem)
+        else:
+            name = "strip_%s.png" % line.id
+            strip.save("%s/%s" % (out, name))
+            record["file"] = name
+            record["width"], record["height"] = strip.size
+        lines.append(record)
+
+    print(json.dumps({"lines": lines}))
+
+
+if __name__ == "__main__":
+    main(sys.argv[1], sys.argv[2], sys.argv[3])
+)PY";
+
 const char *const kHelperSource = R"PY(import dataclasses
 import glob
 import json
@@ -488,6 +555,33 @@ QStringList KrakenEnvironment::listCommand(const QString &script) const
     return commandFor(QStringLiteral("PYTHONUNBUFFERED=1 %1 %2 list")
                           .arg(quotedPath(QStringLiteral("venv/bin/python")),
                                quoted(script)));
+}
+
+QString KrakenEnvironment::writeStripScript() const
+{
+    const QString local =
+        QDir(QDir::tempPath()).filePath(QStringLiteral("milah-htr-strips.py"));
+    QFile file(local);
+    if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+        return QString();
+    }
+    file.write(kStripSource);
+    file.close();
+    return pathFor(local);
+}
+
+QStringList KrakenEnvironment::stripsCommand(
+    const QString &script,
+    const QString &alto,
+    const QString &image,
+    const QString &directory) const
+{
+    return commandFor(QStringLiteral("PYTHONUNBUFFERED=1 %1 %2 %3 %4 %5")
+                          .arg(quotedPath(QStringLiteral("venv/bin/python")),
+                               quoted(script),
+                               quoted(pathFor(alto)),
+                               quoted(pathFor(image)),
+                               quoted(pathFor(directory))));
 }
 
 QStringList KrakenEnvironment::fetchCommand(const QString &script, const QString &doi) const

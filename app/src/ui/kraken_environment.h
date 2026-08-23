@@ -107,6 +107,21 @@ public:
     /// download is judged by — so a model that training made and one that
     /// arrived off the repository are held to one standard.
     QStringList verifyCommand(const QString &script, const QString &model) const;
+    /// Writes the strip-cutting helper out, and answers with its path as the
+    /// environment will see it. See kStripSource: it cuts each line the way
+    /// training cuts it, using kraken's own function rather than an imitation.
+    QString writeStripScript() const;
+    /// Cutting one folio's training lines out for somebody to look at.
+    ///
+    /// `alto` is the training layout Milah would save, `image` the picture it
+    /// would save it against, and `directory` where the strips and the manifest
+    /// are to land. What comes back on stdout is
+    /// `{"lines": [{"id", "text", "file"|"refused"}, …]}`.
+    QStringList stripsCommand(
+        const QString &script,
+        const QString &alto,
+        const QString &image,
+        const QString &directory) const;
 
     /// The prefix a progress line carries on stderr, so the two readers agree.
     static const char *progressMarker() { return "MILAH-PROGRESS"; }

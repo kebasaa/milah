@@ -188,6 +188,19 @@ public slots:
     /// accumulates between sessions until there is enough to train on. See
     /// ui/training_set.h.
     void saveFolioForTraining();
+    /// Shows what training would actually be shown for this folio: one strip
+    /// per finished line, cut the way ketos compile cuts it.
+    ///
+    /// **The one part of the pipeline nobody could see.** A model learns from
+    /// neither the folio nor the word boxes but from a picture per line,
+    /// dewarped along the baseline and masked to the boundary — so every
+    /// question about the quality of a training set is a question about those,
+    /// and none of them could be answered. It also shows the lines kraken
+    /// refuses, which it otherwise skips with a log warning nobody reads.
+    ///
+    /// Cut from the same picture and the same layout saveFolioForTraining()
+    /// would use, so this cannot become a preview of something else.
+    void previewTrainingStrips();
     /// How many lines of the folio on screen are finished enough to be saved.
     /// Zero disables the command, and says why in its tooltip.
     int trainableLineCount() const;

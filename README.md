@@ -388,6 +388,7 @@ turns up.
 | **Use model ▸** | The installed models, the running one ticked. |
 | **Manage models…** | Add from the repository or from a file, remove, and choose which runs. |
 | **Show last recognition…** | What Milah ran, what Kraken said, and the layout file that came back. One run's worth, replaced each time, so a reading that goes wrong can be looked at rather than guessed about. |
+| **See what training will be shown…** | This folio's finished lines, cut the way training cuts them, with the ground truth under each and the lines Kraken refuses beside them. Grey until a line has been checked all the way through. |
 | **Save this folio for HTR training** | This folio's checked lines, into its manuscript's training set, with the library's largest scan. Grey until a line has been checked all the way through. |
 | **Train a model…** | Teaches a model the hand, from what has been saved. Grey until a set holds 50 lines. |
 | **Install Kraken…** | Only when Kraken is absent. |
@@ -481,6 +482,32 @@ read and nobody has looked at is the machine's own guess, and training on it
 teaches the model the mistakes it already makes. A line also needs every word to
 have come from the recogniser — a word typed by hand has no place on the picture,
 so its line cannot be cut out and is left out instead.
+
+
+#### Seeing what the model will be shown
+
+A recogniser learns from neither the folio nor the word boxes. It learns from
+**one picture per line**, cut by straightening the ink along that line's baseline
+and zeroing everything outside its outline. So every question worth asking about
+a training set is a question about those pictures — is this one straight, does it
+hold one line of writing or the bottom of the line above, has the mask taken in a
+descender from somewhere else — and until now not one of them could be answered.
+The geometry could only be argued about.
+
+**File ▸ Handwriting recognition ▸ See what training will be shown…** cuts them
+and shows them, with the text the model is told each one says. It calls Kraken's
+own `extract_polygons` — the function `ketos compile` calls — rather than
+redrawing the idea in Milah, because a preview of what Milah *believes* training
+does is the one thing this must not be. The strips are cut from the same picture
+and the same layout the save would use, and the window says which picture that
+turned out to be.
+
+It also shows the refusals, and those are the other silence. Kraken skips a line
+it cannot cut and carries on with a log warning; `ketos compile` drops a line
+whose text is empty. So a transcriber can save sixty lines, train on forty-five,
+and never be told. Here a refused line keeps its place in the list and says what
+was wrong with it — *Baseline length below minimum 5px*, *Line polygon outside of
+image bounds*.
 
 **File ▸ Handwriting recognition ▸ Train a model…** opens once a set holds 50
 lines, about two folios. Kraken keeps a tenth of the data back to measure the
@@ -741,8 +768,9 @@ optional: **Manuscript**, **Transcriber**, **Origin**, **Library**,
 
 **File:** Open Image, Get Online Manuscript Scan, Open Transcription Project,
 Open Recent, Save Transcription project │ Import recognised layout, Handwriting
-recognition (Use model, Manage models, Show last recognition, Save this folio for
-HTR training, Train a model, Install Kraken, Remove Kraken) │ Export to OSIS,
+recognition (Use model, Manage models, Show last recognition, See what training
+will be shown, Save this folio for HTR training, Train a model, Install Kraken,
+Remove Kraken) │ Export to OSIS,
 Export to Word,
 Add to my library, Close Transcription Project │ Quit.
 **Edit:** Undo, Redo │ Move verse to new chapter │ Define word in my dictionary.

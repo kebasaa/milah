@@ -158,6 +158,8 @@ qt_add_executable(Milah WIN32
     src/ui/download_manuscripts_dialog.h
     src/ui/htr_last_run_dialog.cpp
     src/ui/htr_last_run_dialog.h
+    src/ui/htr_strips_dialog.cpp
+    src/ui/htr_strips_dialog.h
     src/ui/htr_models_dialog.cpp
     src/ui/htr_models_dialog.h
     src/ui/htr_progress.cpp

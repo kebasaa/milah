@@ -266,6 +266,7 @@ private:
     QAction *m_lastRunAction = nullptr;
     /// This folio's corrected lines, into its manuscript's training set. Live
     /// only once a line has been checked all the way through.
+    QAction *m_previewStripsAction = nullptr;
     QAction *m_saveForTrainingAction = nullptr;
     /// And training a model on what has been gathered. Live only once some set
     /// has enough in it to be worth the hours.

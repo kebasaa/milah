@@ -953,6 +953,14 @@ void MainWindow::createTranscriptionActions()
         m_transcriptionController,
         &TranscriptionController::showLastRecognition);
 
+    m_previewStripsAction =
+        new QAction(QStringLiteral("See what training will be shown…"), this);
+    connect(
+        m_previewStripsAction,
+        &QAction::triggered,
+        m_transcriptionController,
+        &TranscriptionController::previewTrainingStrips);
+
     m_saveForTrainingAction =
         new QAction(QStringLiteral("Save this folio for HTR training"), this);
     connect(
@@ -1104,6 +1112,7 @@ void MainWindow::buildMenuBar()
     m_htrMenu->addAction(m_lastRunAction);
     m_htrMenu->addSeparator();
     m_htrMenu->addAction(m_recoverReadingsAction);
+    m_htrMenu->addAction(m_previewStripsAction);
     m_htrMenu->addAction(m_saveForTrainingAction);
     m_htrMenu->addAction(m_trainAction);
     m_htrMenu->addSeparator();
@@ -1153,6 +1162,22 @@ void MainWindow::buildMenuBar()
             m_transcriptionController->hasRecognisedWords());
 
         const int lines = m_transcriptionController->trainableLineCount();
+        // The same gate the save has, because it previews the save. Its own
+        // tooltip, though: the two answer different questions about the same
+        // lines, and an entry that reads like its neighbour is one nobody
+        // presses.
+        m_previewStripsAction->setEnabled(lines > 0);
+        m_previewStripsAction->setToolTip(
+            lines > 0
+                ? QStringLiteral("Cuts this folio's %1 finished line(s) the way "
+                                 "training cuts them — straightened along the "
+                                 "baseline and masked to the outline — and shows "
+                                 "you the pictures a model would be taught from, "
+                                 "with the lines Kraken refuses and why.")
+                      .arg(lines)
+                : QStringLiteral("No line of this folio has been checked all the "
+                                 "way through yet, so there is nothing training "
+                                 "would be shown."));
         m_saveForTrainingAction->setEnabled(lines > 0);
         m_saveForTrainingAction->setToolTip(
             lines > 0
