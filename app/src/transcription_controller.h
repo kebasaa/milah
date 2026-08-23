@@ -22,6 +22,7 @@ class QWidget;
 namespace milah {
 
 class UserDictionary;
+struct TrainingStrip;
 
 /// Holds a transcription session: the folio on screen, the folder it came out
 /// of, the text read off it, and the file dialogs that read and write them.
@@ -231,6 +232,23 @@ public slots:
     ResumePoint resumePoint() const { return resumeFill(m_document, m_currentPage); }
 
 private:
+    /// Cuts `page`'s finished lines the way training cuts them, and answers with
+    /// one strip apiece — the picture, its ground truth, or why kraken refused
+    /// it. Empty when the cut could not be run at all, and `failure` then says
+    /// why; an empty `failure` beside an empty list is a cancellation.
+    ///
+    /// Shared by the preview and the save on purpose. Both have to be answering
+    /// the same question about the same lines, and two of these would be two
+    /// answers waiting to disagree.
+    QList<TrainingStrip> cutTrainingStrips(
+        const TranscribedPage &page,
+        const QByteArray &master,
+        const QSize &boxSize,
+        const QString &label,
+        QString *failure);
+    /// What of a cut will not be trained on, as a paragraph for a message box,
+    /// or empty where every line came through.
+    static QString refusalReport(const QList<TrainingStrip> &strips);
     /// Carries the transcription on from `resume` onto this folio, with no
     /// window of its own.
     ///

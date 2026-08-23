@@ -389,7 +389,7 @@ turns up.
 | **Manage models…** | Add from the repository or from a file, remove, and choose which runs. |
 | **Show last recognition…** | What Milah ran, what Kraken said, and the layout file that came back. One run's worth, replaced each time, so a reading that goes wrong can be looked at rather than guessed about. |
 | **See what training will be shown…** | This folio's finished lines, cut the way training cuts them, with the ground truth under each and the lines Kraken refuses beside them. Grey until a line has been checked all the way through. |
-| **Save this folio for HTR training** | This folio's checked lines, into its manuscript's training set, with the library's largest scan. Grey until a line has been checked all the way through. |
+| **Save this folio for HTR training** | This folio's checked lines, into its manuscript's training set, with the library's largest scan, and a word on what of it a model will actually see. Grey until a line has been checked all the way through. |
 | **Train a model…** | Teaches a model the hand, from what has been saved. Grey until a set holds 50 lines. |
 | **Install Kraken…** | Only when Kraken is absent. |
 | **Remove Kraken…** | Deletes the Python environment and the models, and leaves WSL2 and your Linux distribution alone. |
@@ -508,6 +508,16 @@ whose text is empty. So a transcriber can save sixty lines, train on forty-five,
 and never be told. Here a refused line keeps its place in the list and says what
 was wrong with it — *Baseline length below minimum 5px*, *Line polygon outside of
 image bounds*.
+
+**Saving asks the same question**, at the moment it matters most. Once the lines
+are written into the set, Milah cuts them and tells you what a model will
+actually see — "all of them cut cleanly", or which ones will not be and why. Only
+where Kraken is installed to ask: the saving does not depend on it and has
+already happened, so this adds a sentence to the answer or nothing at all.
+
+A refused line stays in the set and is still counted there. Taking it back out
+would mean running this cut on every save whether or not Kraken is there; saying
+so does not, and it is what tells you whether a set of eighty is really eighty.
 
 **File ▸ Handwriting recognition ▸ Train a model…** opens once a set holds 50
 lines, about two folios. Kraken keeps a tenth of the data back to measure the

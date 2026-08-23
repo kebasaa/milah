@@ -1290,70 +1290,34 @@ QByteArray TranscriptionController::fetchMasterImage(
     return bytes;
 }
 
-void TranscriptionController::previewTrainingStrips()
+QList<TrainingStrip> TranscriptionController::cutTrainingStrips(
+    const TranscribedPage &page,
+    const QByteArray &master,
+    const QSize &boxSize,
+    const QString &label,
+    QString *failure)
 {
-    const TranscribedPage *page = currentPage();
-    if (!page) {
-        setMessage(QStringLiteral("Open a folio before asking what training would "
-                                  "be shown."));
-        return;
-    }
-    QWidget *front = m_dialogParent;
-    const QString label = page->imageLabel.isEmpty() ? page->imageName : page->imageLabel;
+    const auto give = [failure](const QString &why) {
+        if (failure) {
+            *failure = why;
+        }
+        return QList<TrainingStrip>();
+    };
 
-    if (trainableLineCount() == 0) {
-        QMessageBox::information(
-            front,
-            QStringLiteral("Milah"),
-            QStringLiteral(
-                "No line of %1 has been checked all the way through yet, so there "
-                "is nothing training would be shown.<p>Read a line against the ink "
-                "and press Space over it in the line view; the number beside each "
-                "line says how many of its words are still unread.</p>")
-                .arg(label));
-        return;
-    }
-
-    if (kraken().refresh() != KrakenEnvironment::State::Ready) {
-        // A model is not needed to cut a strip — this reads no text — but the
-        // installation is, and describe() is where the difference between the
-        // several ways of not having one is already written down.
-        setMessage(KrakenEnvironment::describe(kraken().state()));
-        return;
-    }
-
-    // The same picture and the same layout the save would use, so that a preview
-    // cannot be a preview of something else. The note says which picture that
-    // turned out to be, and travels to the window with the strips.
-    QString note;
-    const QByteArray master = fetchMasterImage(*page, &note);
-    if (master.isEmpty()) {
-        QMessageBox::warning(
-            front,
-            QStringLiteral("Milah"),
-            QStringLiteral("%1 has no picture to cut lines out of.").arg(label));
-        return;
-    }
-    const QSize onScreen = sizeOfImage(m_images.value(page->imageEntry));
     const QSize size = sizeOfImage(master);
     const TrainingPage truth = trainingAlto(
-        *page,
+        page,
         QStringLiteral("folio.jpg"),
         size,
-        onScreen == size ? QSize() : onScreen);
+        boxSize == size ? QSize() : boxSize);
     if (truth.isEmpty()) {
-        QMessageBox::warning(
-            front,
-            QStringLiteral("Milah"),
-            QStringLiteral("%1 could not be written out as a training layout.")
-                .arg(label));
-        return;
+        return give(QStringLiteral("%1 could not be written out as a training layout.")
+                        .arg(label));
     }
 
     QTemporaryDir workspace;
     if (!workspace.isValid()) {
-        setMessage(QStringLiteral("A working folder could not be made for the strips."));
-        return;
+        return give(QStringLiteral("A working folder could not be made for the strips."));
     }
     const QString imagePath = workspace.filePath(QStringLiteral("folio.jpg"));
     const QString altoPath = workspace.filePath(QStringLiteral("folio.xml"));
@@ -1362,16 +1326,14 @@ void TranscriptionController::previewTrainingStrips()
     if (!image.open(QIODevice::WriteOnly) || image.write(master) != master.size()
         || !alto.open(QIODevice::WriteOnly)
         || alto.write(truth.alto) != truth.alto.size()) {
-        setMessage(QStringLiteral("The folio could not be written out for cutting."));
-        return;
+        return give(QStringLiteral("The folio could not be written out for cutting."));
     }
     image.close();
     alto.close();
 
     const QString script = kraken().writeStripScript();
     if (script.isEmpty()) {
-        setMessage(QStringLiteral("The strip helper could not be written out."));
-        return;
+        return give(QStringLiteral("The strip helper could not be written out."));
     }
     QStringList command =
         kraken().stripsCommand(script, altoPath, imagePath, workspace.path());
@@ -1382,7 +1344,7 @@ void TranscriptionController::previewTrainingStrips()
         QStringLiteral("Cancel"),
         0,
         truth.lines,
-        front);
+        m_dialogParent);
     progress.setWindowTitle(QStringLiteral("Milah"));
     progress.setWindowModality(Qt::WindowModal);
     progress.setMinimumDuration(0);
@@ -1429,12 +1391,8 @@ void TranscriptionController::previewTrainingStrips()
 
     cutter.start(program, command);
     if (!cutter.waitForStarted(15000)) {
-        QMessageBox::warning(
-            front,
-            QStringLiteral("Milah"),
-            QStringLiteral("The strip helper could not be started.\n\n%1\n%2")
-                .arg(program, cutter.errorString()));
-        return;
+        return give(QStringLiteral("The strip helper could not be started.\n\n%1\n%2")
+                        .arg(program, cutter.errorString()));
     }
     if (cutter.state() != QProcess::NotRunning) {
         loop.exec();
@@ -1442,19 +1400,14 @@ void TranscriptionController::previewTrainingStrips()
     progress.reset();
 
     if (cancelled) {
-        setMessage(QStringLiteral("Stopped. Nothing was changed — this only looks."));
-        return;
+        return give(QString());
     }
     if (cutter.exitStatus() != QProcess::NormalExit || cutter.exitCode() != 0) {
         const int marker = said.indexOf(QLatin1String(KrakenEnvironment::errorMarker()));
-        QMessageBox::warning(
-            front,
-            QStringLiteral("Milah"),
-            QStringLiteral("The lines could not be cut.\n\n%1")
-                .arg(marker >= 0
-                         ? said.mid(marker).section(QLatin1Char('\n'), 0, 0)
-                         : said.right(2000)));
-        return;
+        return give(QStringLiteral("The lines could not be cut.\n\n%1")
+                        .arg(marker >= 0
+                                 ? said.mid(marker).section(QLatin1Char('\n'), 0, 0)
+                                 : said.right(2000)));
     }
 
     QList<TrainingStrip> strips;
@@ -1477,6 +1430,8 @@ void TranscriptionController::previewTrainingStrips()
         strip.refused = entry.value(QStringLiteral("refused")).toString();
         const QString file = entry.value(QStringLiteral("file")).toString();
         if (!file.isEmpty()) {
+            // Read here rather than kept as a path: the workspace dies with this
+            // function, and a QImage holding a filename would go with it.
             strip.image = QImage(workspace.filePath(file));
             if (strip.image.isNull()) {
                 strip.refused =
@@ -1487,17 +1442,102 @@ void TranscriptionController::previewTrainingStrips()
     }
 
     if (strips.isEmpty()) {
-        QMessageBox::warning(
+        return give(QStringLiteral("Nothing came back from the strip helper.\n\n%1")
+                        .arg(said.right(2000)));
+    }
+    if (failure) {
+        failure->clear();
+    }
+    return strips;
+}
+
+QString TranscriptionController::refusalReport(const QList<TrainingStrip> &strips)
+{
+    QStringList refused;
+    for (const TrainingStrip &strip : strips) {
+        if (!strip.refused.isEmpty()) {
+            refused << QStringLiteral("line %1 — %2")
+                           .arg(strip.line)
+                           .arg(strip.refused.toHtmlEscaped());
+        }
+    }
+    if (refused.isEmpty()) {
+        return QString();
+    }
+    // **Written into the set all the same, and that is the point of saying so.**
+    // Kraken skips what it cannot cut and carries on; nothing downstream ever
+    // mentions it. So the line sits in the set, is counted towards the fifty
+    // that open Train a model…, and is never trained on — which makes the set
+    // that many lines more than it is. Excluding them here would need this cut
+    // to be run on every save whether or not Kraken is installed; saying so does
+    // not, and it is what tells somebody whether it is worth doing.
+    return QStringLiteral(
+               "<p><b>%1 of them will not be trained on.</b> Kraken cannot cut "
+               "these lines, and skips them without saying so — they are in the "
+               "set and counted there, but a model will never see them:</p>"
+               "<p><small>%2</small></p>")
+        .arg(refused.size())
+        .arg(refused.join(QStringLiteral("<br>")));
+}
+
+void TranscriptionController::previewTrainingStrips()
+{
+    const TranscribedPage *page = currentPage();
+    if (!page) {
+        setMessage(QStringLiteral("Open a folio before asking what training would "
+                                  "be shown."));
+        return;
+    }
+    QWidget *front = m_dialogParent;
+    const QString label = page->imageLabel.isEmpty() ? page->imageName : page->imageLabel;
+
+    if (trainableLineCount() == 0) {
+        QMessageBox::information(
             front,
             QStringLiteral("Milah"),
-            QStringLiteral("Nothing came back from the strip helper.\n\n%1")
-                .arg(said.right(2000)));
+            QStringLiteral(
+                "No line of %1 has been checked all the way through yet, so there "
+                "is nothing training would be shown.<p>Read a line against the ink "
+                "and press Space over it in the line view; the number beside each "
+                "line says how many of its words are still unread.</p>")
+                .arg(label));
         return;
     }
 
-    // Shown while the temporary folder is still standing. It dies with this
-    // function, and the images are read above rather than held as paths for
-    // exactly that reason.
+    if (kraken().refresh() != KrakenEnvironment::State::Ready) {
+        // A model is not needed to cut a strip — this reads no text — but the
+        // installation is, and describe() is where the difference between the
+        // several ways of not having one is already written down.
+        setMessage(KrakenEnvironment::describe(kraken().state()));
+        return;
+    }
+
+    // The same picture and the same layout the save would use, so that a preview
+    // cannot be a preview of something else. The note says which picture that
+    // turned out to be, and travels to the window with the strips.
+    QString note;
+    const QByteArray master = fetchMasterImage(*page, &note);
+    if (master.isEmpty()) {
+        QMessageBox::warning(
+            front,
+            QStringLiteral("Milah"),
+            QStringLiteral("%1 has no picture to cut lines out of.").arg(label));
+        return;
+    }
+
+    QString failure;
+    const QList<TrainingStrip> strips = cutTrainingStrips(
+        *page, master, sizeOfImage(m_images.value(page->imageEntry)), label, &failure);
+    if (strips.isEmpty()) {
+        // An empty reason is a cancellation, which needs no window of its own.
+        if (failure.isEmpty()) {
+            setMessage(QStringLiteral("Stopped. Nothing was changed — this only looks."));
+        } else {
+            QMessageBox::warning(front, QStringLiteral("Milah"), failure);
+        }
+        return;
+    }
+
     HtrStripsDialog dialog(label, note, strips, front);
     dialog.exec();
 }
@@ -1550,11 +1590,38 @@ void TranscriptionController::saveFolioForTraining()
         : QStringLiteral("Train a model… opens at %1 lines.")
               .arg(TrainingSet::EnoughLines);
 
+    // What of it a model will actually see. Kraken skips a line it cannot cut
+    // and carries on with a log warning, so a folio can be saved, counted and
+    // trained on with lines quietly missing from it — and the moment those lines
+    // are committed to the set is the moment worth finding out.
+    //
+    // Only where there is a Kraken to ask. The saving does not depend on it and
+    // has already happened; this adds a sentence to the answer or nothing at
+    // all, rather than turning a working save into a failure.
+    QString verdict;
+    if (kraken().refresh() == KrakenEnvironment::State::Ready) {
+        QString failure;
+        const QList<TrainingStrip> strips = cutTrainingStrips(
+            *page,
+            master,
+            sizeOfImage(m_images.value(page->imageEntry)),
+            label,
+            &failure);
+        if (!strips.isEmpty()) {
+            verdict = refusalReport(strips);
+            if (verdict.isEmpty()) {
+                verdict = QStringLiteral(
+                    "<p><small>All of them cut cleanly — a model will see every "
+                    "one.</small></p>");
+            }
+        }
+    }
+
     QMessageBox::information(
         m_dialogParent,
         QStringLiteral("Milah"),
         QStringLiteral("%1 line(s) off %2 saved.<p>%3 now holds %4 line(s) off %5 "
-                       "folio(s). %6</p>%7")
+                       "folio(s). %6</p>%7%8")
             .arg(lines)
             .arg(label, set.label)
             .arg(set.lines)
@@ -1565,7 +1632,8 @@ void TranscriptionController::saveFolioForTraining()
                 // it is not what was asked for, and somebody wondering later why
                 // a model came out poor deserves to have been told.
                 note.isEmpty() ? QString()
-                               : QStringLiteral("<p><small>%1</small></p>").arg(note)));
+                               : QStringLiteral("<p><small>%1</small></p>").arg(note),
+                verdict));
     setMessage(QStringLiteral("Saved %1 line(s) off %2 for training.").arg(lines).arg(label));
 }
 
