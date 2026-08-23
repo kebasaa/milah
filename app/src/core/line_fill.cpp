@@ -97,6 +97,29 @@ QMap<int, int> wordCounts(const TranscribedPage &page)
     return counts;
 }
 
+
+int vouchForLine(TranscribedPage &page, int line)
+{
+    if (line < 0) {
+        return 0;
+    }
+    int vouched = 0;
+    for (TranscribedVerse &verse : page.verses) {
+        for (TranscribedWord &word : verse.words) {
+            if (word.line != line || word.box.isNull() || word.hebrew.isEmpty()) {
+                continue;
+            }
+            // See the header: a note beside the text is somebody else's to read.
+            if (word.marginal || !word.unchecked) {
+                continue;
+            }
+            word.unchecked = false;
+            ++vouched;
+        }
+    }
+    return vouched;
+}
+
 int pouredWordsBefore(const TranscribedPage &page, int line)
 {
     if (page.fillStartLine < 0 || line <= page.fillStartLine) {

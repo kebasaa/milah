@@ -455,6 +455,74 @@ private slots:
         QCOMPARE(wordCounts(page).size(), 2);
     }
 
+    /// Reading a line is one decision, and this is what makes it one gesture.
+    /// Every word of the line at once, and nothing on any other line.
+    void vouchingForALineMarksAllOfItRead()
+    {
+        TranscribedPage page;
+        TranscribedVerse verse;
+        verse.words = folio();
+        for (TranscribedWord &word : verse.words) {
+            word.hebrew = QStringLiteral("word");
+            word.unchecked = true;
+        }
+        page.verses.append(verse);
+
+        QCOMPARE(vouchForLine(page, 1), 2);
+        QVERIFY(!page.verses.first().words.at(2).unchecked);
+        QVERIFY(!page.verses.first().words.at(3).unchecked);
+        // The lines either side are nobody's business here.
+        QVERIFY(page.verses.first().words.at(0).unchecked);
+        QVERIFY(page.verses.first().words.at(4).unchecked);
+
+        // And a line already read reports nothing, so a caller can tell that
+        // pressing the key twice did nothing the second time.
+        QCOMPARE(vouchForLine(page, 1), 0);
+        QCOMPARE(vouchForLine(page, 9), 0);
+        QCOMPARE(vouchForLine(page, -1), 0);
+    }
+
+    /// **A note in the margin is not vouched for by reading the text.** It is
+    /// the one place the recogniser's reading is both likely wrong and unhelped
+    /// by the poured transcription, which holds the work and not the notes
+    /// beside it — so accepting the line must not put that reading into the
+    /// ground truth as though somebody had read it.
+    void vouchingForALineLeavesTheMarginAlone()
+    {
+        TranscribedPage page;
+        TranscribedVerse verse;
+        verse.words = folio();
+        for (TranscribedWord &word : verse.words) {
+            word.hebrew = QStringLiteral("word");
+            word.unchecked = true;
+        }
+        verse.words[3].marginal = true;
+        page.verses.append(verse);
+
+        QCOMPARE(vouchForLine(page, 1), 1);
+        QVERIFY(!page.verses.first().words.at(2).unchecked);
+        QVERIFY(page.verses.first().words.at(3).unchecked);
+    }
+
+    /// A word with no text is not ground truth, so reading the line does not
+    /// pretend it is. It would otherwise arrive at the training export as an
+    /// empty CONTENT that ketos compile drops in silence.
+    void aWordWithNothingInItIsNotVouchedFor()
+    {
+        TranscribedPage page;
+        TranscribedVerse verse;
+        verse.words = folio();
+        for (TranscribedWord &word : verse.words) {
+            word.hebrew = QStringLiteral("word");
+            word.unchecked = true;
+        }
+        verse.words[2].hebrew.clear();
+        page.verses.append(verse);
+
+        QCOMPARE(vouchForLine(page, 1), 1);
+        QVERIFY(page.verses.first().words.at(2).unchecked);
+    }
+
     /// Where a re-flow picks the passage up again.
     ///
     /// Wrong by one here and the folio repeats a word or drops one — which is

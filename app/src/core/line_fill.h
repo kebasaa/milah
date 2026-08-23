@@ -68,6 +68,26 @@ QMap<int, QList<QRect>> fillableLines(const TranscribedPage &page);
 /// further down, which layOut() honours by passing over it.
 QMap<int, int> wordCounts(const TranscribedPage &page);
 
+/// Marks every word of `line` as looked at, and returns how many that changed.
+///
+/// **What a transcriber actually does is read a line.** A word counts as checked
+/// when the caret has passed through it, which is right for somebody working in
+/// the text below — but the folio is where a poured reading is judged, and there
+/// the unit is the line: you read it against the ink and either it says what the
+/// scribe wrote or it does not. Twenty words is twenty gestures for one decision,
+/// and a line is worth nothing to training until the last of them.
+///
+/// **Marginalia are left alone**, and deliberately. A note in the margin is the
+/// one place the recogniser's reading is both likely wrong and unhelped by the
+/// poured transcription, which holds the work and not the notes beside it. To
+/// vouch for the line's text is not to vouch for a note nobody has read, and
+/// doing so would put that reading into the ground truth as though somebody had.
+/// The line then trains trimmed or not at all — see groundTruth() in
+/// core/training_export.cpp — until the note is dealt with on its own.
+///
+/// Words with no box or no text are not ground truth and are passed over.
+int vouchForLine(TranscribedPage &page, int line);
+
 /// Puts the words of the line after `line` onto `line`, undoing a cut the
 /// segmenter made in the wrong place.
 ///

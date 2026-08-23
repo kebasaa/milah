@@ -287,9 +287,11 @@ or on its box, and say so:
 
 | | |
 |---|---|
+| **Space** | You have read this line against the ink and it says what the scribe wrote. Marks every word of it looked at, and moves to the next line that still needs reading. |
 | **Enter** | The line ends **before** this word. The rest of it moves down, and the lines below are laid again. |
 | **Backspace** | With the first word of a line selected, pulls it up onto the line above — one word a press. |
 | **← →** | Back and forward along the reading, in reading order. A line too crowded to write out in full is still walked this way. |
+| **↑ ↓** | To the line above or below, without accepting anything. |
 | **Escape** | Drop the selection. |
 
 The caret beside the selected word shows which side the break falls on. What no
@@ -297,6 +299,16 @@ longer fits at the foot of the leaf is not lost: the folio's recorded end point
 moves back with it, so the next folio's **Continue from the previous
 transcription** begins exactly there, and Milah says how many words went. Ctrl+Z
 takes a break and the whole re-flow back in one press.
+
+**Space is the loop.** A line is worth nothing to the training set until every
+word on it has been looked at, and reading a line is one decision rather than
+twenty — so read it, press Space, and the selection moves to the next line that
+still needs it. The number beside each line says how far off it is: `21·3` is
+line twenty-one with three words nobody has read. Space leaves the **margin
+alone**, deliberately: a note beside the text is the one place the recogniser is
+both likely wrong and unhelped by the poured transcription, so vouching for the
+line does not vouch for a note nobody has transcribed. Such a line trains trimmed
+to what is vouched for, or not at all, until the note is dealt with on its own.
 
 What a line holds is remembered on the folio, so a re-flow started somewhere
 above it does not throw the answer away — and it outlives the fill that prompted

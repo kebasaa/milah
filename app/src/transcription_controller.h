@@ -334,6 +334,11 @@ public:
     /// arithmetic; this adds the undo step, the warning where checked readings
     /// would be lost, and the re-flow that lays the joined line out as one.
     bool joinLineAt(int line);
+    /// The transcriber has read this line against the ink and it says what the
+    /// scribe wrote. Marks every word of it looked at in one step — see
+    /// LineFill's vouchForLine(), which explains why the notes in the margin are
+    /// not included. True when anything changed.
+    bool markLineChecked(int line);
     /// The transcriber has said the poured text's line ends **before** this
     /// word: the segmenter drew more boxes on the line than the manuscript has
     /// words there, so everything from here down belongs further along.

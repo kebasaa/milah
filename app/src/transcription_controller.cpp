@@ -3400,6 +3400,54 @@ int pouredFrom(const TranscribedPage &page, int line)
 
 } // namespace
 
+bool TranscriptionController::markLineChecked(int line)
+{
+    TranscribedPage *page = mutablePage();
+    if (!page) {
+        return false;
+    }
+    const int vouched = vouchForLine(*page, line);
+    if (vouched == 0) {
+        return false;
+    }
+    setDirty(true);
+
+    // No pushUndo, for the same reason setWord() gives: having read a word is
+    // not a change to undo, and a stack full of them would bury the edits that
+    // are. This is that decision made once for a line instead of once a word.
+    //
+    // versesChanged rather than wordChecked, which is the opposite of what the
+    // grid wants while somebody is typing in it. wordChecked exists so that a
+    // caret leaving a cell does not rebuild the grid underneath the Tab key —
+    // but nobody is in the grid here, the folio has the focus, and a whole line
+    // of cells has just changed.
+    emit versesChanged();
+
+    // What still stands between this line and the training set. Marginalia are
+    // the usual answer and are not what the key just vouched for.
+    int left = 0;
+    for (const TranscribedVerse &verse : page->verses) {
+        for (const TranscribedWord &word : verse.words) {
+            if (word.line == line && !word.box.isNull() && !word.hebrew.isEmpty()
+                && word.unchecked) {
+                ++left;
+            }
+        }
+    }
+    setMessage(
+        left > 0
+            ? QStringLiteral("Line %1 read. %2 word(s) on it are still marginal "
+                             "notes nobody has transcribed, so it will be trimmed "
+                             "to what is vouched for.")
+                  .arg(line + 1)
+                  .arg(left)
+            : QStringLiteral("Line %1 read — %2 word(s), and it now counts towards "
+                             "the training set.")
+                  .arg(line + 1)
+                  .arg(vouched));
+    return true;
+}
+
 bool TranscriptionController::breakLineBefore(const QRect &box)
 {
     TranscribedPage *page = mutablePage();

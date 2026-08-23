@@ -729,7 +729,10 @@ QList<DrawnLine> ManuscriptImageView::readingLayout(const QRect &page) const
         for (const int index : line.words) {
             const TranscribedWord &word = m_words.at(index);
             bounds = bounds.isNull() ? word.box : bounds.united(word.box);
-            line.anyUnchecked = line.anyUnchecked || word.unchecked;
+            if (word.unchecked) {
+                line.anyUnchecked = true;
+                ++line.unchecked;
+            }
             line.allMarginal = line.allMarginal && word.marginal;
             boxes.append(word.box);
         }
@@ -888,7 +891,15 @@ void ManuscriptImageView::drawLineOverlay(
         // in the middle of the Hebrew is worse than no label.
         painter.setFont(reading);
         painter.setPen(dimmed);
-        const QString number = QString::number(line.line + 1);
+        // The number, and after it what the line still stands away from being
+        // worth anything — "21·3" is line twenty-one with three words nobody has
+        // looked at. A line that is one word short of counting looks exactly
+        // like one that is twenty short otherwise, and the difference is the
+        // whole of what decides where to read next.
+        const QString number =
+            line.unchecked > 0
+                ? QStringLiteral("%1·%2").arg(line.line + 1).arg(line.unchecked)
+                : QString::number(line.line + 1);
         const double chip = metrics.horizontalAdvance(number) + 4.0;
         painter.drawText(
             QRectF(line.box.left() - chip - 2.0,
@@ -1021,6 +1032,32 @@ void ManuscriptImageView::keyPressEvent(QKeyEvent *event)
         emit wordPulledUp(m_selected);
         event->accept();
         return;
+    case Qt::Key_Space: {
+        // Read the line, accept it, move to the next that still needs reading.
+        // The whole loop in one key, because that is the shape of the work: look
+        // at the line, decide, go on. The line is taken from the selection
+        // before the signal, since laying nothing again cannot move it but a
+        // future change might.
+        const int line = lineOfSelection();
+        if (line < 0) {
+            break;
+        }
+        emit lineChecked(line);
+        // After the signal, and safe to be: the connection is direct, so by the
+        // time this returns the document has changed and the words have come
+        // back through setWords().
+        selectNextUnread(line);
+        event->accept();
+        return;
+    }
+    case Qt::Key_Down:
+        selectLineBy(1);
+        event->accept();
+        return;
+    case Qt::Key_Up:
+        selectLineBy(-1);
+        event->accept();
+        return;
     case Qt::Key_Right:
         // Forward and back along the reading, not left and right across the
         // screen. A Hebrew line runs the other way and a Latin note beside it
@@ -1042,6 +1079,58 @@ void ManuscriptImageView::keyPressEvent(QKeyEvent *event)
         break;
     }
     QWidget::keyPressEvent(event);
+}
+
+
+int ManuscriptImageView::lineOfSelection() const
+{
+    if (m_selected.isNull()) {
+        return -1;
+    }
+    for (const TranscribedWord &word : m_words) {
+        if (word.box == m_selected) {
+            return word.line;
+        }
+    }
+    return -1;
+}
+
+void ManuscriptImageView::selectNextUnread(int after)
+{
+    for (const DrawnLine &line : readingLayout(pageRect())) {
+        if (line.line <= after || line.unchecked == 0 || line.words.isEmpty()) {
+            continue;
+        }
+        m_selected = m_words.at(line.words.first()).box;
+        update();
+        return;
+    }
+    // Nothing below it left to read. The selection stays where it is; the
+    // controller's message is what says so.
+}
+
+void ManuscriptImageView::selectLineBy(int by)
+{
+    const QList<DrawnLine> laid = readingLayout(pageRect());
+    const int here = lineOfSelection();
+    int at = -1;
+    for (int index = 0; index < laid.size(); ++index) {
+        if (laid.at(index).line == here) {
+            at = index;
+            break;
+        }
+    }
+    if (at < 0) {
+        return;
+    }
+    // Along the folio's own lines rather than by number: a join leaves the
+    // numbering with a gap in it, and the line below is whichever one is next.
+    const int to = at + by;
+    if (to < 0 || to >= laid.size() || laid.at(to).words.isEmpty()) {
+        return;
+    }
+    m_selected = m_words.at(laid.at(to).words.first()).box;
+    update();
 }
 
 void ManuscriptImageView::selectBy(int by)

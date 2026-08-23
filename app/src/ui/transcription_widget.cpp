@@ -98,6 +98,12 @@ TranscriptionWidget::TranscriptionWidget(
         this,
         [this](QRect box) { m_controller->pullWordUp(box); });
 
+    connect(
+        m_image,
+        &ManuscriptImageView::lineChecked,
+        this,
+        [this](int line) { m_controller->markLineChecked(line); });
+
     m_grid = new TranscriptionGridWidget(m_controller);
     m_textArea = new QScrollArea;
     m_textArea->setWidget(m_grid);

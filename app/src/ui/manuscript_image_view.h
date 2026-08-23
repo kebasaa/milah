@@ -39,6 +39,12 @@ struct DrawnLine
     qreal pointSize = 0.0;
     bool allMarginal = false;
     bool anyUnchecked = false;
+    /// How many of its words nobody has looked at yet — the number the line
+    /// still stands away from being worth anything to training. Marginalia are
+    /// counted: an unread note in the middle of a line takes the whole line out
+    /// of the ground truth, so a chip reading nought while one stood there would
+    /// be a promise the training export does not keep.
+    int unchecked = 0;
 };
 
 /// The folio being transcribed, with a magnifier the reader moves over it.
@@ -207,6 +213,12 @@ signals:
     /// reading off a picture.
     void wordPulledUp(QRect box);
 
+    /// The transcriber has read this line against the ink and it says what the
+    /// scribe wrote. Every word of it at once, because reading a line is one
+    /// decision and twenty gestures for it is nineteen too many — and a line is
+    /// worth nothing to training until the last of them.
+    void lineChecked(int line);
+
 protected:
     void paintEvent(QPaintEvent *event) override;
     /// Claims the height the folio needs at the width it has been given, so the
@@ -263,6 +275,16 @@ private:
     /// A word that has been elided off the end of its line is still reachable
     /// this way, which is what makes eliding acceptable at all.
     void selectBy(int by);
+    /// Which line the selected word sits on, or -1 when nothing is selected.
+    int lineOfSelection() const;
+    /// Puts the selection on the first word of the nearest line after `after`
+    /// that still has a word nobody has looked at, and leaves it where it is
+    /// when there is none — the folio is finished, and taking the selection away
+    /// would lose the reader's place to say so.
+    void selectNextUnread(int after);
+    /// Puts the selection on the first word of the line `by` lines along, for
+    /// walking the folio without accepting anything.
+    void selectLineBy(int by);
 
     QImage m_image;
     QString m_name;

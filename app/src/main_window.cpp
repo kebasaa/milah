@@ -916,8 +916,10 @@ void MainWindow::createTranscriptionActions()
         "running two lines together, or cutting one in two — and nothing in the "
         "word boxes shows that, because each box looks right on its own. "
         "Right-click a line to say where it really ends, or to join it to the one "
-        "below.</p><p>Click a word and press Enter to say the line ends before it, "
-        "or Backspace to pull the first word of a line up onto the line above.</p>"));
+        "below.</p><p>Read a line against the ink and press Space to accept it "
+        "and move to the next — the number beside each line says how many of its "
+        "words are still unread. Enter says the line ends before the selected "
+        "word; Backspace pulls a line's first word up onto the line above.</p>"));
 
     // Through a lambda, not straight at the slot: triggered carries a bool, and
     // both of these now take an argument that a bool would quietly become —
