@@ -922,7 +922,7 @@ void MainWindow::createTranscriptionActions()
     m_lineBoxesAction->setCheckable(true);
     m_lineBoxesAction->setToolTip(QStringLiteral(
         "Draws one box per line of the manuscript instead of one per word, with "
-        "the line's whole reading written underneath the ink it was laid onto and "
+        "the line's whole reading written just above the ink it was laid onto and "
         "the baseline the training strip is cut along. Turns the overlay on if it "
         "is off.<p>What it is for: on a hand "
         "the recogniser was not trained for it groups the ink into lines wrongly — "

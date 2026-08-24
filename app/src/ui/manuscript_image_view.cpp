@@ -55,15 +55,16 @@ constexpr int MarginalWashAlpha = 46;
 /// of grey marks rather than words, and the arrows reach whatever the line was
 /// too crowded to fit.
 constexpr double MinimumReadingPoint = 5.5;
-/// How far under the line its reading sits. Close enough to belong to it, clear
-/// enough not to sit on the descenders.
+/// How far from the line its reading sits. Close enough to belong to it, clear
+/// enough not to sit on the ascenders. Over the line, except at the top of the
+/// folio where there is nothing over it -- see readingLayout().
 constexpr double ReadingGap = 3.0;
 /// How solid the strip behind a line's reading is, of 255.
 ///
-/// It lies in the gap under the line, and on a hand whose lines interleave it
-/// lands across the next line's ascenders as well — so it has to lighten what
-/// is beneath it rather than blot it out. Enough to read black letters on,
-/// little enough to see the ink through: the same bargain the word overlay's
+/// It lies in the gap beside the line, and on a hand whose lines interleave it
+/// lands across a neighbour's descenders as well — so it has to lighten what is
+/// beneath it rather than blot it out. Enough to read black letters on, little
+/// enough to see the ink through: the same bargain the word overlay's
 /// LabelBackingAlpha makes, struck further towards the folio because this one
 /// is over writing rather than beside it.
 constexpr int ReadingBackingAlpha = 150;
@@ -754,7 +755,7 @@ QList<DrawnLine> ManuscriptImageView::readingLayout(const QRect &page) const
             bounds.width() * scaleX,
             bounds.height() * scaleY);
 
-        // Shrunk to fit under the line it belongs to, down to a floor. A folio
+        // Shrunk to fit the width of the line it belongs to, down to a floor. A folio
         // line here carries twenty-six words, and a reading wider than the line
         // it is written under stops being a reading of that line.
         base.setPointSizeF(wanted);
@@ -776,8 +777,19 @@ QList<DrawnLine> ManuscriptImageView::readingLayout(const QRect &page) const
         // and neither hard-coded when the geometry already says.
         const bool rightToLeft =
             LineFill::directionOf(boxes) == LineFill::Direction::RightToLeft;
-        const double top = line.box.bottom() + ReadingGap;
         const double height = metrics.height();
+        // Over the line rather than under it. Either way the band lands in the
+        // gap between two lines of writing; over means it sits under the line
+        // *above*, whose descenders are shorter than the next line's ascenders,
+        // and it puts the reading and the ink it reads in the order a person
+        // scans them.
+        //
+        // Except at the top of the folio, where there is no gap to sit in and
+        // the band would go off the pane — the first line's reading goes
+        // underneath instead, which is what the word overlay has always done
+        // with a word on the first line.
+        const double above = line.box.top() - ReadingGap - height;
+        const double top = above < page.top() ? line.box.bottom() + ReadingGap : above;
         double at = rightToLeft ? line.box.right() : line.box.left();
         const double gap = metrics.horizontalAdvance(QLatin1Char(' '));
         for (const int index : line.words) {
@@ -847,8 +859,8 @@ void ManuscriptImageView::drawLineOverlay(
         if (line.box.width() < 1.0 || line.box.height() < 1.0) {
             continue;
         }
-        // The reading is written below the line, so the region a line can touch
-        // reaches below its box rather than above it.
+        // The reading sits outside the line's own box, so the region a line can
+        // touch is the union of the two rather than the box alone.
         QRectF touched = line.box;
         for (const QRectF &at : line.at) {
             touched = touched.united(at);
@@ -922,9 +934,12 @@ void ManuscriptImageView::drawLineOverlay(
                 ? QStringLiteral("%1·%2").arg(line.line + 1).arg(line.unchecked)
                 : QString::number(line.line + 1);
         const double chip = metrics.horizontalAdvance(number) + 4.0;
+        // Level with the reading, taken from it rather than worked out again:
+        // the reading goes over the line except at the top of the folio, and a
+        // number that recomputed that rule could disagree with it.
         const QRectF numberAt(
             line.box.left() - chip - 2.0,
-            line.box.bottom() + ReadingGap,
+            line.at.isEmpty() ? line.box.bottom() + ReadingGap : line.at.first().top(),
             chip,
             metrics.height());
 
