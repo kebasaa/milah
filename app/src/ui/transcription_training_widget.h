@@ -68,6 +68,14 @@ private:
     QProgressBar *m_setBar = nullptr;
     QLabel *m_state = nullptr;
     QPushButton *m_do = nullptr;
+    /// Training, offered on its own whenever the hand has enough for it.
+    ///
+    /// The main button is what comes next *for this folio*, which meant training
+    /// was reachable from it only on a folio that happened to be saved and
+    /// unedited since — so a set of two hundred lines could sit there with the
+    /// button saying "Read this folio". Hidden while the main button is already
+    /// Train, so the two never say the same thing twice.
+    QPushButton *m_train = nullptr;
     Step m_step = Step::Nothing;
     /// Coalesces the refreshes. Every keystroke in the grid reports the verses
     /// changed, and answering each one means building this folio's whole

@@ -483,6 +483,13 @@ model…*. It calls exactly what the toolbar and the right-click call — a seco
 route to the same things, never a second way of doing them — so the whole path
 from an unread leaf to a trained model is one place you keep pressing.
 
+Under it, a quieter **Train a model…** appears once the hand has enough. The
+button above is what comes next *for this folio*, which meant training was
+reachable from it only on a folio that happened to be saved and unedited since —
+a set of two hundred lines could sit there with the button saying *Read this
+folio*. It is the same window **File ▸ Handwriting recognition ▸ Train a model…**
+opens, and it hides itself when the button above already says the same thing.
+
 It also says **when a folio has been corrected since it was saved**. The set is
 then holding the older reading of a line, and a model taught it learns the older
 one; saving again replaces rather than duplicates, so putting it right costs one

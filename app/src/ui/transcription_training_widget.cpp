@@ -70,6 +70,25 @@ TranscriptionTrainingWidget::TranscriptionTrainingWidget(
     connect(m_do, &QPushButton::clicked, this, &TranscriptionTrainingWidget::act);
     inner->addWidget(m_do);
 
+    // Quieter than the one above it: flat and a size smaller, because it is not
+    // the next thing to do — it is the thing that becomes possible, and stays
+    // possible, once the hand has enough.
+    m_train = new QPushButton(QStringLiteral("Train a model… (hours)"));
+    m_train->setFlat(true);
+    QFont smaller = m_train->font();
+    smaller.setPointSizeF(std::max(7.0, smaller.pointSizeF() * 0.9));
+    m_train->setFont(smaller);
+    m_train->setToolTip(QStringLiteral(
+        "Teaches a model this hand from everything you have saved. It runs on "
+        "the processor and takes hours; what comes out becomes the model "
+        "Transcribe uses."));
+    m_train->hide();
+    connect(m_train, &QPushButton::clicked, this, [this] {
+        m_controller->showTraining();
+        refresh();
+    });
+    inner->addWidget(m_train);
+
     outer->addWidget(box);
 
     m_soon = new QTimer(this);
@@ -101,6 +120,11 @@ void TranscriptionTrainingWidget::refresh()
         m_do->setText(QStringLiteral("Save this folio"));
         m_do->setEnabled(false);
         m_do->setToolTip(QString());
+        // A set is a hand's, not a folio's. With nothing open there is nothing
+        // to say about a folio and still, possibly, something to train.
+        const TrainingSet::Set set =
+            TrainingSet::contentsOf(TrainingSet::slugFor(m_controller->metadata()));
+        m_train->setVisible(set.lines >= TrainingSet::EnoughLines);
         return;
     }
 
@@ -215,6 +239,10 @@ void TranscriptionTrainingWidget::refresh()
     } else {
         m_do->setEnabled(true);
     }
+
+    // Offered whenever the hand has enough, whatever this folio is doing — and
+    // hidden when the button above it already says the same thing.
+    m_train->setVisible(set.lines >= TrainingSet::EnoughLines && m_step != Step::Train);
 }
 
 void TranscriptionTrainingWidget::act()
