@@ -599,7 +599,7 @@ private slots:
         document.pages[0].fillEndVerse = QStringLiteral("Jas.1.14");
         document.pages[0].fillEndWord = 5;
 
-        const TranscribedPage &read =
+        const TranscribedPage read =
             restoreTranscription(transcriptionPayload(document, {})).pages.at(0);
         QCOMPARE(read.fillEndVerse, QStringLiteral("Jas.1.14"));
         QCOMPARE(read.fillEndWord, 5);
@@ -608,7 +608,7 @@ private slots:
         // resume without saying how far in, so neither is written.
         TranscriptionDocument half = sampleDocument();
         half.pages[0].fillEndVerse = QStringLiteral("Jas.1.14");
-        const TranscribedPage &partial =
+        const TranscribedPage partial =
             restoreTranscription(transcriptionPayload(half, {})).pages.at(0);
         QVERIFY(partial.fillEndVerse.isEmpty());
         QCOMPARE(partial.fillEndWord, -1);
@@ -710,7 +710,7 @@ private slots:
         TranscriptionDocument document = sampleDocument();
         document.pages[0].verses[0].words[1].marginal = true;
 
-        const TranscribedPage &read =
+        const TranscribedPage read =
             restoreTranscription(transcriptionPayload(document, {})).pages.at(0);
         QVERIFY(read.verses.at(0).words.at(1).marginal);
         QVERIFY(!read.verses.at(0).words.at(0).marginal);
@@ -731,7 +731,7 @@ private slots:
         document.pages[0].fillStartVerse = QStringLiteral("JAS.1.25");
         document.pages[0].fillStartWord = 4;
 
-        const TranscribedPage &read =
+        const TranscribedPage read =
             restoreTranscription(transcriptionPayload(document, {})).pages.at(0);
         QCOMPARE(read.verses.at(0).words.at(0).recognised,
                  QString::fromUtf8("\xd7\x91\xd7\xa8\xd7\x90"));
@@ -742,7 +742,7 @@ private slots:
         // A file written before any of it existed: nothing to go back to, and no
         // record of where the pour began. This is the state that has to produce
         // a message rather than a re-flow laid from the wrong place.
-        const TranscribedPage &old =
+        const TranscribedPage old =
             restoreTranscription(transcriptionPayload(sampleDocument(), {})).pages.at(0);
         QVERIFY(old.verses.at(0).words.at(0).recognised.isEmpty());
         QCOMPARE(old.fillStartLine, -1);
@@ -753,7 +753,7 @@ private slots:
         // pour began without saying how far in, so neither is written.
         TranscriptionDocument half = sampleDocument();
         half.pages[0].fillStartVerse = QStringLiteral("JAS.1.25");
-        const TranscribedPage &partial =
+        const TranscribedPage partial =
             restoreTranscription(transcriptionPayload(half, {})).pages.at(0);
         QVERIFY(partial.fillStartVerse.isEmpty());
         QCOMPARE(partial.fillStartWord, -1);
@@ -770,7 +770,7 @@ private slots:
         drawn.boundary = {QPoint(597, 54), QPoint(660, 57), QPoint(679, 103)};
         document.pages[0].lines = {drawn};
 
-        const TranscribedPage &read =
+        const TranscribedPage read =
             restoreTranscription(transcriptionPayload(document, {})).pages.at(0);
         QCOMPARE(read.lines.size(), 1);
         QCOMPARE(read.lines.first().index, 3);
@@ -797,7 +797,7 @@ private slots:
         // down. Written as such, and read back as such.
         document.pages[0].lineWords.insert(22, 0);
 
-        const TranscribedPage &read =
+        const TranscribedPage read =
             restoreTranscription(transcriptionPayload(document, {})).pages.at(0);
         QCOMPARE(read.lineWords.size(), 2);
         QCOMPARE(read.lineWords.value(21), 13);
