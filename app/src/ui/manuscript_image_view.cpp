@@ -58,6 +58,15 @@ constexpr double MinimumReadingPoint = 5.5;
 /// How far under the line its reading sits. Close enough to belong to it, clear
 /// enough not to sit on the descenders.
 constexpr double ReadingGap = 3.0;
+/// How solid the strip behind a line's reading is, of 255.
+///
+/// It lies in the gap under the line, and on a hand whose lines interleave it
+/// lands across the next line's ascenders as well — so it has to lighten what
+/// is beneath it rather than blot it out. Enough to read black letters on,
+/// little enough to see the ink through: the same bargain the word overlay's
+/// LabelBackingAlpha makes, struck further towards the folio because this one
+/// is over writing rather than beside it.
+constexpr int ReadingBackingAlpha = 150;
 
 /// The smallest the word editor is allowed to be. A recogniser's box round a
 /// two-letter word is a dozen pixels across, which is a box you cannot type in.
@@ -807,12 +816,25 @@ void ManuscriptImageView::drawLineOverlay(
     // and the boundary alone would not say so.
     QColor spine = palette().color(QPalette::Highlight);
     spine.setAlphaF(0.55);
-    // The reading carries its own contrast, because nothing is drawn behind it.
-    // Not QPalette::Text: that is near-white in a dark theme and would vanish
-    // against a light scan — the folio is the same colour whatever the window
-    // is set to, so the reading has to be a colour that reads against parchment
-    // in both.
-    const QColor said = palette().color(QPalette::Highlight);
+    // **The two colours in this widget that do not come from the palette**, and
+    // the exception is the point. Everything else here is drawn against the
+    // window and takes the window's colours. The reading is drawn against the
+    // *folio*, which is a pale parchment scan whatever the window is set to — so
+    // the palette is the wrong authority, and following it is what produced
+    // near-white text in one theme and, once that was fixed with Highlight,
+    // saturated blue letters at seven points over brown ink in both.
+    //
+    // Near-black on a pale wash, fixed. The wash is translucent because it lies
+    // in the gap under the line and, on a hand whose lines interleave, across
+    // the next line's ascenders: it has to lighten what is beneath it rather
+    // than blot it out. ReadingBackingAlpha is the dial.
+    const QColor said(0x1a, 0x18, 0x14);
+    QColor strip(0xf4, 0xf1, 0xe8);
+    strip.setAlpha(ReadingBackingAlpha);
+    // Held out of the work: still legible on the same strip, because the note's
+    // reading is what gets typed over to make it training data — but plainly
+    // not the text.
+    const QColor asideSaid(0x6a, 0x64, 0x5c);
 
     QMap<int, const TranscribedLine *> drawn;
     for (const TranscribedLine &line : m_lines) {
@@ -889,8 +911,7 @@ void ManuscriptImageView::drawLineOverlay(
         // than inside it: a digit dropped into a right-to-left string moves as
         // the bidi algorithm sees fit, and a line labelled 21 that draws its 21
         // in the middle of the Hebrew is worse than no label.
-        painter.setFont(reading);
-        painter.setPen(dimmed);
+        //
         // The number, and after it what the line still stands away from being
         // worth anything — "21·3" is line twenty-one with three words nobody has
         // looked at. A line that is one word short of counting looks exactly
@@ -901,14 +922,28 @@ void ManuscriptImageView::drawLineOverlay(
                 ? QStringLiteral("%1·%2").arg(line.line + 1).arg(line.unchecked)
                 : QString::number(line.line + 1);
         const double chip = metrics.horizontalAdvance(number) + 4.0;
-        painter.drawText(
-            QRectF(line.box.left() - chip - 2.0,
-                   line.box.bottom() + ReadingGap,
-                   chip,
-                   metrics.height()),
-            Qt::AlignCenter,
-            number);
+        const QRectF numberAt(
+            line.box.left() - chip - 2.0,
+            line.box.bottom() + ReadingGap,
+            chip,
+            metrics.height());
 
+        // One strip for the whole reading rather than one behind each word.
+        // The words are placed with gaps between them, so a backing apiece would
+        // come out as a row of chips with the folio showing between; their union
+        // reads as a band, which is what a line of text looks like. The number
+        // is inside it, so the two are one object rather than two that happen to
+        // be adjacent.
+        QRectF band = numberAt;
+        for (const QRectF &at : line.at) {
+            band = band.united(at);
+        }
+        painter.fillRect(band.adjusted(-2.0, -1.0, 2.0, 1.0), strip);
+
+        painter.setFont(reading);
+        painter.setPen(asideSaid);
+
+        painter.drawText(numberAt, Qt::AlignCenter, number);
         for (int at = 0; at < line.words.size(); ++at) {
             const QRectF where = line.at.at(at);
             if (!where.intersects(QRectF(page))) {
@@ -926,7 +961,7 @@ void ManuscriptImageView::drawLineOverlay(
             // Dimmed rather than hidden for a line held out of the work: the
             // note's reading is what the transcriber types over to make it
             // training data.
-            painter.setPen(line.allMarginal ? dimmed : said);
+            painter.setPen(line.allMarginal ? asideSaid : said);
             painter.drawText(where, Qt::AlignCenter, word.hebrew);
             reading.setBold(false);
             reading.setUnderline(false);

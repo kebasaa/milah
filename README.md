@@ -268,8 +268,22 @@ answer the other question: what the recogniser thought a *line* was. It draws
 one box per line — the segmenter's own outline where the folio has it, the
 rectangle round the line's words where it does not — with the line's number and
 the baseline the training strip is cut along faint underneath, and **the line's
-whole reading written underneath the ink it was laid onto**, nothing behind it,
-so the words and the writing can be read against each other.
+whole reading written underneath the ink it was laid onto**, so the words and the
+writing can be read against each other.
+
+**Pressing it turns the overlay on** if it is not on already. Wanting to see the
+lines is a good enough reason to want the overlay, and being told to press the
+eye first was a rule you had to learn before the switch would do anything.
+Turning it back to word boxes leaves the eye where it is.
+
+The reading is near-black on a pale translucent band. Those are the only two
+colours in the overlay that do not come from the window's palette, and the
+exception is deliberate: everything else is drawn against the window, but the
+reading is drawn against the *folio*, which is pale parchment whatever theme you
+are in. Following the palette gave near-white letters in one theme, and blue ones
+too faint to pick out of the ink in both. The band is see-through so that it
+lightens what it lies over — on a hand whose lines interleave it lands on the
+next line's ascenders — rather than blotting it out.
 
 This is worth looking at because the line, not the word, is what a recogniser
 trains on: it cuts a strip by straightening the ink along that baseline and

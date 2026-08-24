@@ -457,6 +457,13 @@ MainWindow::MainWindow(QWidget *parent)
         m_lineBoxesAction->setIcon(appIcon(
             lines ? QStringLiteral("boxes-line") : QStringLiteral("boxes-word"),
             palette()));
+        // Asking for the lines is asking for the overlay. Through the action so
+        // that the eye's own icon and state stay one thing — the same route
+        // overlayWanted takes. Only on the way on: turning the switch back to
+        // word boxes is not a reason to stop drawing them.
+        if (lines && !m_overlayAction->isChecked()) {
+            m_overlayAction->setChecked(true);
+        }
     });
 
     // Through the action, so the eye's own state and the overlay stay one thing.
@@ -916,7 +923,8 @@ void MainWindow::createTranscriptionActions()
     m_lineBoxesAction->setToolTip(QStringLiteral(
         "Draws one box per line of the manuscript instead of one per word, with "
         "the line's whole reading written underneath the ink it was laid onto and "
-        "the baseline the training strip is cut along.<p>What it is for: on a hand "
+        "the baseline the training strip is cut along. Turns the overlay on if it "
+        "is off.<p>What it is for: on a hand "
         "the recogniser was not trained for it groups the ink into lines wrongly — "
         "running two lines together, or cutting one in two — and nothing in the "
         "word boxes shows that, because each box looks right on its own. "
@@ -1513,12 +1521,13 @@ void MainWindow::updateTranscriptionActions()
     // shows none, which reads as a recogniser that failed silently.
     m_overlayAction->setEnabled(
         transcribing && m_transcriptionController->hasRecognisedWords());
-    // And only while the overlay is on: a switch between two views of something
-    // that is not being drawn has nothing to switch.
+    // Not gated on the eye. Wanting to see the lines is a perfectly good reason
+    // to want the overlay on, and being told to press a different button first
+    // is a rule somebody has to learn before the feature works at all — so the
+    // switch turns it on instead. See the toggled lambda.
     m_lineBoxesAction->setEnabled(
-        transcribing && m_overlayAction->isChecked()
-        && m_transcriptionController->hasRecognisedLines());
 
+        transcribing && m_transcriptionController->hasRecognisedLines());
     m_transcriptionUndoAction->setEnabled(
         transcribing && m_transcriptionController->canUndo());
     m_transcriptionRedoAction->setEnabled(
