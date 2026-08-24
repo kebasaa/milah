@@ -269,7 +269,9 @@ one box per line — the segmenter's own outline where the folio has it, the
 rectangle round the line's words where it does not — with the line's number and
 the baseline the training strip is cut along faint underneath, and **the line's
 whole reading written just above the ink it was laid onto**, so the words and the
-writing can be read against each other.
+writing can be read against each other. It sits on the line's *body* — the lowest
+of its upper edges — rather than clear of its tallest letter, which would float
+it a half-letter up and into the line before.
 
 **Pressing it turns the overlay on** if it is not on already. Wanting to see the
 lines is a good enough reason to want the overlay, and being told to press the

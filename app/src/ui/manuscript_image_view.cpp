@@ -736,9 +736,18 @@ QList<DrawnLine> ManuscriptImageView::readingLayout(const QRect &page) const
 
         QRect bounds;
         QList<QRect> boxes;
+        // The lowest of the line's upper edges, which is where its body starts.
+        //
+        // Not bounds.top(), which is the *highest* point anything on the line
+        // reaches: one tall lamed, or one box the segmenter drew generously,
+        // and the reading floats that far above the line it belongs to and into
+        // the one before it. On 158r that is 18 pixels on line 21 and 16 on line
+        // 22, against letters some 30 to 40 tall.
+        int lowestTop = 0;
         for (const int index : line.words) {
             const TranscribedWord &word = m_words.at(index);
             bounds = bounds.isNull() ? word.box : bounds.united(word.box);
+            lowestTop = std::max(lowestTop, word.box.top());
             if (word.unchecked) {
                 line.anyUnchecked = true;
                 ++line.unchecked;
@@ -784,11 +793,15 @@ QList<DrawnLine> ManuscriptImageView::readingLayout(const QRect &page) const
         // and it puts the reading and the ink it reads in the order a person
         // scans them.
         //
+        // Measured from the line's body — the lowest of its upper edges — and
+        // not from bounds.top(); see lowestTop above for why.
+        //
         // Except at the top of the folio, where there is no gap to sit in and
         // the band would go off the pane — the first line's reading goes
         // underneath instead, which is what the word overlay has always done
         // with a word on the first line.
-        const double above = line.box.top() - ReadingGap - height;
+        const double body = page.y() + lowestTop * scaleY;
+        const double above = body - ReadingGap - height;
         const double top = above < page.top() ? line.box.bottom() + ReadingGap : above;
         double at = rightToLeft ? line.box.right() : line.box.left();
         const double gap = metrics.horizontalAdvance(QLatin1Char(' '));
