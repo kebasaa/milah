@@ -1200,12 +1200,19 @@ void MainWindow::buildMenuBar()
                 : QStringLiteral("No line of this folio has been checked all the "
                                  "way through yet, so there is nothing training "
                                  "would be shown."));
-        m_saveForTrainingAction->setEnabled(lines > 0);
+        // Also offered with nothing finished where the set still holds lines of
+        // this folio from before: saving is then how they come out again.
+        const bool held = lines == 0 && m_transcriptionController->trainingSaved().present;
+        m_saveForTrainingAction->setEnabled(lines > 0 || held);
         m_saveForTrainingAction->setToolTip(
             lines > 0
                 ? QStringLiteral("Puts this folio's %1 finished line(s) into this "
                                  "manuscript's training set.")
                       .arg(lines)
+            : held
+                ? QStringLiteral("Nothing on this folio is finished any more, but the "
+                                 "training set still holds lines of it from before. "
+                                 "Saving takes them out.")
                 : QStringLiteral("No line of this folio has been checked all the way "
                                  "through yet — a line counts once every word on it "
                                  "has been looked at."));

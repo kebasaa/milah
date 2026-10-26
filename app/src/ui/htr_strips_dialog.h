@@ -10,8 +10,12 @@ namespace milah {
 /// One line as training will be shown it.
 struct TrainingStrip
 {
-    /// The recogniser's index for the line, one-based for reading.
+    /// The recogniser's index for the line, one-based for reading — the number
+    /// the line view draws.
     int line = 0;
+    /// Which piece of that line, counting from 0, where the transcriber has cut
+    /// it with breaks.
+    int part = 0;
     /// The ground truth that goes with the picture — what the model is told the
     /// strip says.
     QString text;

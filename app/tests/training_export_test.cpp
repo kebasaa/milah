@@ -2,6 +2,7 @@
 #include "core/training_export.h"
 #include "core/transcription.h"
 
+#include <QXmlStreamReader>
 #include <QtTest>
 
 using namespace milah;
@@ -18,6 +19,57 @@ TranscribedWord read(const char *hebrew, int line, const QRect &box)
     // read is the opposite, which is the whole point of the flag.
     word.unchecked = false;
     return word;
+}
+
+/// A word somebody typed: no box, and no line, which is what the grid makes
+/// when a word is split, pasted or typed in.
+TranscribedWord typed(const char *hebrew)
+{
+    TranscribedWord word;
+    word.hebrew = QString::fromUtf8(hebrew);
+    return word;
+}
+
+QList<QPoint> pointsOf(QStringView text)
+{
+    const QStringList numbers = text.toString().split(QLatin1Char(' '), Qt::SkipEmptyParts);
+    QList<QPoint> points;
+    for (int index = 0; index + 1 < numbers.size(); index += 2) {
+        points.append(QPoint(numbers.at(index).toInt(), numbers.at(index + 1).toInt()));
+    }
+    return points;
+}
+
+/// Every value of `attribute` on the elements called `element`, as points.
+QList<QList<QPoint>> geometryIn(const QByteArray &alto, const char *element, const char *attribute)
+{
+    QList<QList<QPoint>> found;
+    QXmlStreamReader xml(alto);
+    while (!xml.atEnd()) {
+        if (xml.readNext() == QXmlStreamReader::StartElement
+            && xml.name() == QLatin1String(element)) {
+            found.append(pointsOf(xml.attributes().value(QLatin1String(attribute))));
+        }
+    }
+    return found;
+}
+
+/// The same closed ring, wherever it happens to start.
+bool sameRing(const QList<QPoint> &ring, const QList<QPoint> &expected)
+{
+    if (ring.size() != expected.size()) {
+        return false;
+    }
+    for (int start = 0; start < ring.size(); ++start) {
+        bool same = true;
+        for (int index = 0; index < ring.size() && same; ++index) {
+            same = ring.at((start + index) % ring.size()) == expected.at(index);
+        }
+        if (same) {
+            return true;
+        }
+    }
+    return false;
 }
 
 } // namespace
@@ -241,7 +293,7 @@ private slots:
         // the words' own boxes and prove nothing.
         QVERIFY2(
             truth.alto.contains(QByteArray(
-                "<TextLine ID=\"line_0\" BASELINE=\"640 120 789 120\" "
+                "<TextLine ID=\"line_0_0\" BASELINE=\"640 120 789 120\" "
                 "HPOS=\"640\" VPOS=\"100\" WIDTH=\"150\" HEIGHT=\"40\"")),
             truth.alto.constData());
         // And the outline Kraken cuts out, which it only logs the absence of.
@@ -291,7 +343,7 @@ private slots:
         QCOMPARE(back.words.at(1).line, 1);
         QVERIFY2(
             truth.alto.contains(QByteArray(
-                "<TextLine ID=\"line_0\" BASELINE=\"700 120 789 120\" "
+                "<TextLine ID=\"line_0_0\" BASELINE=\"700 120 789 120\" "
                 "HPOS=\"700\" VPOS=\"100\" WIDTH=\"90\" HEIGHT=\"40\"")),
             truth.alto.constData());
     }
@@ -516,9 +568,249 @@ private slots:
 
         // Each half clipped to its own words, grown by half a line so the
         // ascenders the segmenter deliberately reached for are still inside.
-        QVERIFY2(truth.alto.contains(QByteArray("POINTS=\"640 90 789 90 789 159 640 159\"")),
+        const QList<QList<QPoint>> outlines = geometryIn(truth.alto, "Polygon", "POINTS");
+        QCOMPARE(outlines.size(), 2);
+        QVERIFY2(sameRing(outlines.at(0), {QPoint(640, 90), QPoint(789, 90), QPoint(789, 159),
+                                           QPoint(640, 159)}),
                  truth.alto.constData());
-        QVERIFY2(truth.alto.contains(QByteArray("POINTS=\"660 139 779 139 779 210 660 210\"")),
+        QVERIFY2(sameRing(outlines.at(1), {QPoint(660, 139), QPoint(779, 139), QPoint(779, 210),
+                                           QPoint(660, 210)}),
+                 truth.alto.constData());
+    }
+
+    /// **A baseline is cut where it leaves the clip, not piled up at its edge.**
+    ///
+    /// Pulling each point that lay outside a half's clip to the clip's edge kept
+    /// its own height, so a baseline reaching past both ends of the half came
+    /// back with two or three points stacked at each edge — running down the
+    /// edge and up again. Kraken dewarps the strip along it. Every baseline
+    /// written must run one way, and stay inside the picture of its own half.
+    void baselinesNeverDoubleBack()
+    {
+        TranscribedPage page;
+        TranscribedVerse verse;
+        verse.words = {
+            read("\xd7\x90\xd7\x91", 0, QRect(700, 100, 90, 40)),
+            read("\xd7\x92\xd7\x93", 0, QRect(640, 102, 50, 38)),
+            read("\xd7\x94\xd7\x95", 0, QRect(700, 160, 80, 42)),
+            read("\xd7\x96\xd7\x97", 0, QRect(660, 162, 30, 38)),
+        };
+        verse.words[1].endsLine = true;
+        page.verses = {verse};
+
+        TranscribedLine drawn;
+        drawn.index = 0;
+        // Several points either side of both halves, at different heights.
+        drawn.baseline = {QPoint(560, 120), QPoint(600, 140), QPoint(630, 128),
+                          QPoint(720, 150), QPoint(800, 190), QPoint(860, 200)};
+        drawn.boundary = {QPoint(560, 80), QPoint(860, 80), QPoint(860, 230), QPoint(560, 230)};
+        page.lines = {drawn};
+
+        const TrainingPage truth =
+            trainingAlto(page, QStringLiteral("150r.jpg"), QSize(1024, 1373));
+        QCOMPARE(truth.lines, 2);
+
+        const QList<QList<QPoint>> baselines = geometryIn(truth.alto, "TextLine", "BASELINE");
+        QCOMPARE(baselines.size(), 2);
+        const QList<QRect> spans{QRect(QPoint(640, 80), QPoint(789, 159)),
+                                 QRect(QPoint(660, 139), QPoint(779, 222))};
+        for (int index = 0; index < baselines.size(); ++index) {
+            const QList<QPoint> &baseline = baselines.at(index);
+            QVERIFY(baseline.size() >= 2);
+            for (int point = 0; point < baseline.size(); ++point) {
+                QVERIFY2(spans.at(index).contains(baseline.at(point)), truth.alto.constData());
+                if (point > 0) {
+                    QVERIFY2(baseline.at(point).x() > baseline.at(point - 1).x(),
+                             truth.alto.constData());
+                }
+            }
+            // And it reaches both ends of its half rather than stopping at the
+            // last point that happened to fall inside.
+            QCOMPARE(baseline.constFirst().x(), spans.at(index).left());
+            QCOMPARE(baseline.constLast().x(), spans.at(index).right());
+        }
+    }
+
+    /// A line whose outline is lost — joining two detections drops it — falls
+    /// back to the rectangle round its words, and the baseline it kept has to
+    /// stay inside that rectangle. The segmenter's baseline reaches past the
+    /// boxes, and a baseline outside the shape kraken masks to is one it
+    /// cannot cut a strip along.
+    void aBaselineStaysInsideTheRectangleThatStandsInForTheOutline()
+    {
+        TranscribedPage page = samplePage();
+        TranscribedLine drawn;
+        drawn.index = 0;
+        drawn.baseline = {QPoint(560, 130), QPoint(700, 128), QPoint(860, 124)};
+        page.lines = {drawn};
+
+        const TrainingPage truth =
+            trainingAlto(page, QStringLiteral("150r.jpg"), QSize(1024, 1373));
+        QCOMPARE(truth.lines, 1);
+        QVERIFY2(truth.alto.contains(QByteArray("POINTS=\"640 100 789 100 789 139 640 139\"")),
+                 truth.alto.constData());
+        const QList<QPoint> baseline =
+            geometryIn(truth.alto, "TextLine", "BASELINE").constFirst();
+        QCOMPARE(baseline.constFirst().x(), 640);
+        QCOMPARE(baseline.constLast().x(), 789);
+    }
+
+    /// **A word split off a read word is not dropped from its line.**
+    ///
+    /// Splitting a word makes the second half a word with no box and no line.
+    /// Skipping such words wrote the line with only the first half's letters
+    /// against the ink of the whole word — a wrong line, and a silent one. The
+    /// line is refused instead, and says why.
+    void aWordTypedIntoALineRefusesIt()
+    {
+        TranscribedPage page = samplePage();
+        page.verses[0].words[3].unchecked = false;
+        page.verses[0].words.insert(1, typed("\xd7\x90\xd7\x91"));
+
+        const TrainingPage truth =
+            trainingAlto(page, QStringLiteral("150r.jpg"), QSize(1024, 1373));
+        QCOMPARE(truth.candidates, 2);
+        QCOMPARE(truth.lines, 1);
+        QCOMPARE(truth.verdicts.size(), 2);
+        QCOMPARE(truth.verdicts.at(0).state, LineVerdict::State::Refused);
+        QCOMPARE(truth.verdicts.at(0).reason, LineVerdict::Reason::LooseWord);
+        QCOMPARE(truth.verdicts.at(0).verse, 0);
+        QCOMPARE(truth.verdicts.at(0).word, 1);
+        QCOMPARE(truth.verdicts.at(1).state, LineVerdict::State::Ready);
+        // The first line's head word is not written on its own.
+        QVERIFY(!truth.alto.contains(
+            QByteArray("\xd7\x91\xd7\xa8\xd7\x90\xd7\xa9\xd7\x99\xd7\xaa")));
+    }
+
+    /// One typed at the seam between two lines belongs to one of them, and
+    /// nothing says which — so neither is written.
+    void aWordTypedBetweenTwoLinesRefusesBoth()
+    {
+        TranscribedPage page = samplePage();
+        page.verses[0].words[3].unchecked = false;
+        page.verses[0].words.insert(2, typed("\xd7\x90\xd7\x91"));
+
+        const TrainingPage truth =
+            trainingAlto(page, QStringLiteral("150r.jpg"), QSize(1024, 1373));
+        QVERIFY(truth.isEmpty());
+        QCOMPARE(truth.verdicts.size(), 2);
+        for (const LineVerdict &verdict : truth.verdicts) {
+            QCOMPARE(verdict.reason, LineVerdict::Reason::LooseWord);
+        }
+    }
+
+    /// An empty cell is somewhere to type, not a word, and changes nothing.
+    void anEmptyCellIsNotAWord()
+    {
+        TranscribedPage page = samplePage();
+        page.verses[0].words.insert(1, TranscribedWord());
+        QCOMPARE(trainingAlto(page, QStringLiteral("150r.jpg"), QSize(1024, 1373)).alto,
+                 trainingAlto(samplePage(), QStringLiteral("150r.jpg"), QSize(1024, 1373)).alto);
+    }
+
+    /// Every line has a verdict, and a refusal names its reason and its word —
+    /// which is what the line view shows and where a click on it goes.
+    void everyLineSaysWhy()
+    {
+        const TrainingPage plain =
+            trainingAlto(samplePage(), QStringLiteral("150r.jpg"), QSize(1024, 1373));
+        QCOMPARE(plain.verdicts.size(), plain.candidates);
+        QCOMPARE(plain.verdicts.at(0).state, LineVerdict::State::Ready);
+        QCOMPARE(plain.verdicts.at(1).reason, LineVerdict::Reason::UncheckedWord);
+        QCOMPARE(plain.verdicts.at(1).detection, 1);
+        QCOMPARE(plain.verdicts.at(1).word, 3);
+
+        TranscribedPage trimmed = samplePage();
+        trimmed.verses[0].words[1].marginal = true;
+        trimmed.verses[0].words[1].unchecked = true;
+        QCOMPARE(trainingAlto(trimmed, QStringLiteral("150r.jpg"), QSize(1024, 1373))
+                     .verdicts.at(0)
+                     .state,
+                 LineVerdict::State::Trimmed);
+
+        TranscribedPage middle;
+        TranscribedVerse verse;
+        verse.words = {
+            read("\xd7\x90", 0, QRect(700, 100, 40, 40)),
+            read("\xd7\x91", 0, QRect(640, 100, 40, 40)),
+            read("\xd7\x92", 0, QRect(580, 100, 40, 40)),
+        };
+        verse.words[1].marginal = true;
+        verse.words[1].unchecked = true;
+        middle.verses = {verse};
+        QCOMPARE(trainingAlto(middle, QStringLiteral("150r.jpg"), QSize(1024, 1373))
+                     .verdicts.at(0)
+                     .reason,
+                 LineVerdict::Reason::MarginInMiddle);
+
+        TranscribedPage thin;
+        TranscribedVerse sliver;
+        sliver.words = {read("\xd7\x90", 0, QRect(700, 100, 3, 40))};
+        thin.verses = {sliver};
+        QCOMPARE(trainingAlto(thin, QStringLiteral("150r.jpg"), QSize(1024, 1373))
+                     .verdicts.at(0)
+                     .reason,
+                 LineVerdict::Reason::TooNarrow);
+    }
+
+    /// The verdicts the line view is coloured by are the ones the export writes
+    /// by, whatever state the folio is in.
+    void theQuickVerdictsAreTheExportsOwn()
+    {
+        QList<TranscribedPage> pages{samplePage()};
+        TranscribedPage typedIn = samplePage();
+        typedIn.verses[0].words.insert(2, typed("\xd7\x90"));
+        pages.append(typedIn);
+        TranscribedPage thin;
+        TranscribedVerse sliver;
+        sliver.words = {read("\xd7\x90", 0, QRect(700, 100, 3, 40)),
+                        read("\xd7\x91", 1, QRect(600, 200, 90, 40))};
+        thin.verses = {sliver};
+        pages.append(thin);
+
+        for (const TranscribedPage &page : pages) {
+            const QList<LineVerdict> written =
+                trainingAlto(page, QStringLiteral("150r.jpg"), QSize(1024, 1373)).verdicts;
+            const QList<LineVerdict> quick = lineVerdicts(page, QSize(1024, 1373));
+            QCOMPARE(quick.size(), written.size());
+            for (int index = 0; index < quick.size(); ++index) {
+                QCOMPARE(quick.at(index).state, written.at(index).state);
+                QCOMPARE(quick.at(index).reason, written.at(index).reason);
+                QCOMPARE(quick.at(index).detection, written.at(index).detection);
+                QCOMPARE(quick.at(index).part, written.at(index).part);
+                QCOMPARE(quick.at(index).word, written.at(index).word);
+            }
+        }
+    }
+
+    /// A line is named by the recogniser's line and its piece, so a strip in
+    /// the preview can be found again on the folio after a break has been put
+    /// into a line above it.
+    void aLineIsNamedForItsDetectionAndPiece()
+    {
+        TranscribedPage page = samplePage();
+        page.verses[0].words[3].unchecked = false;
+        page.verses[0].words[0].endsLine = true;
+        const TrainingPage truth =
+            trainingAlto(page, QStringLiteral("150r.jpg"), QSize(1024, 1373));
+        QVERIFY(truth.alto.contains(QByteArray("ID=\"line_0_0\"")));
+        QVERIFY(truth.alto.contains(QByteArray("ID=\"line_0_1\"")));
+        QVERIFY(truth.alto.contains(QByteArray("ID=\"line_1_0\"")));
+    }
+
+    /// The file says which folio it is, so a set can list what it holds.
+    void theFileSaysWhichFolioItIs()
+    {
+        TranscribedPage page = samplePage();
+        page.imageLabel = QStringLiteral("150r");
+        QCOMPARE(folioIdentity(page), QStringLiteral("150r"));
+        page.imageUrl = QStringLiteral("https://example.org/iiif/150r/full/1024,/0/default.jpg");
+        QCOMPARE(folioIdentity(page), page.imageUrl);
+
+        const TrainingPage truth =
+            trainingAlto(page, QStringLiteral("150r.jpg"), QSize(1024, 1373));
+        QVERIFY2(truth.alto.contains(
+                     "<fileIdentifier>" + page.imageUrl.toUtf8() + "</fileIdentifier>"),
                  truth.alto.constData());
     }
 
@@ -568,7 +860,7 @@ private slots:
         QCOMPARE(truth.words, 1);
         // Clipped to the kept word's span, and still sloping.
         QVERIFY2(!truth.alto.contains(QByteArray("636")), truth.alto.constData());
-        QVERIFY2(truth.alto.contains(QByteArray("BASELINE=\"700 130 720 126 789 121\"")),
+        QVERIFY2(truth.alto.contains(QByteArray("BASELINE=\"700 127 720 126 789 121\"")),
                  truth.alto.constData());
     }
 };

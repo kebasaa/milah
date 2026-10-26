@@ -644,6 +644,65 @@ QList<TranscribedVerse> parseTranscribedText(const QString &text)
     return verses;
 }
 
+void splitWord(QList<TranscribedWord> &words, int column, int caret)
+{
+    if (column < 0 || column >= words.size()) {
+        return;
+    }
+    TranscribedWord &head = words[column];
+    const QString whole = head.hebrew;
+    const int at = std::clamp(caret, 0, int(whole.size()));
+
+    // A word nobody has read yet as far as its reading goes — but on the line
+    // and in the margin it was cut out of, which are facts about the folio and
+    // not about the letters.
+    TranscribedWord tail;
+    tail.hebrew = whole.mid(at);
+    tail.line = head.line;
+    tail.marginal = head.marginal;
+    tail.endsLine = head.endsLine;
+
+    head.hebrew = whole.left(at);
+    head.endsLine = false;
+    words.insert(column + 1, tail);
+}
+
+void joinWithPrevious(QList<TranscribedWord> &words, int column)
+{
+    if (column <= 0 || column >= words.size()) {
+        return;
+    }
+    TranscribedWord &previous = words[column - 1];
+    const TranscribedWord current = words.at(column);
+
+    const bool sameLine =
+        previous.line == current.line || previous.line < 0 || current.line < 0;
+    if (!sameLine || previous.box.isNull()) {
+        previous.box = QRect();
+    } else if (!current.box.isNull()) {
+        previous.box = previous.box.united(current.box);
+    }
+    if (previous.line < 0) {
+        previous.line = current.line;
+    }
+
+    previous.hebrew += current.hebrew;
+    if (!previous.recognised.isEmpty() && !current.recognised.isEmpty()) {
+        previous.recognised += current.recognised;
+    }
+    previous.unchecked = previous.unchecked || current.unchecked;
+    previous.endsLine = previous.endsLine || current.endsLine;
+    if (!current.note.isEmpty()) {
+        previous.note = previous.note.isEmpty()
+            ? current.note
+            : previous.note + QStringLiteral("; ") + current.note;
+    }
+    // The joined word is not either of the words that made it, so whatever was
+    // said about their meaning is dropped and the lexicon is asked again.
+    previous.englishIsOwn = false;
+    words.removeAt(column);
+}
+
 QString verseHeading(const TranscribedPage &page, int verseIndex)
 {
     if (verseIndex < 0 || verseIndex >= page.verses.size()) {

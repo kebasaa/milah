@@ -1,7 +1,9 @@
 #pragma once
 
+#include "core/training_export.h"
 #include "core/transcription.h"
 
+#include <QHash>
 #include <QImage>
 #include <QList>
 #include <QPoint>
@@ -45,6 +47,16 @@ struct DrawnLine
     /// of the ground truth, so a chip reading nought while one stood there would
     /// be a promise the training export does not keep.
     int unchecked = 0;
+    /// What the training export makes of the line, taking its worst piece where
+    /// breaks have cut it in several. Unjudged until setVerdicts() has been
+    /// told about it.
+    bool judged = false;
+    LineVerdict verdict;
+    /// What the chip at the line's leading edge says — its number, and what the
+    /// line still lacks — and where it is drawn, which is also where a click on
+    /// it lands.
+    QString chipText;
+    QRectF chip;
 };
 
 /// The folio being transcribed, with a magnifier the reader moves over it.
@@ -109,6 +121,15 @@ public:
     /// one. A folio with words and no lines still gets line boxes — drawn round
     /// its words instead — which is why this may be empty and the view carries on.
     void setLines(const QList<TranscribedLine> &lines);
+
+    /// What the training export makes of each line, from the controller.
+    ///
+    /// The line view used to count a line's unchecked words for itself and
+    /// draw that, which was a second idea of a finished line beside the
+    /// export's own — a chip could read nothing left to do over a line the
+    /// export was refusing for a typed word. Now the outline is coloured and
+    /// the chip worded from the export's verdict, and nowhere else.
+    void setVerdicts(const QList<LineVerdict> &verdicts);
 
     /// Where the folio before this one stopped filling — "Jas 1:25" — or empty
     /// where none did.
@@ -219,6 +240,11 @@ signals:
     /// worth nothing to training until the last of them.
     void lineChecked(int line);
 
+    /// The chip of a line the export refuses was clicked: this is the word
+    /// that decided it, as a place in the folio's verses — which may be a
+    /// typed word with no box, so only the grid can show it.
+    void refusalChosen(int verse, int word);
+
 protected:
     void paintEvent(QPaintEvent *event) override;
     /// Claims the height the folio needs at the width it has been given, so the
@@ -298,6 +324,9 @@ private:
     /// a folio has a few dozen. Empty for a folio recognised before Milah kept
     /// them, and for any imported layout without shapes.
     QList<TranscribedLine> m_lines;
+    /// setVerdicts(), by the recogniser's line. Several for a line the
+    /// transcriber has cut with breaks.
+    QHash<int, QList<LineVerdict>> m_verdicts;
     /// Where an earlier folio's fill stopped, for the menu to name. Empty when
     /// there is nothing to carry on from.
     QString m_continuation;

@@ -1,11 +1,79 @@
 #pragma once
 
 #include <QByteArray>
+#include <QList>
 #include <QSize>
+#include <QString>
 
 namespace milah {
 
 struct TranscribedPage;
+
+/// What the export made of one line of a folio, and why.
+///
+/// **One answer, given once.** The training panel counts lines, the line view
+/// colours them and the strip preview names them, and each used to work its own
+/// idea of a finished line out of the words — so a chip could read nought over
+/// a line the export was quietly refusing. Everything that says whether a line
+/// will be taught now reads it from here.
+struct LineVerdict
+{
+    enum class State {
+        /// Written as it stands.
+        Ready,
+        /// Written, but with unread marginalia cut off one end or both.
+        Trimmed,
+        /// Not written. `reason` says why.
+        Refused,
+    };
+
+    enum class Reason {
+        None,
+        /// A word on it nobody has checked — including a line that is nothing
+        /// but a marginal note nobody has read.
+        UncheckedWord,
+        /// A word on it with no box: one the recogniser's line holds but nothing
+        /// knows the place of, such as the far half of a merge across two lines.
+        WordWithoutBox,
+        /// A word on it whose reading has been emptied.
+        NoReading,
+        /// A word typed beside it — split off a read word, pasted, or typed in —
+        /// that nothing places on the picture. Its letters are on this line or
+        /// the next, and either way one of them is missing text.
+        LooseWord,
+        /// An unread marginal note in the middle of it, which no outline can
+        /// leave out.
+        MarginInMiddle,
+        /// Narrower than kraken will cut a strip from.
+        TooNarrow,
+    };
+
+    /// The recogniser's index for the line — TranscribedWord::line.
+    int detection = -1;
+    /// Which piece of that detection this is, counting from 0. A detection the
+    /// transcriber has cut with a break comes out as several.
+    int part = 0;
+    State state = State::Refused;
+    Reason reason = Reason::None;
+    /// The word that decided a refusal, as a place in the folio's verses, or
+    /// -1 where no single word did.
+    int verse = -1;
+    int word = -1;
+
+    bool isTaught() const { return state != State::Refused; }
+};
+
+/// A short phrase for a refusal, fit for a chip on the folio: "2 unchecked" is
+/// counted by the caller, so this says the kind — "typed word, no box".
+QString describe(LineVerdict::Reason reason);
+
+/// The identity a folio is filed under in a training set: its published
+/// address where it has one, its label where it has not, and its file name
+/// failing both.
+///
+/// Not the label alone, because labels are not unique — two scans of one codex
+/// can both say "1r", and a label in Hebrew has no letter a file name keeps.
+QString folioIdentity(const TranscribedPage &page);
 
 /// A folio's corrected lines, in the shape a recogniser is trained on.
 ///
@@ -37,6 +105,9 @@ struct TrainingPage
     /// Survives the empty case: a folio with nothing finished still has lines
     /// to read, and saying how many is the whole of what the panel is for.
     int candidates = 0;
+    /// One per line group, in reading order. `candidates` is its size and
+    /// `lines` the number of them taught, so the counts cannot disagree with it.
+    QList<LineVerdict> verdicts;
 
     bool isEmpty() const { return alto.isEmpty(); }
 };
@@ -58,6 +129,11 @@ struct TrainingPage
 ///   so the line is left out rather than cut in the wrong place. Splitting a
 ///   read word therefore costs its line — a real limitation, and the honest one
 ///   while the geometry of a split is genuinely unknown.
+/// - A word typed **beside** a line — a word with no line at all, standing among
+///   that line's words in the folio's order — is the same refusal. Skipping it
+///   would write the line without the letters it holds. Where it stands at the
+///   seam between two lines, nothing says which of them it belongs to, so both
+///   are left out.
 ///
 /// **Marginalia are held out unless somebody has read them.** A word marked
 /// marginal is on the leaf, so its ink is in the line's picture and the truth
@@ -94,6 +170,10 @@ struct TrainingPage
 /// with a log warning, so a folio of fifty lines quietly compiles as
 /// forty-seven. The bounds are therefore clamped into the picture here, and a
 /// line under 8px wide is not written at all.
+///
+/// Each `<TextLine>` is called `line_<detection>_<part>`: the recogniser's line,
+/// and which piece of it after the transcriber's breaks. That is the number the
+/// line view shows, so a strip refused in the preview can be found on the folio.
 /// `boxSize` is the picture the boxes were stored against, when that is not the
 /// picture being written beside the file. Ground truth is cut from the largest
 /// scan the library holds, while a folio's boxes are in the coordinates of the
@@ -103,6 +183,16 @@ struct TrainingPage
 TrainingPage trainingAlto(
     const TranscribedPage &page,
     const QString &imageName,
+    const QSize &imageSize,
+    const QSize &boxSize = QSize());
+
+/// trainingAlto()'s verdicts alone, without writing the layout.
+///
+/// For what is asked on every keystroke — the line view's colours — where
+/// building a third of a megabyte of XML to read a list off it would be most of
+/// the cost of typing a letter. The same judgement, so the two cannot differ.
+QList<LineVerdict> lineVerdicts(
+    const TranscribedPage &page,
     const QSize &imageSize,
     const QSize &boxSize = QSize());
 

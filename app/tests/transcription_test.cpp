@@ -1206,6 +1206,100 @@ private slots:
         QCOMPARE(restored.pages.size(), 1);
         QCOMPARE(restored.pages.first().verses.size(), 3);
     }
+
+    /// The far half of a split stays on the line it was cut from, and takes
+    /// the line break with it — but not the box, whose cut nothing knows.
+    void aSplitWordStaysOnItsLine()
+    {
+        TranscribedWord read;
+        read.hebrew = QString::fromUtf8("\xd7\x91\xd7\xa8\xd7\x90\xd7\xa9\xd7\x99\xd7\xaa");
+        read.box = QRect(700, 100, 90, 40);
+        read.line = 4;
+        read.endsLine = true;
+        read.marginal = true;
+        QList<TranscribedWord> words{read};
+
+        splitWord(words, 0, 3);
+
+        QCOMPARE(words.size(), 2);
+        QCOMPARE(words.at(0).hebrew, QString::fromUtf8("\xd7\x91\xd7\xa8\xd7\x90"));
+        QCOMPARE(words.at(1).hebrew, QString::fromUtf8("\xd7\xa9\xd7\x99\xd7\xaa"));
+        QCOMPARE(words.at(0).box, QRect(700, 100, 90, 40));
+        QVERIFY(words.at(1).box.isNull());
+        QCOMPARE(words.at(1).line, 4);
+        QVERIFY(words.at(1).marginal);
+        // The manuscript's line ends after the whole word, so the break is on
+        // the half that now ends it.
+        QVERIFY(!words.at(0).endsLine);
+        QVERIFY(words.at(1).endsLine);
+    }
+
+    /// A machine's reading joined onto a checked word is still a machine's
+    /// reading, and a break on either half survives the join.
+    void aJoinKeepsWhatEitherHalfSaid()
+    {
+        TranscribedWord checked;
+        checked.hebrew = QStringLiteral("a");
+        checked.box = QRect(700, 100, 40, 40);
+        checked.line = 2;
+        checked.note = QStringLiteral("first");
+        TranscribedWord guessed;
+        guessed.hebrew = QStringLiteral("b");
+        guessed.box = QRect(650, 100, 40, 40);
+        guessed.line = 2;
+        guessed.unchecked = true;
+        guessed.endsLine = true;
+        guessed.note = QStringLiteral("second");
+        QList<TranscribedWord> words{checked, guessed};
+
+        joinWithPrevious(words, 1);
+
+        QCOMPARE(words.size(), 1);
+        QCOMPARE(words.at(0).hebrew, QStringLiteral("ab"));
+        QVERIFY(words.at(0).unchecked);
+        QVERIFY(words.at(0).endsLine);
+        QCOMPARE(words.at(0).box, QRect(650, 100, 90, 40));
+        QCOMPARE(words.at(0).note, QStringLiteral("first; second"));
+    }
+
+    /// Joining a split back together gives back the word that was split, box
+    /// and all, because splitting never shrank the first half's box.
+    void joiningASplitUndoesIt()
+    {
+        TranscribedWord read;
+        read.hebrew = QStringLiteral("abcdef");
+        read.box = QRect(700, 100, 90, 40);
+        read.line = 1;
+        QList<TranscribedWord> words{read};
+
+        splitWord(words, 0, 2);
+        joinWithPrevious(words, 1);
+
+        QCOMPARE(words.size(), 1);
+        QCOMPARE(words.at(0).hebrew, QStringLiteral("abcdef"));
+        QCOMPARE(words.at(0).box, QRect(700, 100, 90, 40));
+        QCOMPARE(words.at(0).line, 1);
+    }
+
+    /// Two words off two lines of the folio have no one box between them, so
+    /// the joined word has none — and its line will not be taught on a box
+    /// that holds half of it.
+    void aJoinAcrossTwoLinesHasNoBox()
+    {
+        TranscribedWord upper;
+        upper.hebrew = QStringLiteral("a");
+        upper.box = QRect(100, 100, 40, 40);
+        upper.line = 0;
+        TranscribedWord lower;
+        lower.hebrew = QStringLiteral("b");
+        lower.box = QRect(700, 160, 40, 40);
+        lower.line = 1;
+        QList<TranscribedWord> words{upper, lower};
+
+        joinWithPrevious(words, 1);
+        QVERIFY(words.at(0).box.isNull());
+        QCOMPARE(words.at(0).line, 0);
+    }
 };
 
 QTEST_MAIN(TranscriptionTest)

@@ -98,6 +98,19 @@ TranscriptionWidget::TranscriptionWidget(
     // The bands are packed to fit this viewport, for the same reason.
     m_textArea->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOn);
 
+    // A refused line's chip names the word that decided it; the grid is where
+    // every word can be reached, including a typed one with no box to draw.
+    // The training panel asks the same of the controller.
+    connect(m_image, &ManuscriptImageView::refusalChosen, m_controller,
+            &TranscriptionController::showWord);
+
+    connect(m_controller, &TranscriptionController::wordShown, this, [this](int verse, int word) {
+        m_grid->focusWord(verse, word);
+        if (QWidget *cell = m_grid->focusWidget()) {
+            m_textArea->ensureWidgetVisible(cell);
+        }
+    });
+
     m_splitter = new QSplitter(Qt::Vertical);
     m_splitter->setObjectName(QStringLiteral("transcriptionSplitter"));
     m_splitter->setChildrenCollapsible(false);
@@ -171,6 +184,7 @@ void TranscriptionWidget::refreshOverlay()
     }
     m_image->setWords(words);
     m_image->setLines(page->lines);
+    m_image->setVerdicts(m_controller->trainingVerdicts());
 
     // Here because this already runs on every change of folio and every change
     // of text, and where the folio before this one stopped changes with both.

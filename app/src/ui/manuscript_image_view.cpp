@@ -74,6 +74,42 @@ constexpr int ReadingBackingAlpha = 150;
 constexpr int MinimumEditorWidth = 120;
 constexpr int MinimumEditorHeight = 26;
 
+/// How far a line is from being taught, for choosing the worst of its pieces.
+int severity(const LineVerdict &verdict)
+{
+    switch (verdict.state) {
+    case LineVerdict::State::Ready:
+        return 0;
+    case LineVerdict::State::Trimmed:
+        return 1;
+    case LineVerdict::State::Refused:
+        return 2;
+    }
+    return 2;
+}
+
+/// A refusal in as few words as fit beside a line's number. An unchecked word
+/// is not here: the chip counts those instead.
+QString chipReason(LineVerdict::Reason reason)
+{
+    switch (reason) {
+    case LineVerdict::Reason::WordWithoutBox:
+        return QStringLiteral("no box");
+    case LineVerdict::Reason::NoReading:
+        return QStringLiteral("empty word");
+    case LineVerdict::Reason::LooseWord:
+        return QStringLiteral("typed word");
+    case LineVerdict::Reason::MarginInMiddle:
+        return QStringLiteral("note mid-line");
+    case LineVerdict::Reason::TooNarrow:
+        return QStringLiteral("too short");
+    case LineVerdict::Reason::None:
+    case LineVerdict::Reason::UncheckedWord:
+        break;
+    }
+    return QString();
+}
+
 } // namespace
 
 ManuscriptImageView::ManuscriptImageView(QWidget *parent)
@@ -260,6 +296,18 @@ void ManuscriptImageView::setWords(const QList<TranscribedWord> &words)
         }
     }
     update();
+}
+
+void ManuscriptImageView::setVerdicts(const QList<LineVerdict> &verdicts)
+{
+    QHash<int, QList<LineVerdict>> byLine;
+    for (const LineVerdict &verdict : verdicts) {
+        byLine[verdict.detection].append(verdict);
+    }
+    m_verdicts = byLine;
+    if (m_lineBoxes) {
+        update();
+    }
 }
 
 void ManuscriptImageView::setLines(const QList<TranscribedLine> &lines)
@@ -811,6 +859,41 @@ QList<DrawnLine> ManuscriptImageView::readingLayout(const QRect &page) const
             line.at.append(where);
             at += rightToLeft ? -(width + gap) : width + gap;
         }
+
+        // The export's verdict, the worst of the line's pieces: a line half of
+        // which will not be taught is not a finished line.
+        const QList<LineVerdict> verdicts = m_verdicts.value(line.line);
+        for (const LineVerdict &verdict : verdicts) {
+            if (!line.judged || severity(verdict) > severity(line.verdict)) {
+                line.verdict = verdict;
+            }
+            line.judged = true;
+        }
+
+        // The number, and after it what the line still stands away from being
+        // worth anything — "21·3" is line twenty-one with three words nobody has
+        // looked at, and "21·typed word" one that checking will not finish. A
+        // line that is one word short of counting looks exactly like one that
+        // is twenty short otherwise, and the difference is the whole of what
+        // decides where to read next.
+        QString lacks;
+        if (line.unchecked > 0) {
+            lacks = QString::number(line.unchecked);
+        } else if (line.judged && !line.verdict.isTaught()) {
+            lacks = chipReason(line.verdict.reason);
+        }
+        line.chipText = lacks.isEmpty()
+            ? QString::number(line.line + 1)
+            : QStringLiteral("%1·%2").arg(line.line + 1).arg(lacks);
+        const double chipWidth = metrics.horizontalAdvance(line.chipText) + 4.0;
+        // Level with the reading, taken from it rather than worked out again:
+        // the reading goes over the line except at the top of the folio, and a
+        // number that recomputed that rule could disagree with it.
+        line.chip = QRectF(
+            line.box.left() - chipWidth - 2.0,
+            line.at.isEmpty() ? line.box.bottom() + ReadingGap : line.at.first().top(),
+            chipWidth,
+            metrics.height());
         laid.append(line);
     }
     return laid;
@@ -860,6 +943,12 @@ void ManuscriptImageView::drawLineOverlay(
     // reading is what gets typed over to make it training data — but plainly
     // not the text.
     const QColor asideSaid(0x6a, 0x64, 0x5c);
+    // Drawn against the folio too, so fixed for the same reason: a line that
+    // will be taught, one that will be taught trimmed, and the chip of one
+    // that checking alone will not finish.
+    const QColor taught(0x2e, 0x7d, 0x32, 210);
+    const QColor trimmed(0xb2, 0x6a, 0x00, 210);
+    const QColor refusedSaid(0x9a, 0x34, 0x12);
 
     QMap<int, const TranscribedLine *> drawn;
     for (const TranscribedLine &line : m_lines) {
@@ -908,6 +997,24 @@ void ManuscriptImageView::drawLineOverlay(
                 painter.drawPolygon(boundary);
                 painter.setBrush(Qt::NoBrush);
             }
+        } else if (line.judged) {
+            // What training will make of it, on the outline itself: solid green
+            // for a line that will be taught as it stands, solid amber for one
+            // taught with an unread note cut off its end, dashed for one that
+            // will not be taught at all.
+            switch (line.verdict.state) {
+            case LineVerdict::State::Ready:
+                pen.setColor(taught);
+                pen.setStyle(Qt::SolidLine);
+                break;
+            case LineVerdict::State::Trimmed:
+                pen.setColor(trimmed);
+                pen.setStyle(Qt::SolidLine);
+                break;
+            case LineVerdict::State::Refused:
+                pen.setStyle(Qt::DashLine);
+                break;
+            }
         } else {
             pen.setStyle(line.anyUnchecked ? Qt::DashLine : Qt::SolidLine);
         }
@@ -935,26 +1042,11 @@ void ManuscriptImageView::drawLineOverlay(
         // The number at the leading edge of the line, beside the reading rather
         // than inside it: a digit dropped into a right-to-left string moves as
         // the bidi algorithm sees fit, and a line labelled 21 that draws its 21
-        // in the middle of the Hebrew is worse than no label.
-        //
-        // The number, and after it what the line still stands away from being
-        // worth anything — "21·3" is line twenty-one with three words nobody has
-        // looked at. A line that is one word short of counting looks exactly
-        // like one that is twenty short otherwise, and the difference is the
-        // whole of what decides where to read next.
-        const QString number =
-            line.unchecked > 0
-                ? QStringLiteral("%1·%2").arg(line.line + 1).arg(line.unchecked)
-                : QString::number(line.line + 1);
-        const double chip = metrics.horizontalAdvance(number) + 4.0;
-        // Level with the reading, taken from it rather than worked out again:
-        // the reading goes over the line except at the top of the folio, and a
-        // number that recomputed that rule could disagree with it.
-        const QRectF numberAt(
-            line.box.left() - chip - 2.0,
-            line.at.isEmpty() ? line.box.bottom() + ReadingGap : line.at.first().top(),
-            chip,
-            metrics.height());
+        // in the middle of the Hebrew is worse than no label. What it says is
+        // worked out with the layout — see readingLayout().
+        const QString number = line.chipText;
+        const QRectF numberAt = line.chip;
+        const bool blocked = line.judged && !line.verdict.isTaught() && line.unchecked == 0;
 
         // One strip for the whole reading rather than one behind each word.
         // The words are placed with gaps between them, so a backing apiece would
@@ -969,7 +1061,9 @@ void ManuscriptImageView::drawLineOverlay(
         painter.fillRect(band.adjusted(-2.0, -1.0, 2.0, 1.0), strip);
 
         painter.setFont(reading);
-        painter.setPen(asideSaid);
+        // A line that checking alone will not finish says so in a colour of its
+        // own, since its chip is the thing to click.
+        painter.setPen(blocked ? refusedSaid : asideSaid);
 
         painter.drawText(numberAt, Qt::AlignCenter, number);
         for (int at = 0; at < line.words.size(); ++at) {
@@ -1043,13 +1137,26 @@ void ManuscriptImageView::mousePressEvent(QMouseEvent *event)
         return;
     }
 
+    // A line's chip, where the line will not be taught: what to fix is the word
+    // that decided it, which may be one typed with no box, so the grid is
+    // asked to show it.
+    const QList<DrawnLine> laid = readingLayout(page);
+    for (const DrawnLine &line : laid) {
+        if (line.chip.contains(event->position()) && line.judged
+            && !line.verdict.isTaught() && line.verdict.verse >= 0) {
+            emit refusalChosen(line.verdict.verse, line.verdict.word);
+            event->accept();
+            return;
+        }
+    }
+
     // The written reading first, because that is what the transcriber is looking
     // at — the whole point of writing it under the line is that the words can be
     // compared with the ink, and the one you have just compared is the one you
     // want to say something about. The box on the picture answers too, for a
     // word whose reading was elided off the end of a crowded line.
     QRect found;
-    for (const DrawnLine &line : readingLayout(page)) {
+    for (const DrawnLine &line : laid) {
         for (int at = 0; at < line.words.size(); ++at) {
             if (line.at.at(at).contains(event->position())) {
                 found = m_words.at(line.words.at(at)).box;

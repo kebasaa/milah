@@ -68,6 +68,10 @@ HtrTrainingDialog::HtrTrainingDialog(KrakenEnvironment *environment, QWidget *pa
     m_summary = new QLabel;
     m_summary->setWordWrap(true);
 
+    m_unseen = new QLabel;
+    m_unseen->setWordWrap(true);
+    m_unseen->hide();
+
     m_name = new QLineEdit;
     m_name->setToolTip(QStringLiteral(
         "What the model is called in the list. Name it after the hand rather "
@@ -117,6 +121,7 @@ HtrTrainingDialog::HtrTrainingDialog(KrakenEnvironment *environment, QWidget *pa
     outer->addWidget(heading);
     outer->addWidget(m_sets, 1);
     outer->addWidget(m_summary);
+    outer->addWidget(m_unseen);
     outer->addWidget(nameRow);
     outer->addWidget(m_warning);
     outer->addWidget(m_progress);
@@ -125,13 +130,47 @@ HtrTrainingDialog::HtrTrainingDialog(KrakenEnvironment *environment, QWidget *pa
 
     refreshSets();
     setBusy(false);
+    askAlphabet();
+}
+
+void HtrTrainingDialog::askAlphabet()
+{
+    const QString base = KrakenEnvironment::modelPath();
+    if (base.isEmpty() || m_environment->state() != KrakenEnvironment::State::Ready) {
+        return;
+    }
+    const QString script = m_environment->writeHelperScript();
+    if (script.isEmpty()) {
+        return;
+    }
+    QStringList command = m_environment->alphabetCommand(script, base);
+    const QString program = command.takeFirst();
+    // Its own process, apart from the stages': it starts with the window, and
+    // somebody pressing Train before it has answered must not be kept waiting
+    // or have their run mistaken for it. Loading a model under WSL takes some
+    // seconds, so it is never waited for.
+    auto *asking = new QProcess(this);
+    connect(asking, &QProcess::finished, this, [this, asking](int code, QProcess::ExitStatus status) {
+        const QByteArray said = asking->readAllStandardOutput().trimmed();
+        asking->deleteLater();
+        if (status != QProcess::NormalExit || code != 0) {
+            return;
+        }
+        const QJsonObject answer =
+            QJsonDocument::fromJson(said.mid(said.lastIndexOf('\n') + 1)).object();
+        m_alphabet = answer.value(QStringLiteral("alphabet")).toString();
+        updateReadiness();
+    });
+    asking->start(program, command);
 }
 
 void HtrTrainingDialog::refreshSets()
 {
     m_known = TrainingSet::known();
     m_sets->clear();
+    m_letters.clear();
     for (const TrainingSet::Set &set : m_known) {
+        m_letters.append(TrainingSet::lettersOf(set.slug));
         auto *item = new QListWidgetItem(
             QStringLiteral("%1 — %2 line(s) off %3 folio(s), %4")
                 .arg(set.label)
@@ -185,6 +224,39 @@ void HtrTrainingDialog::updateReadiness()
                                .arg(lines)
                                .arg(folios)
                                .arg(ticked));
+    }
+
+    // The base model's letters the ticked sets never show it. Letters and the
+    // marks on them only: the model's punctuation and digits are not what a
+    // folio of a hand is short of.
+    QString unseen;
+    if (!m_alphabet.isEmpty() && ticked > 0) {
+        QString shown;
+        for (int row = 0; row < m_sets->count() && row < m_letters.size(); ++row) {
+            if (m_sets->item(row)->checkState() == Qt::Checked) {
+                shown += m_letters.at(row);
+            }
+        }
+        for (const QChar letter : m_alphabet) {
+            if ((letter.isLetter() || letter.isMark()) && !shown.contains(letter)) {
+                unseen += letter;
+            }
+        }
+    }
+    m_unseen->setVisible(!unseen.isEmpty());
+    if (!unseen.isEmpty()) {
+        QStringList spaced;
+        for (const QChar letter : unseen) {
+            // A combining mark alone would sit on the space before it; on a
+            // dotted circle it can be seen.
+            spaced << (letter.isMark() ? QStringLiteral("◌") + letter : QString(letter));
+        }
+        m_unseen->setText(
+            QStringLiteral("Never seen in your lines: %1<br><small>The model keeps "
+                           "these, but learns nothing more about them on this hand. "
+                           "Folios that use them are the ones worth reading next."
+                           "</small>")
+                .arg(spaced.join(QLatin1Char(' ')).toHtmlEscaped()));
     }
 
     const bool enough = lines >= TrainingSet::EnoughLines;

@@ -84,17 +84,125 @@ private slots:
     {
         // archiveNameFragment keeps letters, digits, dots and dashes and turns
         // everything else into an underscore, so the folder stays about as
-        // readable as the shelfmark it came from.
-        QCOMPARE(TrainingSet::slugFor(cochin()), QStringLiteral("MS_Oo.1.32"));
+        // readable as the shelfmark it came from — and a hash of the shelfmark
+        // as written follows, because that alone is not unique.
+        const QRegularExpression hashed(QStringLiteral("^MS_Oo\\.1\\.32-[0-9a-f]{8}$"));
+        QVERIFY2(hashed.match(TrainingSet::slugFor(cochin())).hasMatch(),
+                 qPrintable(TrainingSet::slugFor(cochin())));
         QCOMPARE(TrainingSet::labelFor(cochin()), QStringLiteral("MS Oo.1.32"));
 
         // No shelfmark: the manuscript's name, which is better than nothing.
         TranscriptionMetadata named;
         named.manuscriptName = QStringLiteral("1 John");
-        QCOMPARE(TrainingSet::slugFor(named), QStringLiteral("1_John"));
+        QVERIFY(TrainingSet::slugFor(named).startsWith(QStringLiteral("1_John-")));
 
         // And nothing at all still has to go somewhere.
         QCOMPARE(TrainingSet::slugFor({}), QStringLiteral("unnamed"));
+    }
+
+    /// Two shelfmarks that clean to the same folder name are two sets. Every
+    /// shelfmark written in Hebrew cleans to nothing, and they all used to
+    /// share one.
+    void shelfmarksThatLookAlikeAreTwoSets()
+    {
+        TranscriptionMetadata first;
+        first.shelfmark = QString::fromUtf8("\xd7\x9b\xd7\xaa\xd7\x91 \xd7\x90");
+        TranscriptionMetadata second;
+        second.shelfmark = QString::fromUtf8("\xd7\x9b\xd7\xaa\xd7\x91 \xd7\x91");
+        QVERIFY(TrainingSet::slugFor(first) != TrainingSet::slugFor(second));
+
+        TranscriptionMetadata spaced;
+        spaced.shelfmark = QStringLiteral("MS Oo 1 32");
+        TranscriptionMetadata underscored;
+        underscored.shelfmark = QStringLiteral("MS_Oo_1_32");
+        QVERIFY(TrainingSet::slugFor(spaced) != TrainingSet::slugFor(underscored));
+    }
+
+    /// **Two folios whose labels clean to the same name are two folios.** A
+    /// label in Hebrew has no letter a file name keeps, so every such folio used
+    /// to be filed as `folio` — and each save replaced the last one.
+    void foliosWithLookAlikeLabelsAreKeptApart()
+    {
+        const QByteArray image = picture(QSize(400, 200));
+        TranscriptionMetadata hebrew;
+        hebrew.shelfmark = QStringLiteral("Look-alike labels");
+
+        const TranscribedPage first = folio(QString::fromUtf8("\xd7\x93\xd7\xa3 \xd7\x90"), 3);
+        const TranscribedPage second = folio(QString::fromUtf8("\xd7\x93\xd7\xa3 \xd7\x91"), 3);
+        QVERIFY(TrainingSet::stemFor(first) != TrainingSet::stemFor(second));
+
+        QCOMPARE(TrainingSet::add(first, hebrew, image), 1);
+        QCOMPARE(TrainingSet::add(second, hebrew, image), 1);
+        QCOMPARE(TrainingSet::contentsOf(TrainingSet::slugFor(hebrew)).folios, 2);
+
+        // And the set can say which is which, by the labels they were saved
+        // under rather than by file names.
+        const QList<TrainingSet::Folio> folios =
+            TrainingSet::foliosOf(TrainingSet::slugFor(hebrew));
+        QCOMPARE(folios.size(), 2);
+        QStringList labels;
+        for (const TrainingSet::Folio &held : folios) {
+            labels.append(held.label);
+            QCOMPARE(held.lines, 1);
+        }
+        QVERIFY(labels.contains(first.imageLabel));
+        QVERIFY(labels.contains(second.imageLabel));
+    }
+
+    /// A folio whose lines stopped being ground truth is taken out of the set
+    /// when it is saved again, instead of the set going on teaching the old
+    /// reading with no way to stop it.
+    void savingAFolioWithNothingFinishedWithdrawsIt()
+    {
+        const QByteArray image = picture(QSize(400, 200));
+        TranscribedPage page = folio(QStringLiteral("155r"), 3);
+        QCOMPARE(TrainingSet::add(page, cochin(), image), 1);
+        QVERIFY(TrainingSet::savedFolio(page, cochin()).present);
+
+        for (TranscribedWord &word : page.verses[0].words) {
+            word.unchecked = true;
+        }
+        QCOMPARE(TrainingSet::add(page, cochin(), image), 0);
+        QVERIFY(!TrainingSet::savedFolio(page, cochin()).present);
+        const QDir folder(TrainingSet::directoryOf(TrainingSet::slugFor(cochin())));
+        QVERIFY(!folder.exists(TrainingSet::stemFor(page) + QStringLiteral(".jpg")));
+    }
+
+    /// **A folio saved a moment ago is not stale.** The check rebuilds what
+    /// would be written now, and used to do it against a picture of a nominal
+    /// thousand pixels square: every box further down the leaf than that was
+    /// clamped to nothing and dropped, and the panel called the folio changed.
+    /// It rebuilds at the saved file's own size now, carried across from the
+    /// picture the boxes are in, exactly as the save was.
+    void aWideFolioSavedAMomentAgoIsNotStale()
+    {
+        TranscriptionMetadata tall;
+        tall.shelfmark = QStringLiteral("Tall folio");
+        TranscribedPage page;
+        page.imageLabel = QStringLiteral("156r");
+        page.imageName = page.imageLabel;
+        TranscribedVerse verse;
+        for (int line = 0; line < 3; ++line) {
+            for (int index = 0; index < 3; ++index) {
+                verse.words.append(read("\xd7\x91\xd7\xa8\xd7\x90", line,
+                                        QRect(1200 + index * 120, 400 + line * 400, 100, 40)));
+            }
+        }
+        page.verses = {verse};
+
+        // A local scan, wider than a thousand pixels, with its text past the
+        // thousandth column: saved as it stands, and again from a master three
+        // times the size of it.
+        const QSize onScreen(2400, 3200);
+        QCOMPARE(TrainingSet::add(page, tall, picture(onScreen)), 3);
+        QVERIFY(!TrainingSet::savedFolio(page, tall).stale);
+
+        QCOMPARE(TrainingSet::add(page, tall, picture(QSize(7200, 9600)), onScreen), 3);
+
+        const TrainingSet::Saved saved = TrainingSet::savedFolio(page, tall, onScreen);
+        QVERIFY(saved.present);
+        QCOMPARE(saved.lines, 3);
+        QVERIFY(!saved.stale);
     }
 
     /// A folio saved twice replaces itself.
@@ -216,7 +324,7 @@ private slots:
         QCOMPARE(TrainingSet::add(page, other, picture(QSize(400, 200))), 0);
         for (const TrainingSet::Set &set : TrainingSet::known()) {
             QVERIFY2(
-                set.slug != QStringLiteral("Nothing_Here"),
+                set.slug != TrainingSet::slugFor(other),
                 "an empty set was listed as trainable");
         }
     }

@@ -2,6 +2,7 @@
 
 #include <QWidget>
 
+class QFrame;
 class QLabel;
 class QProgressBar;
 class QPushButton;
@@ -28,7 +29,15 @@ class TranscriptionController;
 ///
 /// It also says when a folio has been corrected since it was saved. Saving
 /// replaces a folio's lines rather than adding beside them, so putting that
-/// right costs one press — the only thing ever missing was being told.
+/// right costs one press — the only thing ever missing was being told. And it
+/// says so again on the way out of such a folio, which is the moment the
+/// correction is most likely to be forgotten.
+///
+/// **Which lines, and why.** A count of finished lines does not say what to do
+/// about the rest, and the reasons a line is not taught are not all "somebody
+/// has to check it": a word typed into it, a note in its middle, a sliver too
+/// short to cut. Under the count, each kind is named and links to the next line
+/// of that kind.
 class TranscriptionTrainingWidget final : public QWidget
 {
     Q_OBJECT
@@ -51,6 +60,9 @@ private:
         Fill,
         Continue,
         Save,
+        /// Nothing on the folio is finished any more, and the set still holds
+        /// lines of it from before. Saving takes them out.
+        Withdraw,
         Train,
     };
 
@@ -60,10 +72,18 @@ private:
     /// Reads the folio and the set and redraws. Never called straight from a
     /// signal — see m_soon.
     void refresh();
+    /// A link in the breakdown: shows the next line refused for that reason,
+    /// counting on from the word the caret is in.
+    void showNextRefused(int reason);
+    /// The notice for a folio just left with corrections the set lacks.
+    void offerUpdate(int page, const QString &entry, const QString &label);
+    void hideNotice();
 
     TranscriptionController *m_controller = nullptr;
     QLabel *m_folioSaid = nullptr;
     QProgressBar *m_folioBar = nullptr;
+    /// "31 ready · 3 unchecked · 1 typed word", each refusal a link.
+    QLabel *m_breakdown = nullptr;
     QLabel *m_setSaid = nullptr;
     QProgressBar *m_setBar = nullptr;
     QLabel *m_state = nullptr;
@@ -83,6 +103,20 @@ private:
     /// XML per letter typed. A quarter of a second's wait costs nothing anybody
     /// can see and turns that into one.
     QTimer *m_soon = nullptr;
+
+    /// The folio the panel last described, and whether the set was behind it
+    /// then — which is what is known about a folio at the moment it is left.
+    int m_lastPage = -1;
+    QString m_lastEntry;
+    QString m_lastLabel;
+    bool m_lastBehind = false;
+    /// The notice offering to bring a folio just left into the set, and which
+    /// folio it is about. Checked against the entry before acting, because the
+    /// document can change under a notice nobody has answered.
+    QFrame *m_notice = nullptr;
+    QLabel *m_noticeSaid = nullptr;
+    int m_noticePage = -1;
+    QString m_noticeEntry;
 };
 
 } // namespace milah

@@ -107,6 +107,9 @@ public:
     /// download is judged by — so a model that training made and one that
     /// arrived off the repository are held to one standard.
     QStringList verifyCommand(const QString &script, const QString &model) const;
+    /// Every character `model` can write, as `{"alphabet": "…"}` — or null for
+    /// the alphabet, where this kraken's loaders would not say.
+    QStringList alphabetCommand(const QString &script, const QString &model) const;
     /// Writes the strip-cutting helper out, and answers with its path as the
     /// environment will see it. See kStripSource: it cuts each line the way
     /// training cuts it, using kraken's own function rather than an imitation.
@@ -144,10 +147,18 @@ public:
     /// the Windows disk is why the models live inside the distro too. One copy
     /// of a few megabytes buys all of that back.
     ///
-    /// `ketos train -f alto --resize new`: ALTO because that is what Milah
-    /// writes, and `--resize new` because a hand outside the base model's
-    /// training brings characters its codec has never seen — without it Kraken
-    /// refuses every line carrying one.
+    /// `ketos train -f alto --resize union`: ALTO because that is what Milah
+    /// writes, and `--resize` because a hand outside the base model's training
+    /// brings characters its codec has never seen — without it Kraken refuses
+    /// every line carrying one.
+    ///
+    /// `union` rather than `new`. `new` also throws away every character the
+    /// set happens not to contain, and a set of a few hundred lines rarely has
+    /// a final tsade or a final pe in it — the model that came out could no
+    /// longer write them at all, on a hand that certainly uses them.
+    ///
+    /// Each set is copied into a folder of its own, so two sets that both
+    /// hold a `1r` both train.
     QStringList trainingCommand(const QStringList &sets, const QString &base) const;
 
     /// Where `trainingCommand` leaves its checkpoints, as the environment sees

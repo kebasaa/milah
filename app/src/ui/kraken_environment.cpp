@@ -323,9 +323,39 @@ def do_check(path):
     sys.stdout.write("\n")
 
 
+def do_alphabet(path):
+    """Every character the model can write, so Milah can say which of them a
+    training set never shows it. Asked of whichever loader this kraken has;
+    an answer of null means none of them would say, not that it knows none."""
+    labels = None
+    try:
+        from kraken.lib import models
+        labels = list(models.load_any(path).codec.c2l.keys())
+    except Exception:
+        try:
+            from kraken.models.loaders import load_models
+            loaded = load_models(path)
+            for model in (loaded if isinstance(loaded, (list, tuple)) else [loaded]):
+                codec = getattr(model, "codec", None)
+                if codec is None:
+                    codec = getattr(getattr(model, "nn", None), "codec", None)
+                if codec is not None:
+                    labels = list(codec.c2l.keys())
+                    break
+        except Exception:
+            labels = None
+    alphabet = None
+    if labels is not None:
+        alphabet = "".join(sorted(set("".join(str(label) for label in labels))))
+    json.dump({"path": path, "alphabet": alphabet}, sys.stdout)
+    sys.stdout.write("\n")
+
+
 try:
     if len(sys.argv) > 1 and sys.argv[1] == "list":
         do_list()
+    elif len(sys.argv) > 2 and sys.argv[1] == "alphabet":
+        do_alphabet(sys.argv[2])
     elif len(sys.argv) > 3 and sys.argv[1] == "fetch":
         do_fetch(sys.argv[2], sys.argv[3])
     elif len(sys.argv) > 2 and sys.argv[1] == "check":
@@ -350,6 +380,23 @@ QString quoted(const QString &text)
     QString escaped = text;
     escaped.replace(QLatin1String("'"), QLatin1String("'\\''"));
     return QLatin1Char('\'') + escaped + QLatin1Char('\'');
+}
+
+/// A path Milah has stored, made safe for a shell line the same way — except
+/// that a leading `$HOME/` is left outside the quotes for the shell to expand.
+///
+/// Under WSL a model that training made is remembered as
+/// `$HOME/.milah-htr/models/…`, because that is all Milah knows of where the
+/// distro keeps its home. quoted() alone hands that to kraken literally, and
+/// the model training had just spent hours on could not be found to be checked,
+/// used, or trained on further.
+QString shellPath(const QString &path)
+{
+    static const QString home = QStringLiteral("$HOME/");
+    if (path.startsWith(home)) {
+        return QStringLiteral("\"$HOME\"/") + quoted(path.mid(home.size()));
+    }
+    return quoted(path);
 }
 
 } // namespace
@@ -463,7 +510,7 @@ KrakenEnvironment::State KrakenEnvironment::refresh()
                        "exit 0\n")
             .arg(quotedPath(),
                  quotedPath(QStringLiteral("venv/bin/kraken")),
-                 quoted(modelPath())),
+                 shellPath(modelPath())),
         &found);
 
     // Anything at all on disk, whether or not it works. What lets Remove
@@ -616,7 +663,7 @@ QStringList KrakenEnvironment::recognitionCommand(
             .arg(quotedPath(QStringLiteral("venv/bin/kraken")),
                  quoted(pathFor(image)),
                  quoted(pathFor(alto)),
-                 quoted(modelPath())));
+                 shellPath(modelPath())));
 }
 
 QStringList KrakenEnvironment::verifyCommand(
@@ -625,7 +672,16 @@ QStringList KrakenEnvironment::verifyCommand(
     return commandFor(QStringLiteral("%1 %2 check %3")
                           .arg(quotedPath(QStringLiteral("venv/bin/python")),
                                quoted(script),
-                               quoted(model)));
+                               shellPath(model)));
+}
+
+QStringList KrakenEnvironment::alphabetCommand(
+    const QString &script, const QString &model) const
+{
+    return commandFor(QStringLiteral("%1 %2 alphabet %3")
+                          .arg(quotedPath(QStringLiteral("venv/bin/python")),
+                               quoted(script),
+                               shellPath(model)));
 }
 
 QString KrakenEnvironment::trainingOutputDirectory() const
@@ -648,17 +704,25 @@ QStringList KrakenEnvironment::trainingCommand(
     QStringList lines{
         QStringLiteral("rm -rf %1 && mkdir -p %1").arg(work),
     };
-    for (const QString &set : sets) {
-        lines.append(
-            QStringLiteral("cp %1/* %2/").arg(quoted(pathFor(set)), work));
+    // Each set into a folder of its own. Two sets may well hold a folio of the
+    // same name — every codex has a 1r — and copied into one folder the second
+    // silently replaced the first. Kraken finds a layout's picture beside the
+    // layout, so a folder each changes nothing else. Only the pairs: the set's
+    // about file is not ground truth.
+    for (int index = 0; index < sets.size(); ++index) {
+        const QString into = QStringLiteral("%1/%2").arg(work).arg(index);
+        lines.append(QStringLiteral("mkdir -p %1 && find %2 -maxdepth 1 -type f "
+                                    "\\( -name '*.xml' -o -name '*.jpg' \\) "
+                                    "-exec cp {} %1/ \\;")
+                         .arg(into, quoted(pathFor(sets.at(index)))));
     }
 
     // -d cpu said out loud rather than left to auto: there is no CUDA here, and
     // a device that cannot be found is an error hours after the button.
     lines.append(
-        QStringLiteral("%1 train -f alto --resize new -d cpu -i %2 -o %3 %4/*.xml")
+        QStringLiteral("%1 train -f alto --resize union -d cpu -i %2 -o %3 %4/*/*.xml")
             .arg(quotedPath(QStringLiteral("venv/bin/ketos")),
-                 quoted(base),
+                 shellPath(base),
                  quotedPath(QStringLiteral("training/out")),
                  work));
 
@@ -937,7 +1001,7 @@ bool KrakenEnvironment::deleteModelFiles(const QString &path) const
                        "  %2/models/*/*) rm -rf \"$(dirname %1)\" && echo deleted ;;\n"
                        "  *) echo kept ;;\n"
                        "esac\n")
-            .arg(quoted(path), quotedPath()),
+            .arg(shellPath(path), quotedPath()),
         &said);
     return said.contains(QLatin1String("deleted"));
 }

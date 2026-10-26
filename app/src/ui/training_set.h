@@ -1,5 +1,6 @@
 #pragma once
 
+#include <QDateTime>
 #include <QList>
 #include <QSize>
 #include <QString>
@@ -45,9 +46,27 @@ inline constexpr int EnoughLines = 50;
 
 /// Which set a transcription belongs to: its shelfmark, else its manuscript
 /// name, else `unnamed`.
+///
+/// The readable part is the name with everything a folder name might choke on
+/// turned to underscores, and that alone is not unique — every shelfmark in
+/// Hebrew comes out the same. So a short hash of the name as written follows
+/// it, and two manuscripts never share a set because their names looked alike
+/// to a file system.
 QString slugFor(const TranscriptionMetadata &metadata);
+/// The stem a folio's two files are filed under in its set: the folio's label
+/// made fit for a file name, and a short hash of folioIdentity().
+QString stemFor(const TranscribedPage &page);
 /// What to show for that set, before it exists on disk.
 QString labelFor(const TranscriptionMetadata &metadata);
+
+/// `bytes` as kraken will see them: turned upright where the file carries an
+/// orientation, and untouched where it does not.
+///
+/// Milah measures a picture with its orientation applied, as the image pane
+/// shows it; kraken opens the file with Pillow and applies none. Anything
+/// handed to kraken — a folio to read, a folio to cut strips from, a picture
+/// beside ground truth — goes through here, so both sides measure one picture.
+QByteArray uprightImage(const QByteArray &bytes);
 
 /// Where a set's files live. Made if it is not there.
 QString directoryOf(const QString &slug);
@@ -78,7 +97,51 @@ struct Saved
 /// compared — they move with whichever picture the save happened to get — and
 /// no picture is fetched to answer this, because the answer does not depend on
 /// one and the fetch can cross the network.
-Saved savedFolio(const TranscribedPage &page, const TranscriptionMetadata &metadata);
+///
+/// **But it is rebuilt at the scale it was saved at.** Which lines are written
+/// depends on the picture: a line is clamped to it and dropped when it comes
+/// out too narrow. So the rebuild takes its size from the saved file's own
+/// `<Page>`, and `boxSize` — the picture the folio's boxes are in, the one on
+/// screen — carries the boxes across exactly as the save did. Rebuilding at a
+/// nominal size instead clamped every box past it to nothing, and called a
+/// folio saved a moment ago changed.
+Saved savedFolio(
+    const TranscribedPage &page,
+    const TranscriptionMetadata &metadata,
+    const QSize &boxSize = QSize());
+
+/// Takes `page` out of its manuscript's set. False where it was not there.
+///
+/// What saving does when a folio has nothing finished left on it: lines that
+/// stopped being ground truth — re-read, un-vouched, laid again by a fill —
+/// must stop being taught, and the set holding on to them would go on teaching
+/// the old reading.
+bool withdraw(const TranscribedPage &page, const TranscriptionMetadata &metadata);
+
+/// One folio of a set, as it stands on disk.
+struct Folio
+{
+    /// What its files are called, without the extension.
+    QString stem;
+    /// What the transcriber calls it — "150r" — where the set recorded it, and
+    /// the stem otherwise.
+    QString label;
+    /// folioIdentity() of the folio, as the file records it.
+    QString identity;
+    int lines = 0;
+    QDateTime saved;
+};
+
+/// Every character the set's ground truth contains, once each, in code point
+/// order. Spaces are not characters of a line here.
+QString lettersOf(const QString &slug);
+
+/// The folios a set holds, by label.
+QList<Folio> foliosOf(const QString &slug);
+/// The ground truth of one folio of a set, as written.
+QByteArray altoOf(const QString &slug, const QString &stem);
+/// Deletes one folio's files from a set. False where nothing was removed.
+bool remove(const QString &slug, const QString &stem);
 
 /// Writes this folio's corrected lines into its manuscript's set.
 ///
@@ -94,7 +157,8 @@ Saved savedFolio(const TranscribedPage &page, const TranscriptionMetadata &metad
 /// empty when the image is that same picture.
 ///
 /// Returns how many lines were written — 0 when the folio has none finished, in
-/// which case nothing is written at all.
+/// which case nothing is written and whatever the set held for the folio before
+/// is withdrawn.
 int add(
     const TranscribedPage &page,
     const TranscriptionMetadata &metadata,

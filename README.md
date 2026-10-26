@@ -407,7 +407,7 @@ turns up.
 | **Manage models…** | Add from the repository or from a file, remove, and choose which runs. |
 | **Show last recognition…** | What Milah ran, what Kraken said, and the layout file that came back. One run's worth, replaced each time, so a reading that goes wrong can be looked at rather than guessed about. |
 | **See what training will be shown…** | This folio's finished lines, cut the way training cuts them, with the ground truth under each and the lines Kraken refuses beside them. Grey until a line has been checked all the way through. |
-| **Save this folio for HTR training** | This folio's checked lines, into its manuscript's training set, with the library's largest scan, and a word on what of it a model will actually see. Grey until a line has been checked all the way through. |
+| **Save this folio for HTR training** | This folio's checked lines, into its manuscript's training set, with the library's largest scan, and a word on what of it a model will actually see. Grey until a line has been checked all the way through — unless the set still holds lines of the folio from before, which saving then takes out. |
 | **Save every folio for training** | The whole transcription in one go: counts each folio before fetching anything, saves the ones with lines read, and says which were passed over. Also how to catch up the folios you corrected after saving. |
 | **Train a model…** | Teaches a model the hand, from what has been saved. Grey until a set holds 50 lines. |
 | **Install Kraken…** | Only when Kraken is absent. |
@@ -515,13 +515,33 @@ press and the only thing ever missing was being told. Milah knows because the
 file in the set *is* the training layout: it compares the ground truth there
 with the ground truth the folio would write now. Coordinates are not compared —
 they move with whichever picture the save happened to get — and no picture is
-fetched to answer it, because the answer does not depend on one.
+fetched to answer it, because the answer does not depend on one. The rebuild is
+made at the size the saved file records, so a line that would be written at the
+saved scale is not mistaken for one that would not. And it says so again **on
+the way out of such a folio**, with an *Update set* button — turning the page is
+when a correction is most easily forgotten.
+
+**Which lines, and why.** Under the folio's count, each reason a line will not be
+taught is named and links to the next line held back for it: *3 unchecked · 1 a
+typed word beside it · 1 an unread note mid-line*. The line view colours the
+same verdicts onto the folio — a green outline for a line that will be taught, amber
+for one taught with an unread note trimmed off its end, dashed for one that will
+not — and a line that checking alone will not finish says why on its chip
+(*21·typed word*); clicking the chip puts the caret in the word responsible. All
+of it is the export's own judgement, not a second count that could disagree.
+
+**What's in it…**, beside the set's count, lists the set folio by folio: lines,
+when each was saved, and which the open transcription has corrected since. From
+there a folio's strips can be looked at as the set holds them, or the folio taken
+out.
 
 **File ▸ Handwriting recognition ▸ Save every folio for training** does the whole
 transcription in one go: it counts each folio before fetching anything, so a
 folio with nothing read costs no scan, saves the rest, and says which were passed
 over and why. Because saving replaces a folio rather than adding beside it, this
-is also how to catch up every folio you corrected after saving it. It does not
+is also how to catch up every folio you corrected after saving it — including a
+folio with nothing finished on it any more, whose old lines it takes out of the
+set rather than leave them to be taught. It does not
 ask Kraken what it can make of each one — that is seconds apiece and the point of
 this entry is to be quick; the single-folio save asks, and the strip preview
 shows.
@@ -540,7 +560,15 @@ message says so rather than leaving you to wonder later.
 read and nobody has looked at is the machine's own guess, and training on it
 teaches the model the mistakes it already makes. A line also needs every word to
 have come from the recogniser — a word typed by hand has no place on the picture,
-so its line cannot be cut out and is left out instead.
+so its line cannot be cut out and is left out instead. That includes the second
+half of a word split with Space, and a word typed or pasted in beside a line: its
+letters are on that line or the next, so a word typed at the seam between two
+lines holds back both. Joining the halves of a split again gives the line back.
+
+**A folio whose lines stop being finished is taken out of the set when it is
+saved again.** Re-reading a line, un-checking it, or laying a fill over it again
+means the set's copy is no longer anybody's reading, and the save offers to take
+it out instead of leaving it to be taught.
 
 
 #### Seeing what the model will be shown
@@ -584,6 +612,14 @@ model against, so fewer leaves nothing to measure with; five folios is where it
 starts to tell. The window lists the sets, and **more than one can be ticked**,
 because a scribe outlives a shelfmark — MS Oo.1.32 and Oo.1.16 are one hand in
 two bindings, and a model shown both sees more of it than a model shown either.
+Each ticked set is copied into a folder of its own, so two sets that both hold a
+*1r* both train.
+
+The window also names **the letters the starting model knows that the ticked
+sets never show it** — a final form, a rare ligature. Training keeps them
+(`--resize union`; `new` would throw away every letter the set happens to lack,
+on a hand that certainly uses them), but learns nothing more about them on this
+hand, so the folios that use them are the ones worth reading next.
 
 Training runs on the processor and takes hours; the window says so before it
 starts, keeps a log and an elapsed clock, and Stop leaves the model you are using

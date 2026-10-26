@@ -76,11 +76,21 @@ private:
 
     void appendLog(const QString &text);
     void setBusy(bool busy);
+    /// Asks kraken, in the background, what the base model can write — so the
+    /// letters no ticked set ever shows it can be named before hours are spent.
+    void askAlphabet();
 
     KrakenEnvironment *m_environment = nullptr;
 
     QListWidget *m_sets = nullptr;
     QLabel *m_summary = nullptr;
+    /// The letters the base model knows and the ticked sets never contain.
+    ///
+    /// Fine-tuning only moves a model towards what it is shown. A letter the
+    /// set never holds is a letter the model learns nothing more about on this
+    /// hand — a final form, a rare ligature — and which folios to read next is
+    /// the useful thing to know before the hours, not after.
+    QLabel *m_unseen = nullptr;
     QLineEdit *m_name = nullptr;
     QLabel *m_warning = nullptr;
     HtrProgress *m_progress = nullptr;
@@ -101,6 +111,11 @@ private:
     QString m_modelPath;
     /// Everything the stage said, for reading the failure out of afterwards.
     QString m_output;
+    /// What the base model can write, once kraken has said; empty until then
+    /// and for good where it could not.
+    QString m_alphabet;
+    /// Each known set's letters, read once per refresh rather than per tick.
+    QList<QString> m_letters;
 };
 
 } // namespace milah

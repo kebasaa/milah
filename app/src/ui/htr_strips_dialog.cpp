@@ -2,6 +2,7 @@
 
 #include <QDialogButtonBox>
 #include <QFrame>
+#include <QHash>
 #include <QLabel>
 #include <QPixmap>
 #include <QScrollArea>
@@ -60,8 +61,18 @@ HtrStripsDialog::HtrStripsDialog(
     auto *rows = new QVBoxLayout(inner);
     rows->setSpacing(14);
 
+    // A line the transcriber cut in two is named by its pieces, 3.1 and 3.2, so
+    // that neither half can be taken for the whole of line 3 on the folio.
+    QHash<int, int> pieces;
     for (const TrainingStrip &strip : strips) {
-        auto *number = new QLabel(QStringLiteral("Line %1").arg(strip.line));
+        pieces[strip.line] += 1;
+    }
+
+    for (const TrainingStrip &strip : strips) {
+        auto *number = new QLabel(
+            pieces.value(strip.line) > 1
+                ? QStringLiteral("Line %1.%2").arg(strip.line).arg(strip.part + 1)
+                : QStringLiteral("Line %1").arg(strip.line));
         QFont small = number->font();
         small.setPointSizeF(std::max(7.0, small.pointSizeF() * 0.85));
         number->setFont(small);
@@ -72,10 +83,12 @@ HtrStripsDialog::HtrStripsDialog(
             auto *picture = new QLabel;
             picture->setFrameShape(QFrame::StyledPanel);
             QPixmap drawn = QPixmap::fromImage(strip.image);
-            if (drawn.width() > WidestStrip || drawn.height() < NotWorthEnlarging) {
-                drawn = drawn.scaledToWidth(
-                    std::min(WidestStrip, std::max(drawn.width(), WidestStrip / 2)),
-                    Qt::SmoothTransformation);
+            // Shrunk when it is too wide, and stretched to the width when it is
+            // tall enough to bear it — but a thin, short strip stays at its own
+            // size, as the constant above says. This used to enlarge exactly
+            // the strips it meant to leave alone.
+            if (drawn.width() > WidestStrip || drawn.height() >= NotWorthEnlarging) {
+                drawn = drawn.scaledToWidth(WidestStrip, Qt::SmoothTransformation);
             }
             picture->setPixmap(drawn);
             rows->addWidget(picture);

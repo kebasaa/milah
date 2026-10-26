@@ -2,8 +2,10 @@
 
 #include "core/page_layout.h"
 #include "core/serialize.h"
+#include "core/training_export.h"
 #include "core/transcription.h"
 #include "ui/kraken_environment.h"
+#include "ui/training_set.h"
 
 #include <QHash>
 #include <QObject>
@@ -46,6 +48,14 @@ struct FolioProgress
     int finished = 0;
     /// Lines there are to read at all.
     int lines = 0;
+    /// What the export makes of each of those lines, and why — the same answer
+    /// the two counts are taken from, for the panel and the line view to show.
+    QList<LineVerdict> verdicts;
+    /// False where the folio's picture is not held, so nothing could be
+    /// measured. Not the same as nothing being finished, and not to be reported
+    /// as if it were: "no line checked" sends somebody to check lines that are
+    /// already checked.
+    bool pictured = true;
 };
 
 class TranscriptionController final : public QObject
@@ -204,6 +214,9 @@ public slots:
     /// accumulates between sessions until there is enough to train on. See
     /// ui/training_set.h.
     void saveFolioForTraining();
+    /// The same, for any folio of the transcription — what the training panel
+    /// offers for a folio just left with corrections the set has not seen.
+    void saveFolioForTrainingAt(int pageIndex);
     /// Every folio of the transcription that has a line read all the way
     /// through, in one go.
     ///
@@ -228,12 +241,31 @@ public slots:
     /// Cut from the same picture and the same layout saveFolioForTraining()
     /// would use, so this cannot become a preview of something else.
     void previewTrainingStrips();
+    /// The same, for a folio a training set holds, cut from the set's own files
+    /// — what the set is actually teaching, whatever the folio says now.
+    void previewSavedStrips(const QString &slug, const QString &stem, const QString &label,
+                            QWidget *over);
+    /// What is in this manuscript's training set, folio by folio, with the
+    /// means to look at one or take it out.
+    void showTrainingSet(QWidget *over);
     /// How many lines of the folio on screen are finished enough to be saved.
     /// Zero disables the command, and says why in its tooltip.
     int trainableLineCount() const;
     /// How many of this folio's lines are wholly read, and how many there are.
     /// One call, so the two cannot disagree about what a line is.
     FolioProgress trainingProgress() const;
+    /// What this manuscript's training set holds for the folio on screen, and
+    /// whether that is still what the folio says — measured in the picture the
+    /// folio's boxes are in, as the save measured it.
+    TrainingSet::Saved trainingSaved() const;
+    /// What training would make of each line of the folio on screen, without
+    /// building the layout — cheap enough to ask on every keystroke.
+    QList<LineVerdict> trainingVerdicts() const;
+    /// Asks whoever shows the words to show this one. See wordShown().
+    void showWord(int verse, int column) { emit wordShown(verse, column); }
+    /// Whether each folio of this transcription that the set holds has been
+    /// corrected since, keyed by TrainingSet::stemFor().
+    QHash<QString, bool> trainingStaleness() const;
     /// The folio at the largest size the library will give, fetched in as many
     /// pieces as its service caps require and put back together.
     ///
@@ -265,6 +297,8 @@ private:
     /// the batch save asks before deciding whether a folio is worth fetching a
     /// scan for.
     FolioProgress progressOn(const TranscribedPage &page) const;
+    /// trainingSaved(), for any folio of the document.
+    TrainingSet::Saved savedOn(const TranscribedPage &page) const;
     /// Cuts `page`'s finished lines the way training cuts them, and answers with
     /// one strip apiece — the picture, its ground truth, or why kraken refused
     /// it. Empty when the cut could not be run at all, and `failure` then says
@@ -277,6 +311,15 @@ private:
         const TranscribedPage &page,
         const QByteArray &master,
         const QSize &boxSize,
+        const QString &label,
+        QString *failure);
+    /// The cut itself, of a layout already written — `lineCount` lines of it —
+    /// against `master`. What the set's own view uses for a folio it holds,
+    /// where the layout is on disk and no folio needs to be open.
+    QList<TrainingStrip> cutStrips(
+        const QByteArray &layout,
+        int lineCount,
+        const QByteArray &master,
         const QString &label,
         QString *failure);
     /// What of a cut will not be trained on, as a paragraph for a message box,
@@ -475,6 +518,12 @@ signals:
     /// Asks the Notes panel to take the caret, for "Add/edit note".
     void noteEditingRequested();
     void dirtyChanged(bool dirty);
+    /// A folio was saved into, or taken out of, a training set — which nothing
+    /// in the document records, so nothing else would say so.
+    void trainingSetChanged();
+    /// Something outside the grid wants this word shown and the caret put in
+    /// it — the training panel, naming a line that will not be taught.
+    void wordShown(int verse, int column);
     void messageChanged(const QString &text);
     void historyChanged();
 

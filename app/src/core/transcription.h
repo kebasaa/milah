@@ -396,6 +396,38 @@ bool isUntouched(const TranscribedPage &page);
 /// of its own, which is what a fragment out of the middle of a chapter is.
 QList<TranscribedVerse> parseTranscribedText(const QString &text);
 
+/// Cuts word `column` of `words` in two at `caret`, the second half becoming a
+/// word of its own straight after it. The glosses are the caller's to redo.
+///
+/// **The second half stays on the line it was read from.** It used to come out
+/// as a word nothing had read — no line — and the training export stepped over
+/// such words, so the line went into the ground truth with the first half's
+/// letters against the whole word's ink. It keeps the line now and has no box,
+/// because where the cut falls on the picture is not known; the export refuses
+/// a line holding a word with no box, which is the honest answer to that.
+///
+/// The line break, if the word carried one, moves to the second half: the
+/// manuscript's line ends after the whole word, not in the middle of it.
+void splitWord(QList<TranscribedWord> &words, int column, int caret);
+
+/// Joins word `column` of `words` onto the word before it, which it then
+/// replaces. The glosses are the caller's to redo.
+///
+/// What either half said survives in the joined word, because each is a claim
+/// the training export acts on:
+///
+/// - **unchecked** if either half was — a machine's reading glued to a checked
+///   word is still a machine's reading;
+/// - **a line break** if either half carried one — otherwise two manuscript
+///   lines the transcriber had separated quietly become one again;
+/// - **the box** of both, united, where both were read off the same line. Where
+///   only the first half has a box it is kept, which is exactly right for
+///   joining a split back together: splitting never shrank it. Anywhere else —
+///   halves from two lines of the folio, or a first half nothing placed — no
+///   one box holds the joined word, and it has none;
+/// - both notes.
+void joinWithPrevious(QList<TranscribedWord> &words, int column);
+
 /// How a verse should be named on screen: as much of its reference as is known.
 ///
 /// A transcription is written before it is identified — the book may not have

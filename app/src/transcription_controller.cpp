@@ -22,6 +22,7 @@
 #include "ui/iiif_image.h"
 #include "ui/osis_fill_dialog.h"
 #include "ui/training_set.h"
+#include "ui/training_set_dialog.h"
 #include "ui/network_fetch.h"
 #include "ui/online_scan_dialog.h"
 #include "ui/scan_metadata_dialog.h"
@@ -1182,6 +1183,7 @@ FolioProgress TranscriptionController::progressOn(const TranscribedPage &page) c
     FolioProgress progress;
     const QSize size = sizeOfImage(m_images.value(page.imageEntry));
     if (!size.isValid()) {
+        progress.pictured = false;
         return progress;
     }
     // The name does not matter for counting, only for writing, so any non-empty
@@ -1189,6 +1191,7 @@ FolioProgress TranscriptionController::progressOn(const TranscribedPage &page) c
     const TrainingPage truth = trainingAlto(page, QStringLiteral("folio.jpg"), size);
     progress.finished = truth.lines;
     progress.lines = truth.candidates;
+    progress.verdicts = truth.verdicts;
     return progress;
 }
 
@@ -1196,6 +1199,39 @@ FolioProgress TranscriptionController::trainingProgress() const
 {
     const TranscribedPage *page = currentPage();
     return page ? progressOn(*page) : FolioProgress();
+}
+
+QList<LineVerdict> TranscriptionController::trainingVerdicts() const
+{
+    const TranscribedPage *page = currentPage();
+    if (!page) {
+        return {};
+    }
+    return milah::lineVerdicts(*page, sizeOfImage(m_images.value(page->imageEntry)));
+}
+
+TrainingSet::Saved TranscriptionController::trainingSaved() const
+{
+    const TranscribedPage *page = currentPage();
+    return page ? savedOn(*page) : TrainingSet::Saved();
+}
+
+QHash<QString, bool> TranscriptionController::trainingStaleness() const
+{
+    QHash<QString, bool> stale;
+    for (const TranscribedPage &page : m_document.pages) {
+        const TrainingSet::Saved saved = savedOn(page);
+        if (saved.present) {
+            stale.insert(TrainingSet::stemFor(page), saved.stale);
+        }
+    }
+    return stale;
+}
+
+TrainingSet::Saved TranscriptionController::savedOn(const TranscribedPage &page) const
+{
+    return TrainingSet::savedFolio(
+        page, m_document.metadata, sizeOfImage(m_images.value(page.imageEntry)));
 }
 
 int TranscriptionController::trainableLineCount() const
@@ -1329,6 +1365,22 @@ QList<TrainingStrip> TranscriptionController::cutTrainingStrips(
         return give(QStringLiteral("%1 could not be written out as a training layout.")
                         .arg(label));
     }
+    return cutStrips(truth.alto, truth.lines, master, label, failure);
+}
+
+QList<TrainingStrip> TranscriptionController::cutStrips(
+    const QByteArray &layout,
+    int lineCount,
+    const QByteArray &master,
+    const QString &label,
+    QString *failure)
+{
+    const auto give = [failure](const QString &why) {
+        if (failure) {
+            *failure = why;
+        }
+        return QList<TrainingStrip>();
+    };
 
     QTemporaryDir workspace;
     if (!workspace.isValid()) {
@@ -1338,9 +1390,11 @@ QList<TrainingStrip> TranscriptionController::cutTrainingStrips(
     const QString altoPath = workspace.filePath(QStringLiteral("folio.xml"));
     QFile image(imagePath);
     QFile alto(altoPath);
-    if (!image.open(QIODevice::WriteOnly) || image.write(master) != master.size()
+    // Upright, as the set writes it, so the preview cuts the picture the set holds.
+    const QByteArray turned = TrainingSet::uprightImage(master);
+    if (!image.open(QIODevice::WriteOnly) || image.write(turned) != turned.size()
         || !alto.open(QIODevice::WriteOnly)
-        || alto.write(truth.alto) != truth.alto.size()) {
+        || alto.write(layout) != layout.size()) {
         return give(QStringLiteral("The folio could not be written out for cutting."));
     }
     image.close();
@@ -1358,7 +1412,7 @@ QList<TrainingStrip> TranscriptionController::cutTrainingStrips(
         QStringLiteral("Cutting %1's lines the way training cuts them.").arg(label),
         QStringLiteral("Cancel"),
         0,
-        truth.lines,
+        lineCount,
         m_dialogParent);
     progress.setWindowTitle(QStringLiteral("Milah"));
     progress.setWindowModality(Qt::WindowModal);
@@ -1433,14 +1487,13 @@ QList<TrainingStrip> TranscriptionController::cutTrainingStrips(
     for (const QJsonValue &value : lines) {
         const QJsonObject entry = value.toObject();
         TrainingStrip strip;
-        // Kraken carries the ALTO's own line id through, and the ALTO's is the
-        // recogniser's line number: core/training_export writes them as line_N.
-        // One-based here, to match the number the line view draws.
-        strip.line = entry.value(QStringLiteral("id"))
-                         .toString()
-                         .section(QLatin1Char('_'), -1)
-                         .toInt()
-            + 1;
+        // Kraken carries the ALTO's own line id through, and core/training_export
+        // writes it as line_<detection>_<piece>: the recogniser's line number,
+        // and which piece of it after the transcriber's breaks. One-based here,
+        // to match the number the line view draws.
+        const QString id = entry.value(QStringLiteral("id")).toString();
+        strip.line = id.section(QLatin1Char('_'), 1, 1).toInt() + 1;
+        strip.part = id.section(QLatin1Char('_'), 2, 2).toInt();
         strip.text = entry.value(QStringLiteral("text")).toString();
         strip.refused = entry.value(QStringLiteral("refused")).toString();
         const QString file = entry.value(QStringLiteral("file")).toString();
@@ -1557,6 +1610,54 @@ void TranscriptionController::previewTrainingStrips()
     dialog.exec();
 }
 
+void TranscriptionController::previewSavedStrips(
+    const QString &slug, const QString &stem, const QString &label, QWidget *over)
+{
+    QWidget *front = over ? over : m_dialogParent;
+    if (kraken().refresh() != KrakenEnvironment::State::Ready) {
+        QMessageBox::information(front, QStringLiteral("Milah"),
+                                 KrakenEnvironment::describe(kraken().state()));
+        return;
+    }
+    const QByteArray layout = TrainingSet::altoOf(slug, stem);
+    QFile picture(QDir(TrainingSet::directoryOf(slug)).filePath(stem + QStringLiteral(".jpg")));
+    const QByteArray image = picture.open(QIODevice::ReadOnly) ? picture.readAll() : QByteArray();
+    if (layout.isEmpty() || image.isEmpty()) {
+        QMessageBox::warning(front, QStringLiteral("Milah"),
+                             QStringLiteral("The set's files for %1 could not be read.").arg(label));
+        return;
+    }
+
+    QString failure;
+    const QList<TrainingStrip> strips = cutStrips(
+        layout, int(layout.count(QByteArray("<TextLine "))), image, label, &failure);
+    if (strips.isEmpty()) {
+        if (!failure.isEmpty()) {
+            QMessageBox::warning(front, QStringLiteral("Milah"), failure);
+        }
+        return;
+    }
+    HtrStripsDialog dialog(label, QString(), strips, front);
+    dialog.exec();
+}
+
+void TranscriptionController::showTrainingSet(QWidget *over)
+{
+    TrainingSetDialog dialog(
+        TrainingSet::slugFor(m_document.metadata),
+        TrainingSet::labelFor(m_document.metadata),
+        trainingStaleness(),
+        over ? over : m_dialogParent);
+    connect(&dialog, &TrainingSetDialog::stripsWanted, this,
+            [this, &dialog](const QString &slug, const QString &stem, const QString &label) {
+                previewSavedStrips(slug, stem, label, &dialog);
+            });
+    dialog.exec();
+    if (dialog.changed()) {
+        emit trainingSetChanged();
+    }
+}
+
 void TranscriptionController::saveEveryFolioForTraining()
 {
     if (m_document.pages.isEmpty()) {
@@ -1569,15 +1670,44 @@ void TranscriptionController::saveEveryFolioForTraining()
     // line has nothing to give, and finding that out after pulling a
     // four-thousand-pixel scan across the network would be the slowest possible
     // way to learn it.
+    //
+    // A folio with nothing finished that the set still holds lines of is taken
+    // out of it: this is the command that brings a set into line with the
+    // transcription, and lines that stopped being ground truth are part of
+    // what is out of line. That costs no fetch either.
     QList<int> worth;
     int passedOver = 0;
+    int unpictured = 0;
+    QStringList withdrawn;
     for (int index = 0; index < m_document.pages.size(); ++index) {
-        if (progressOn(m_document.pages.at(index)).finished > 0) {
+        const TranscribedPage &page = m_document.pages.at(index);
+        const FolioProgress progress = progressOn(page);
+        if (progress.finished > 0) {
             worth.append(index);
+        } else if (!progress.pictured && !isUntouched(page)) {
+            // Worked on, but its picture is not here to measure against —
+            // which says nothing about whether its lines are finished.
+            ++unpictured;
+        } else if (progress.pictured && TrainingSet::withdraw(page, m_document.metadata)) {
+            withdrawn << (page.imageLabel.isEmpty() ? page.imageName : page.imageLabel);
         } else {
             ++passedOver;
         }
     }
+    if (!withdrawn.isEmpty()) {
+        emit trainingSetChanged();
+    }
+    const QString takenOut = withdrawn.isEmpty()
+        ? QString()
+        : QStringLiteral("<p><small>Taken out of the set, because nothing on them is "
+                         "finished any more: %1.</small></p>")
+              .arg(withdrawn.join(QStringLiteral(", ")).toHtmlEscaped());
+    const QString notMeasured = unpictured == 0
+        ? QString()
+        : QStringLiteral("<p><small>%1 folio(s) could not be measured, because their "
+                         "pictures are not loaded. Open each once and save again."
+                         "</small></p>")
+              .arg(unpictured);
     if (worth.isEmpty()) {
         QMessageBox::information(
             front,
@@ -1587,7 +1717,8 @@ void TranscriptionController::saveEveryFolioForTraining()
                 "through yet, so there is nothing a recogniser could be taught "
                 "from.<p>In the line view, read a line against the ink and press "
                 "Space over it; the number beside each line says how many of its "
-                "words are still unread.</p>"));
+                "words are still unread.</p>%1%2")
+                .arg(takenOut, notMeasured));
         return;
     }
 
@@ -1633,6 +1764,7 @@ void TranscriptionController::saveEveryFolioForTraining()
         said << QStringLiteral("<b>%1</b> — %2 line(s)").arg(label.toHtmlEscaped()).arg(written);
     }
     progress.reset();
+    emit trainingSetChanged();
 
     const TrainingSet::Set set =
         TrainingSet::contentsOf(TrainingSet::slugFor(m_document.metadata));
@@ -1660,7 +1792,8 @@ void TranscriptionController::saveEveryFolioForTraining()
             .arg(small ? QStringLiteral(
                      "<p><small>Some folios were saved from the picture on screen "
                      "rather than the library's largest scan.</small></p>")
-                       : QString()));
+                       : QString())
+            + takenOut + notMeasured);
     // Deliberately not cut here. Asking Kraken what it can make of each folio is
     // seconds apiece, and the point of this entry is to be quick — see the
     // single-folio save, which does ask, and the strip preview, which shows.
@@ -1671,16 +1804,56 @@ void TranscriptionController::saveEveryFolioForTraining()
 
 void TranscriptionController::saveFolioForTraining()
 {
-    const TranscribedPage *page = currentPage();
-    if (!page) {
+    saveFolioForTrainingAt(m_currentPage);
+}
+
+void TranscriptionController::saveFolioForTrainingAt(int pageIndex)
+{
+    if (pageIndex < 0 || pageIndex >= m_document.pages.size()) {
         setMessage(QStringLiteral("Open a folio before saving it for training."));
         return;
     }
+    const TranscribedPage *page = &m_document.pages.at(pageIndex);
 
     const QString label = page->imageLabel.isEmpty() ? page->imageName : page->imageLabel;
 
     // Nothing is fetched until there is something worth fetching it for.
-    if (trainableLineCount() == 0) {
+    const FolioProgress progress = progressOn(*page);
+    if (!progress.pictured) {
+        QMessageBox::information(
+            m_dialogParent,
+            QStringLiteral("Milah"),
+            QStringLiteral("The picture of %1 is not loaded, so its lines cannot be "
+                           "measured against it.<p>Turn to another folio and back "
+                           "once it has downloaded, and save again.</p>")
+                .arg(label));
+        return;
+    }
+    if (progress.finished == 0) {
+        // Nothing finished *now* — but the set may still hold lines of it from
+        // before they were re-read, un-vouched or laid again by a fill. Those
+        // are not ground truth any more, and left there they would go on being
+        // taught. Saving is how the set is brought into line with the folio,
+        // so it is also how they are taken out.
+        const TrainingSet::Saved saved = savedOn(*page);
+        if (saved.present) {
+            const auto answer = QMessageBox::question(
+                m_dialogParent,
+                QStringLiteral("Milah"),
+                QStringLiteral("No line of %1 is finished any more, but the training "
+                               "set still holds %2 line(s) of it from before.<p>Take "
+                               "them out, so that a model is not taught the old "
+                               "reading?</p>")
+                    .arg(label)
+                    .arg(saved.lines),
+                QMessageBox::Yes | QMessageBox::Cancel,
+                QMessageBox::Yes);
+            if (answer == QMessageBox::Yes && TrainingSet::withdraw(*page, m_document.metadata)) {
+                setMessage(QStringLiteral("Took %1 out of the training set.").arg(label));
+                emit trainingSetChanged();
+            }
+            return;
+        }
         QMessageBox::information(
             m_dialogParent,
             QStringLiteral("Milah"),
@@ -1698,6 +1871,9 @@ void TranscriptionController::saveFolioForTraining()
     const QByteArray master = fetchMasterImage(*page, &note);
     const QSize onScreen = sizeOfImage(m_images.value(page->imageEntry));
     const int lines = TrainingSet::add(*page, m_document.metadata, master, onScreen);
+    // The set's files have changed, and the panel reads them; it would
+    // otherwise go on saying "changed since saved" until the next keystroke.
+    emit trainingSetChanged();
 
     if (lines == 0) {
         // The count above said there was something, so getting nothing here is
@@ -2039,6 +2215,12 @@ void TranscriptionController::applyFill(
     // Marginalia standing on a line the fill covers, kept aside to be woven back
     // into it. The pour was laid out around them, so they keep their place.
     QMap<int, QList<TranscribedWord>> heldOut;
+    // Where the transcriber said a manuscript line ends inside a line the fill
+    // covers, kept by the box of the word it followed. The pour rebuilds those
+    // words from nothing, and a break is a fact about the folio rather than
+    // about the text poured onto it — losing it put two manuscript lines back
+    // into one training strip without a word said.
+    QMap<int, QList<QRect>> breaks;
     bool passed = false;
     for (const TranscribedVerse &verse : target->verses) {
         for (const TranscribedWord &word : verse.words) {
@@ -2046,6 +2228,8 @@ void TranscriptionController::applyFill(
                 passed = true;
                 if (word.marginal) {
                     heldOut[word.line].append(word);
+                } else if (word.endsLine && !word.box.isNull()) {
+                    breaks[word.line].append(word.box);
                 }
                 continue;
             }
@@ -2107,6 +2291,23 @@ void TranscriptionController::applyFill(
                 rowVerses.isEmpty()
                     ? QString()
                     : rowVerses.at(std::clamp(place, 0, int(rowVerses.size()) - 1)));
+        }
+
+        // Each break back onto the last word now standing where it stood. The
+        // boxes may have been cut into columns or run together by the pour, so
+        // "where" is either box holding the other's centre — and the last such
+        // word, so that a box cut in two does not grow a break between halves.
+        for (const QRect &at : breaks.value(line.index)) {
+            int last = -1;
+            for (int index = 0; index < row.size(); ++index) {
+                const QRect &box = row.at(index).box;
+                if (!box.isNull() && (box.contains(at.center()) || at.contains(box.center()))) {
+                    last = index;
+                }
+            }
+            if (last >= 0) {
+                row[last].endsLine = true;
+            }
         }
 
         poured += row;
@@ -2297,7 +2498,11 @@ void TranscriptionController::transcribeFolio(QWidget *over, bool readingsOnly)
     if (!ensureImageFetched()) {
         return;
     }
-    const QByteArray bytes = currentImageBytes();
+    // Upright, because the boxes that come back are carried into the picture
+    // as Milah shows it — orientation applied — and kraken applies none. A
+    // sideways photograph handed over as it stands came back with its boxes
+    // scaled along the wrong axes.
+    const QByteArray bytes = TrainingSet::uprightImage(currentImageBytes());
     if (bytes.isEmpty()) {
         setMessage(QStringLiteral("This folio has no picture to read."));
         return;
@@ -3186,21 +3391,23 @@ void TranscriptionController::splitAt(int verse, int column, int caret)
     pushUndo();
     TranscribedPage *page = mutablePage();
     QList<TranscribedWord> &words = page->verses[verse].words;
+    const bool read = !words.at(column).box.isNull();
 
-    const QString whole = words.at(column).hebrew;
-    const int at = std::clamp(caret, 0, int(whole.size()));
-
-    TranscribedWord tail;
-    tail.hebrew = whole.mid(at);
+    splitWord(words, column, caret);
 
     // The head keeps the gloss because it keeps the word's opening; the tail is
     // a word nobody has read yet and starts with nothing said about it.
-    words[column].hebrew = whole.left(at);
     if (!words[column].englishIsOwn) {
         words[column].english = suggestedGloss(words.at(column).hebrew);
     }
-    tail.english = suggestedGloss(tail.hebrew);
-    words.insert(column + 1, tail);
+    words[column + 1].english = suggestedGloss(words.at(column + 1).hebrew);
+
+    // Said where the transcriber is looking, because nothing else would say it
+    // until the line failed to turn green.
+    if (read) {
+        setMessage(QStringLiteral(
+            "This line won't be trained on: the split-off word has no box of its own."));
+    }
 
     ensureTypingRoom();
     setDirty(true);
@@ -3216,13 +3423,9 @@ void TranscriptionController::mergeWithPrevious(int verse, int column)
     TranscribedPage *page = mutablePage();
     QList<TranscribedWord> &words = page->verses[verse].words;
 
+    joinWithPrevious(words, column);
     TranscribedWord &previous = words[column - 1];
-    previous.hebrew += words.at(column).hebrew;
-    // The joined word is not either of the words that made it, so whatever was
-    // said about them is dropped and the lexicon is asked again.
-    previous.englishIsOwn = false;
     previous.english = suggestedGloss(previous.hebrew);
-    words.removeAt(column);
 
     ensureTypingRoom();
     setDirty(true);
@@ -3310,6 +3513,13 @@ void TranscriptionController::pasteAt(int verse, int column, const QString &text
     pushUndo();
     TranscribedPage *page = mutablePage();
     QList<TranscribedWord> &words = page->verses[verse].words;
+
+    // Pasted words are typed words: nothing places them on the picture, so a
+    // read line they land in is no longer one a model can be taught from.
+    if (words.at(column).line >= 0) {
+        setMessage(QStringLiteral(
+            "This line won't be trained on: pasted words have no box on the folio."));
+    }
 
     // The words after this one on the line. They keep their place at the end of
     // whatever the pasted text turns into, so pasting into the middle of a

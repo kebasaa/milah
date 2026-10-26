@@ -176,6 +176,8 @@ qt_add_executable(Milah WIN32
     src/ui/osis_fill_dialog.h
     src/ui/training_set.cpp
     src/ui/training_set.h
+    src/ui/training_set_dialog.cpp
+    src/ui/training_set_dialog.h
     src/ui/kraken_environment.cpp
     src/ui/kraken_environment.h
     src/ui/manuscript_image_view.cpp
