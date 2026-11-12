@@ -5,6 +5,8 @@
 #include <QString>
 #include <QStringList>
 
+#include "core/books.h"
+
 class QJsonObject;
 
 namespace milah {
@@ -35,6 +37,9 @@ struct NameGroup
     /// have dropped a spelling, and an index that kept it would go on
     /// resolving a form its group no longer claims.
     QStringList keys;
+    /// "nt" or "ot" when the group is right for one testament only — the name
+    /// of Jesus written יהושע is Joshua son of Nun in Joshua. Empty for both.
+    QString testament;
 };
 
 /// Which spellings are the same name.
@@ -57,6 +62,9 @@ public:
 
     /// The shipped table, with the editor's own file merged over it.
     static const NameForms &shared();
+    /// shared(), less the groups another testament has to itself, for a verse
+    /// of `testament`. Other texts get only the groups for both.
+    static const NameForms &sharedFor(Testament testament);
     static NameForms fromJson(const QJsonObject &document);
     /// An unreadable or absent file is an empty table, not an error: a missing
     /// name table costs recognition, not correctness.

@@ -15,8 +15,10 @@ In order, first readable copy wins:
 So dropping a newer `hebrew_lexicon.json` into your application data directory
 overrides the installed one, and the installed one can be replaced in place.
 
-The build stages these files next to the binaries, and
-`build_milah_windows.ps1` copies them into the portable folder. **A copy of
+The build stages these files next to the binaries, and `cmake --install` (which
+`build_milah_windows.ps1` runs) puts them where each platform's copy looks:
+`data/` beside `Milah.exe`, `Milah.app/Contents/Resources/data` on macOS, and
+`share/milah/data` beside `bin/` on Linux. **A copy of
 `Milah.exe` without its `data/` directory loses its Strong's numbers**: the
 interlinear row goes blank, the spelling check switches off rather than
 flagging every word, and the status bar says which directories were searched.
@@ -227,9 +229,12 @@ alignment test's rung tally makes every column the table decided countable in
 one diff. **If this ever grows past a page, the rung needs re-thinking rather
 than more entries.**
 
-`יהושע` is both Yeshua and the biblical Joshua. Grouping it under `jesus` is
-right for Revelation and would be wrong for a book quoting Joshua son of Nun;
-groups are corpus-wide and have no way to say "here it means Joshua".
+`יהושע` is both Yeshua and the biblical Joshua. The `jesus` group therefore
+carries `"testament": "nt"`: a group with a `testament` (`"nt"` or `"ot"`) is
+used only for verses of that testament, so in Joshua or Zechariah the name is
+left alone. A group without one applies everywhere. Within the New Testament
+the field cannot tell Jesus from Joshua son of Nun (Acts 7:45, Heb 4:8), which
+still needs a second look.
 
 The five `ישו` rules that used to live in `hebrew_phrase_rules.json` are here
 now. A phrase rule has no peeling, so each of `ל`, `ו`, `ב` and `כ` needed a
@@ -302,3 +307,36 @@ unmatched words are reported as unmatched.
 Where a form is ambiguous — the consonantal skeleton of several different
 words — the candidates are ranked by how often each reading occurs in the
 Westminster text, and all of them are kept so the alternatives stay visible.
+
+## versification.json
+
+Where the English numbering of the Hebrew Bible — the King James Version's,
+which most English editions follow — differs from the Hebrew numbering of the
+Masoretic text (the Leningrad Codex, BHS, WLC). The two agree almost
+everywhere and disagree in a few dozen well-known places: Malachi has three
+chapters in Hebrew and four in English, Joel four and three, Genesis 31:55 is
+Hebrew 32:1, and a psalm's heading is its first verse in Hebrew and no verse
+at all in English.
+
+Milah collates the Hebrew Bible in the Hebrew numbering. A witness or
+translation numbered the English way — by its header's `refSystem`, or, where
+it names none, by being in a language other than Hebrew — is renumbered when it
+is loaded, and keeps its own number to show beside the shared one. Without
+this, a Hebrew-numbered witness and an English-numbered one compare the wrong
+verses at every one of these places.
+
+`shifts` maps a run of English verses in one chapter onto the same number of
+Hebrew verses (`"english": "4.1-6", "hebrew": "3.19-24"` for Malachi); a run
+whose two halves differ in length is ignored rather than guessed at.
+`psalmTitles` lists the psalms whose heading the Hebrew counts as one verse
+(`"1"`) or two (`"2"`). Where one English verse is split across two Hebrew
+ones (1 Sam 20:42, 1 Kgs 18:33 and 22:43, Isa 64:1) nothing is mapped, so those
+verses are compared under their own numbers.
+
+### Sources and licences
+
+The correspondence is the standard one tabulated in the introductions to BHS
+and in reference Bibles; it is a set of facts about two numbering schemes,
+written out here by hand. A fuller, machine-readable table with every minor
+variation is STEPBible's TVTMS (CC BY 4.0), which this file could be
+regenerated from if it ever needs to cover more than the Hebrew–English pair.

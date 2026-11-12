@@ -58,7 +58,9 @@ int lastLetterIndex(const QString &word);
 QString foldedKey(const QString &text);
 
 /// True when the raw token carries a mark a scribe abbreviates with: geresh,
-/// gershayim, or the two accents used the same way.
+/// gershayim, or the two accents used the same way. On a pointed word the
+/// accents are taken for cantillation instead, which is what they are in a
+/// Hebrew Bible witness.
 ///
 /// Must be asked of the token's own text. `comparisonKey` and `foldedKey` both
 /// strip every one of these marks, so by the time a reading has been keyed

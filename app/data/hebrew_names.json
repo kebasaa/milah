@@ -57,9 +57,10 @@
     },
     {
       "id": "jesus",
+      "testament": "nt",
       "prefer": "יֵשׁוּעַ",
       "forms": ["ישו", "ישוע", "יהושע"],
-      "note": "The truncated ישו is a derogatory shortening; the name is written in full as Yeshua. Cochin abbreviates to יש֞ו, Sloane writes יהושע. Beware: יהושע is also the biblical Joshua, so this group is right for Revelation and would be wrong for a book quoting Joshua son of Nun."
+      "note": "The truncated ישו is a derogatory shortening; the name is written in full as Yeshua. Cochin abbreviates to יש֞ו, Sloane writes יהושע. Beware: יהושע is also the biblical Joshua, so the group applies to the New Testament only; an NT verse naming Joshua son of Nun (Acts 7:45, Heb 4:8) still needs a second look."
     },
     {
       "id": "patmos",

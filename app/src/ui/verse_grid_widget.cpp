@@ -932,7 +932,7 @@ void VerseGridWidget::build()
              PhraseRules::shared(),
              m_controller->acceptedForms(),
              AbbreviationTable::shared(),
-             NameForms::shared())) {
+             NameForms::sharedFor(testamentOf(verseId().section(QLatin1Char('.'), 0, 0))))) {
         m_suggestions.insert(suggestion.column, suggestion);
     }
 

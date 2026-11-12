@@ -1,5 +1,7 @@
 #include "core/project.h"
 
+#include "core/versification.h"
+
 #include "core/osis.h"
 
 #include <QDateTime>
@@ -293,7 +295,10 @@ ProjectState restoreProject(const MilahProjectPayload &payload)
 
         const QByteArray raw =
             QByteArray::fromBase64(encoded.value().toLatin1());
-        state.sources.append(parseOsis(QString::fromUtf8(raw), options));
+        SourceDocument document = parseOsis(QString::fromUtf8(raw), options);
+        // As when it was first loaded, so the saved edits key the same verses.
+        toHebrewNumbering(document);
+        state.sources.append(document);
     }
 
     const QJsonArray associations =

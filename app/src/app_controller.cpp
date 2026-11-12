@@ -396,7 +396,9 @@ AlignedVerse AppController::alignedFor(
     options.abbreviations = &AbbreviationTable::shared();
     options.lexicon = &HebrewLexicon::shared();
     options.attested = &AttestedForms::shared();
-    options.names = &NameForms::shared();
+    // The names of the testament the verse is in: יהושע is Jesus in Revelation
+    // and Joshua in Joshua.
+    options.names = &NameForms::sharedFor(testamentOf(verseId.section(QLatin1Char('.'), 0, 0)));
 
     return applyColumnSplits(
         alignVerse(verseId, sources, priorityId, options),
@@ -1056,7 +1058,11 @@ void AppController::loadPaths(SourceRole role, const QStringList &paths)
             options.id = makeSourceId(role, index);
             options.name = opened.at(index).name;
             options.role = role;
-            parsed.append(parseOsis(opened.at(index).content, options));
+            SourceDocument document = parseOsis(opened.at(index).content, options);
+            // The Hebrew Bible is collated in its own numbering, so a witness or
+            // translation numbered the English way is brought into line first.
+            toHebrewNumbering(document);
+            parsed.append(document);
         }
     } catch (const OsisError &error) {
         setMessage(error.message());

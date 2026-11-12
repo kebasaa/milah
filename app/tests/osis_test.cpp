@@ -500,6 +500,37 @@ private slots:
         QVERIFY(!written.contains(QStringLiteral("StandardV11N")));
     }
 
+    void aHebrewBibleWitnessReadsAsTheScribeWroteIt()
+    {
+        // Shaped like the Open Scriptures Hebrew Bible: morphemes divided by a
+        // slash inside <w>, and the qere given in a note beside the ketiv.
+        const QString osis = QString::fromUtf8(
+            "<osis xmlns='http://www.bibletechnologies.net/2003/OSIS/namespace'>"
+            "<osisText osisIDWork='WLC' xml:lang='he'><header><work osisWork='WLC'>"
+            "<refSystem>Bible.Leningrad</refSystem></work></header>"
+            "<div type='book' osisID='Gen'><chapter osisID='Gen.1'>"
+            "<verse osisID='Gen.1.1'><w lemma='b/7225' morph='HR/Ncfsa'>בְּ/רֵאשִׁ֖ית</w> "
+            "<w lemma='1254 a'>בָּרָ֣א</w>"
+            "<note type='variant'><catchWord>בָּרָ֣א</catchWord>"
+            "<rdg type='x-qere'><w>בָּרָא</w></rdg></note></verse>"
+            "</chapter></div></osisText></osis>");
+        const SourceDocument read =
+            parseOsis(osis, options(QStringLiteral("wlc"), QStringLiteral("wlc")));
+        const SourceVerse *verse = read.verse(QStringLiteral("Gen.1.1"));
+        QVERIFY(verse);
+        QCOMPARE(verse->text, QString::fromUtf8("בְּרֵאשִׁ֖ית בָּרָ֣א"));
+        QCOMPARE(read.warnings, QStringList());
+        QCOMPARE(read.metadata.refSystem, QStringLiteral("Bible.Leningrad"));
+        // The qere is kept, as a note on the word.
+        bool qere = false;
+        for (const SourceToken &token : verse->tokens) {
+            for (const SourceNote &note : token.notes) {
+                qere = qere || note.text.contains(QString::fromUtf8("בָּרָא"));
+            }
+        }
+        QVERIFY(qere);
+    }
+
     void typedFieldsAreMadeFitForTheSchema()
     {
         QCOMPARE(osisWorkName(QStringLiteral("Sloane MS 237")), QStringLiteral("Sloane_MS_237"));

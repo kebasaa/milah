@@ -171,6 +171,8 @@ qt_add_library(MilahCore STATIC
     src/core/recent_files.h
     src/core/docx.cpp
     src/core/docx.h
+    src/core/versification.cpp
+    src/core/versification.h
     src/core/transcription_osis.cpp
     src/core/transcription_osis.h
     src/core/transcription_docx.cpp
@@ -228,6 +230,7 @@ set(MILAH_DATA_FILES
     "${CMAKE_CURRENT_SOURCE_DIR}/data/hebrew_phrase_rules.json"
     "${CMAKE_CURRENT_SOURCE_DIR}/data/hebrew_roots.json"
     "${CMAKE_CURRENT_SOURCE_DIR}/data/rabbinic.words.txt"
+    "${CMAKE_CURRENT_SOURCE_DIR}/data/versification.json"
 )
 
 add_custom_command(
@@ -483,7 +486,7 @@ if(MILAH_BUILD_TESTS)
             coverage alignment catalogue word_marker transcription books
             scan_catalogue recent_files docx transcription_docx page_layout
             reading_marks collation_docx name_forms training_export line_fill
-            osis_fill data_paths transcription_osis osis_schema)
+            osis_fill data_paths transcription_osis osis_schema versification)
         milah_add_test(${name}
             SOURCES tests/test_data.cpp tests/test_data.h
             LIBRARIES MilahCore)

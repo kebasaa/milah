@@ -522,7 +522,11 @@ SourceDocument parseOsis(const QString &rawOsis, const ParseOptions &options)
 
             if (currentVerse && local == QLatin1String("lb")) {
                 currentVerse->text += QLatin1Char(' ');
-            } else if (currentVerse && !supportedInline().contains(local)) {
+            } else if (currentVerse && !supportedInline().contains(local)
+                       && !elementStack.contains(QLatin1String("note"))) {
+                // Inside a note anything is the note's own text: an OSHB
+                // ketiv/qere note holds <catchWord> and <rdg>, which is
+                // exactly what a reader of the note wants to see.
                 addWarning(QStringLiteral("Unsupported inline <%1> markup was flattened.")
                                .arg(local));
             }
@@ -531,7 +535,11 @@ SourceDocument parseOsis(const QString &rawOsis, const ParseOptions &options)
         }
 
         if (tokenType == QXmlStreamReader::Characters) {
-            const QString text = reader.text().toString();
+            // OSHB divides a word into its morphemes with a slash inside <w>
+            // ("בְּ/רֵאשִׁית"). The manuscript wrote one word.
+            const QString text = elementStack.contains(QLatin1String("w"))
+                ? QString(reader.text().toString()).remove(QLatin1Char('/'))
+                : reader.text().toString();
             if (!metadataField.isEmpty()) {
                 metadataText += text;
                 continue;

@@ -760,8 +760,10 @@ QString libraryFileName(const QString &bookOsisId, const QString &manuscriptName
         name = QStringLiteral("Transcription");
     }
 
+    // "Text" for a transcription that names no book: it may be any work, and
+    // the library files it under Other texts rather than claiming a testament.
     return QStringLiteral("%1_%2_hebrew_commented.osis")
-        .arg(book.isEmpty() ? QStringLiteral("NT") : book, name);
+        .arg(book.isEmpty() ? QStringLiteral("Text") : book, name);
 }
 
 QString transcriptionFileStem(const TranscriptionDocument &document, int pageIndex)

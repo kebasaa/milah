@@ -3,6 +3,7 @@
 #include "core/alignment.h"
 #include "core/collation_docx.h"
 #include "core/coverage.h"
+#include "core/versification.h"
 #include "core/serialize.h"
 #include "core/suggestions.h"
 #include "core/types.h"

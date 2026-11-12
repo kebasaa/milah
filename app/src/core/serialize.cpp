@@ -227,11 +227,15 @@ QString serializeOsis(
     const QString scope = metadata.scope.isEmpty()
         ? QString()
         : QStringLiteral("        <scope>%1</scope>\n").arg(escapeXml(metadata.scope));
-    // The OSIS manual's name for a versification is Bible.<scheme>. Most of
-    // what Milah reads is numbered the English way.
-    const QString refSystem = metadata.refSystem.isEmpty()
-        ? QStringLiteral("Bible.KJV")
-        : metadata.refSystem;
+    // The OSIS manual's name for a versification is Bible.<scheme>. Milah
+    // collates the Hebrew Bible in its own numbering (see versification.h)
+    // and the New Testament in the English one, so unless told otherwise a
+    // file says whichever its verses follow.
+    const bool hebrewBible = !ordered.isEmpty()
+        && testamentOf(ordered.constFirst().reference.book) == Testament::Old;
+    const QString refSystem = !metadata.refSystem.isEmpty() ? metadata.refSystem
+        : hebrewBible                                         ? QStringLiteral("Bible.Leningrad")
+                                                              : QStringLiteral("Bible.KJV");
 
     // What the header says about the manuscript that no other element holds:
     // which folios, what it is written on, what the Hebrew renders, which older

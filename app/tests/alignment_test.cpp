@@ -760,6 +760,13 @@ private slots:
         QVERIFY(isAbbreviated(QString::fromUtf8("ה֝")));  // U+059D, Matthew
         QVERIFY(isAbbreviated(QString::fromUtf8("ה׳")));  // U+05F3, Matthew
         QVERIFY(isAbbreviated(QString::fromUtf8("ה״")));  // U+05F4
+
+        // On a pointed word the accents are cantillation: a Hebrew Bible
+        // witness carries one on nearly every word, and none is abbreviated.
+        QVERIFY(!isAbbreviated(QString::fromUtf8("בְּרֵאשִׁ֖ית")));
+        QVERIFY(!isAbbreviated(QString::fromUtf8("הָאָֽרֶץ׃")));
+        // A geresh still marks one, pointed or not.
+        QVERIFY(isAbbreviated(QString::fromUtf8("רַ׳")));
     }
 
     // --- pointing, as a property of the text --------------------------------
