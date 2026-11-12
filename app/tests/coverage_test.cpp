@@ -171,6 +171,29 @@ private slots:
         QCOMPARE(bookName(QStringLiteral("1En")), QStringLiteral("1En"));
         QCOMPARE(bookName(QString()), QString());
     }
+
+    void aFragmentSaysWhichVersesItHolds()
+    {
+        const QStringList all = {QStringLiteral("Jas.1.1"), QStringLiteral("Jas.1.2"),
+                                 QStringLiteral("Jas.1.3"), QStringLiteral("Jas.1.4"),
+                                 QStringLiteral("Jas.1.5")};
+        SourceDocument fragment;
+        for (const QString &id : {QStringLiteral("Jas.1.1"), QStringLiteral("Jas.1.2"),
+                                  QStringLiteral("Jas.1.5")}) {
+            SourceVerse verse;
+            verse.reference.id = id;
+            fragment.appendVerse(verse);
+        }
+        QCOMPARE(versesHeld(fragment, all), QStringLiteral("1–2, 5"));
+
+        // A verse written together with another is held.
+        fragment.joinedVerses.insert(QStringLiteral("Jas.1.3"), QStringLiteral("Jas.1.2"));
+        QCOMPARE(versesHeld(fragment, all), QStringLiteral("1–3, 5"));
+
+        // A whole witness says nothing.
+        fragment.joinedVerses.insert(QStringLiteral("Jas.1.4"), QStringLiteral("Jas.1.2"));
+        QCOMPARE(versesHeld(fragment, all), QString());
+    }
 };
 
 QTEST_MAIN(CoverageTest)

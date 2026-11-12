@@ -8,6 +8,7 @@
 #include <QFileInfo>
 #include <QLabel>
 #include <QListWidget>
+#include <QMap>
 #include <QPushButton>
 #include <QVBoxLayout>
 
@@ -110,12 +111,34 @@ ManuscriptLibraryDialog::ManuscriptLibraryDialog(QWidget *parent)
     m_list->setObjectName(QStringLiteral("manuscriptLibrary"));
     m_list->setSelectionMode(QAbstractItemView::ExtendedSelection);
     m_list->setLayoutDirection(Qt::LeftToRight);
+    // Under the part of the library each belongs to, the way the download
+    // window shows them. The book comes from the header's <scope>, which every
+    // file Milah or the library writes carries, else from the file name's
+    // prefix, which is how the library names its files.
+    QMap<int, QStringList> byTestament;
     for (const QString &path : library) {
-        auto *item = new QListWidgetItem(titleOf(path), m_list);
-        QStringList detail = termsOf(path);
-        detail.append(path);
-        item->setToolTip(detail.join(QLatin1Char('\n')));
-        item->setData(Qt::UserRole, path);
+        QString book = headerFieldOf(path, "scope");
+        if (book.isEmpty()) {
+            book = QFileInfo(path).fileName().section(QLatin1Char('_'), 0, 0);
+        }
+        byTestament[int(testamentOf(book))].append(path);
+    }
+    for (auto part = byTestament.constBegin(); part != byTestament.constEnd(); ++part) {
+        if (byTestament.size() > 1) {
+            auto *heading = new QListWidgetItem(
+                testamentName(Testament(part.key())), m_list);
+            QFont bold = heading->font();
+            bold.setBold(true);
+            heading->setFont(bold);
+            heading->setFlags(Qt::NoItemFlags);
+        }
+        for (const QString &path : part.value()) {
+            auto *item = new QListWidgetItem(titleOf(path), m_list);
+            QStringList detail = termsOf(path);
+            detail.append(path);
+            item->setToolTip(detail.join(QLatin1Char('\n')));
+            item->setData(Qt::UserRole, path);
+        }
     }
     connect(m_list, &QListWidget::itemSelectionChanged, this, [this] {
         m_load->setEnabled(!m_list->selectedItems().isEmpty());

@@ -61,6 +61,21 @@ manuscripts published online into the library, so they need no separate file
 to keep track of. Either dialog can also Browse for a file directly, which is
 how any other OSIS file gets opened.
 
+The library and the download window are divided into **Old Testament**, **New
+Testament** and **Other texts**, then by book — the Hebrew Bible in the Tanakh's
+order, Torah, Prophets and Writings — and the download window's *Show* box
+narrows it to one of them. A text the catalogue marks as a **fragment** says so
+on its row.
+
+**Fragments are collated as what they are.** A witness that does not reach a
+verse takes no part in deciding that verse's Combined reading: its silence is a
+missing leaf, not a vote for leaving the words out. Within a verse, a witness
+whose file marks text as lost (`<milestone type="x-lacuna"/>`, or TEI's
+`<gap/>`) still votes for the words it has, and says nothing about the ones it
+has lost. Text an editor supplied (`<seg type="x-supplied">`, or `<supplied>`)
+is not counted as the witness's own. The chapter list's tooltip names the
+witnesses that hold only part of a chapter, and which verses.
+
 **File ▸ Open project** (**Ctrl+O**) and **File ▸ Save project** (**Ctrl+S**)
 load and write a `.milah` project — see [Project format](#project-format) —
 which remembers every manuscript, translation, edit and note together.

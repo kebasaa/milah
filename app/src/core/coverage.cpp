@@ -149,3 +149,45 @@ QStringList verseIdsAtLocation(
 }
 
 } // namespace milah
+
+namespace milah {
+
+QString versesHeld(const SourceDocument &source, const QStringList &allIds)
+{
+    const auto holds = [&source](const QString &id) {
+        return source.hasVerse(id) || source.joinedVerses.contains(id);
+    };
+    bool all = true;
+    for (const QString &id : allIds) {
+        all = all && holds(id);
+    }
+    if (all) {
+        return QString();
+    }
+
+    QStringList runs;
+    QString first;
+    QString last;
+    const auto close = [&] {
+        if (first.isEmpty()) {
+            return;
+        }
+        runs.append(first == last ? first : QStringLiteral("%1–%2").arg(first, last));
+        first.clear();
+    };
+    for (const QString &id : allIds) {
+        const QString number = id.section(QLatin1Char('.'), 2);
+        if (holds(id)) {
+            if (first.isEmpty()) {
+                first = number;
+            }
+            last = number;
+        } else {
+            close();
+        }
+    }
+    close();
+    return runs.isEmpty() ? QStringLiteral("none") : runs.join(QStringLiteral(", "));
+}
+
+} // namespace milah

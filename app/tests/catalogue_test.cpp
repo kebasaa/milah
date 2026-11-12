@@ -675,6 +675,44 @@ private slots:
                      qPrintable(shown));
         }
     }
+
+    void aManifestSaysWhichPartOfTheLibraryATextBelongsIn()
+    {
+        const ManuscriptCatalogue catalogue = catalogueFrom(QByteArrayLiteral(
+            "{\"manuscripts\":["
+            "{\"file\":\"a.osis\",\"role\":\"manuscript\",\"book\":\"Gen\",\"category\":\"ot\","
+            " \"fragment\":true,\"covers\":[\"Gen.1.1-Gen.2.3\",\"Gen.4.1\"]},"
+            "{\"file\":\"b.osis\",\"role\":\"manuscript\",\"book\":\"\",\"category\":\"other\"}"
+            "]}"));
+        QCOMPARE(catalogue.entries().size(), 2);
+        const CatalogueEntry &genesis = catalogue.entries().at(0);
+        QCOMPARE(genesis.testament, Testament::Old);
+        QVERIFY(genesis.fragment);
+        QCOMPARE(genesis.coverage, QStringList({QStringLiteral("Gen.1.1-Gen.2.3"),
+                                                QStringLiteral("Gen.4.1")}));
+        QCOMPARE(genesis.covers, QStringLiteral("Gen.1.1-Gen.2.3, Gen.4.1"));
+        QCOMPARE(catalogue.entries().at(1).testament, Testament::Other);
+        QVERIFY(!catalogue.entries().at(1).fragment);
+    }
+
+    void anOlderManifestIsSortedByItsBook()
+    {
+        // No category: the book decides, in the codes the library used to
+        // write — "JOH", "MAT", "NT" — as well as in OSIS ids.
+        const ManuscriptCatalogue catalogue = catalogueFrom(QByteArrayLiteral(
+            "{\"manuscripts\":["
+            "{\"file\":\"j.osis\",\"role\":\"manuscript\",\"book\":\"JOH\",\"covers\":\"John 1-4\"},"
+            "{\"file\":\"n.osis\",\"role\":\"manuscript\",\"book\":\"NT\"},"
+            "{\"file\":\"p.osis\",\"role\":\"manuscript\",\"book\":\"Ps\"},"
+            "{\"file\":\"x.osis\",\"role\":\"manuscript\",\"book\":\"Avot\"}"
+            "]}"));
+        QCOMPARE(catalogue.entries().at(0).testament, Testament::New);
+        QCOMPARE(catalogue.entries().at(0).covers, QStringLiteral("John 1-4"));
+        QVERIFY(catalogue.entries().at(0).coverage.isEmpty());
+        QCOMPARE(catalogue.entries().at(1).testament, Testament::New);
+        QCOMPARE(catalogue.entries().at(2).testament, Testament::Old);
+        QCOMPARE(catalogue.entries().at(3).testament, Testament::Other);
+    }
 };
 
 QTEST_MAIN(CatalogueTest)

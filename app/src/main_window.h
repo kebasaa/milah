@@ -152,6 +152,8 @@ private:
     /// Names the manuscripts with nothing at this location, for the tooltip on
     /// an italicised chapter.
     QString missingFrom(const Location &location) const;
+    /// Which witnesses hold only part of the chapter, and which part.
+    QString partlyHeld(const Location &location) const;
     void rebuildPriorityList();
     void rebuildVerseList();
     void refreshVerse(const QString &verseId);

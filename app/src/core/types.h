@@ -131,6 +131,11 @@ struct SourceTitle
 
 /// A positioned marker such as a folio boundary (`pb`) or a manuscript verse
 /// division. `verseId` is unset when the marker falls outside any verse.
+/// The milestone type that marks where a witness's text is lost — a torn leaf,
+/// a burnt edge, a lacuna. Read from `<milestone type="x-lacuna"/>`, and from
+/// TEI's `<gap/>`, which some files use instead.
+inline constexpr const char kLacunaMilestone[] = "x-lacuna";
+
 struct SourceMilestone
 {
     QString id;

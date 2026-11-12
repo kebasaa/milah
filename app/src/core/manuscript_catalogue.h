@@ -1,5 +1,6 @@
 #pragma once
 
+#include "core/books.h"
 #include "core/types.h"
 
 #include <QList>
@@ -33,6 +34,15 @@ struct CatalogueEntry
     /// What the edition covers. Absent from a third of the texts, so never
     /// assume it is there.
     QString covers;
+    /// The same as OSIS references ("Jas.1.1-Jas.2.13"), where the manifest
+    /// gives them as a list rather than as prose.
+    QStringList coverage;
+    /// Which part of the library it belongs in: the manifest's own `category`
+    /// where it has one ("ot", "nt", "other"), else worked out from the book.
+    Testament testament = Testament::Other;
+    /// A witness to part of its book only: a few leaves, a damaged codex.
+    /// Collated like any other, but it says nothing where it is missing.
+    bool fragment = false;
 
     // What a cataloguer looks a manuscript up by, and what the download window
     // shows in the columns beside its title. All four describe the manuscript

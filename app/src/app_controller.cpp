@@ -187,7 +187,15 @@ bool AppController::matchesFilters(const AlignedVerse &aligned) const
         return true;
     }
     if (m_filters.missing) {
-        const DocumentRefs sources = manuscripts();
+        // Among the witnesses that hold this verse: a fragment that does not
+        // reach it is not missing a word, it is missing the verse, and counting
+        // it flagged nearly every verse once a fragment was loaded.
+        DocumentRefs sources;
+        for (const SourceDocument *source : manuscripts()) {
+            if (source->hasVerse(aligned.reference.id)) {
+                sources.append(source);
+            }
+        }
         for (const AlignmentColumn &column : aligned.columns) {
             for (const SourceDocument *source : sources) {
                 if (!column.cell(source->id)) {
@@ -925,9 +933,28 @@ void AppController::loadLibraryFiles(const QStringList &paths)
     // already gone in.
     QStringList manuscripts;
     QStringList translations;
-    for (const QString &path : paths) {
+    // The library keeps no copy of the manifest, so the file says for itself:
+    // by its name, as the library names translations, or by the language its
+    // text is in. A Hebrew witness is written right to left and a modern
+    // translation of it is not — which also catches a translation saved under
+    // some other name.
+    static const QRegularExpression declaredLanguage(
+        QStringLiteral("<osisText[^>]*xml:lang=[\"']([^\"']+)[\"']"));
+    const auto isTranslation = [](const QString &path) {
         if (QFileInfo(path).completeBaseName().endsWith(
                 QStringLiteral("_translation"), Qt::CaseInsensitive)) {
+            return true;
+        }
+        QFile file(path);
+        if (!file.open(QIODevice::ReadOnly)) {
+            return false;
+        }
+        const QRegularExpressionMatch match =
+            declaredLanguage.match(QString::fromUtf8(file.read(4096)));
+        return match.hasMatch() && !isRightToLeft(match.captured(1));
+    };
+    for (const QString &path : paths) {
+        if (isTranslation(path)) {
             translations.append(path);
         } else {
             manuscripts.append(path);

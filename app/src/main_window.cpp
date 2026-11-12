@@ -2138,11 +2138,13 @@ void MainWindow::rebuildChapterList()
         // The item carries its place in the flat list, not its own position in
         // this combo, so choosing it needs no second lookup.
         m_chapterCombo->addItem(QString::number(covered.location.chapter), index);
+        const QString partial = partlyHeld(covered.location);
+        const QString absent = missingFrom(covered.location);
         markCoverage(
             m_chapterCombo,
             m_chapterCombo->count() - 1,
-            covered.complete,
-            missingFrom(covered.location));
+            covered.complete && partial.isEmpty(),
+            QStringList({absent, partial}).join(QLatin1Char('\n')).trimmed());
         if (current.has_value() && covered.location == *current) {
             m_chapterCombo->setCurrentIndex(m_chapterCombo->count() - 1);
         }
@@ -2150,6 +2152,32 @@ void MainWindow::rebuildChapterList()
     m_chapterCombo->setEnabled(m_chapterCombo->count() > 0);
 
     updateNavigationActions();
+}
+
+QString MainWindow::partlyHeld(const Location &location) const
+{
+    // A fragment that reaches a chapter usually holds only some of it, and the
+    // chapter combo is where somebody choosing what to read looks first.
+    const DocumentRefs manuscripts = m_controller->manuscripts();
+    const QStringList all = verseIdsAtLocation(manuscripts, location);
+    QStringList partial;
+    for (const SourceDocument *manuscript : manuscripts) {
+        bool reaches = false;
+        for (const SourceVerse &verse : manuscript->verses) {
+            reaches = reaches
+                || (verse.reference.book == location.book
+                    && verse.reference.chapter == location.chapter);
+        }
+        const QString held = reaches ? versesHeld(*manuscript, all) : QString();
+        if (!held.isEmpty()) {
+            partial.append(QStringLiteral("%1 holds verses %2 only.")
+                               .arg(manuscript->metadata.title.isEmpty()
+                                        ? manuscript->name
+                                        : manuscript->metadata.title,
+                                    held));
+        }
+    }
+    return partial.join(QLatin1Char('\n'));
 }
 
 QString MainWindow::missingFrom(const Location &location) const

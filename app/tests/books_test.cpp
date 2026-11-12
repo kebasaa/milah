@@ -89,6 +89,35 @@ private slots:
         QCOMPARE(bookName(QStringLiteral("1En")), QStringLiteral("1En"));
     }
 
+    void theTestamentsAreToldApart()
+    {
+        QCOMPARE(testamentOf(QStringLiteral("Gen")), Testament::Old);
+        QCOMPARE(testamentOf(QStringLiteral("Sirach")), Testament::Old);
+        QCOMPARE(testamentOf(QStringLiteral("JAS")), Testament::New);
+        QCOMPARE(testamentOf(QStringLiteral("NT")), Testament::New);
+        QCOMPARE(testamentOf(QStringLiteral("Pirkei Avot")), Testament::Other);
+    }
+
+    void theHebrewBibleCanBeBrowsedInTanakhOrder()
+    {
+        // Chronicles closes the Tanakh; Ruth is among the Writings.
+        QVERIFY(compareTanakh(QStringLiteral("Mal"), QStringLiteral("Ps")) < 0);
+        QVERIFY(compareTanakh(QStringLiteral("Neh"), QStringLiteral("1Chr")) < 0);
+        QVERIFY(compareTanakh(QStringLiteral("2Kgs"), QStringLiteral("Ruth")) < 0);
+        QVERIFY(compareTanakh(QStringLiteral("2Chr"), QStringLiteral("Sir")) < 0);
+    }
+
+    void threeLetterCodesAreUnderstood()
+    {
+        QCOMPARE(bookIdFor(QStringLiteral("MRK")), QStringLiteral("Mark"));
+        QCOMPARE(bookIdFor(QStringLiteral("JOH")), QStringLiteral("John"));
+        QCOMPARE(bookIdFor(QStringLiteral("JHN")), QStringLiteral("John"));
+        QCOMPARE(bookIdFor(QStringLiteral("PSA")), QStringLiteral("Ps"));
+        // Never at the cost of an id or a name.
+        QCOMPARE(bookIdFor(QStringLiteral("Jude")), QStringLiteral("Jude"));
+        QCOMPARE(bookIdFor(QStringLiteral("Judg")), QStringLiteral("Judg"));
+    }
+
     void theDeuterocanonHasItsOsisIds()
     {
         QCOMPARE(bookIdFor(QStringLiteral("Tobit")), QStringLiteral("Tob"));

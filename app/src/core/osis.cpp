@@ -23,6 +23,9 @@ const QSet<QString> &supportedInline()
         QStringLiteral("name"),         QStringLiteral("foreign"),
         QStringLiteral("transChange"),  QStringLiteral("q"),
         QStringLiteral("reference"),    QStringLiteral("lb"),
+        // Text the editor could not read with certainty is still the
+        // witness's; its supplied and lost text are handled apart.
+        QStringLiteral("unclear"),      QStringLiteral("supplied"),
     };
     return tags;
 }
@@ -290,8 +293,16 @@ SourceDocument parseOsis(const QString &rawOsis, const ParseOptions &options)
 
         if (tokenType == QXmlStreamReader::StartElement) {
             const QString local = reader.name().toString();
-            elementStack.append(local);
             const QXmlStreamAttributes attributes = reader.attributes();
+            // Text an editor supplied where the witness has none is not the
+            // witness's reading, and collating it as one would credit the
+            // manuscript with words it lost. Kept out of the verse, whether
+            // written as OSIS (seg type="x-supplied") or as TEI (<supplied>).
+            const bool supplied = local == QLatin1String("supplied")
+                || (local == QLatin1String("seg")
+                    && attributeValue(attributes, QLatin1String("type"))
+                        == QLatin1String("x-supplied"));
+            elementStack.append(supplied ? QStringLiteral("#supplied") : local);
 
             if (local == QLatin1String("osis")
                 && reader.namespaceUri() != QLatin1String(kOsisNamespace)) {
@@ -418,8 +429,11 @@ SourceDocument parseOsis(const QString &rawOsis, const ParseOptions &options)
                 continue;
             }
 
-            if (local == QLatin1String("milestone")) {
-                const QString type = attributeValue(attributes, QLatin1String("type"));
+            // TEI's <gap/> is OSIS's lacuna milestone under another name.
+            if (local == QLatin1String("milestone") || local == QLatin1String("gap")) {
+                const QString type = local == QLatin1String("gap")
+                    ? QString::fromLatin1(kLacunaMilestone)
+                    : attributeValue(attributes, QLatin1String("type"));
                 if (!type.isEmpty()) {
                     SourceMilestone milestone;
                     milestone.id = QStringLiteral("milestone-%1").arg(milestones.size());
@@ -520,6 +534,9 @@ SourceDocument parseOsis(const QString &rawOsis, const ParseOptions &options)
             const QString text = reader.text().toString();
             if (!metadataField.isEmpty()) {
                 metadataText += text;
+                continue;
+            }
+            if (elementStack.contains(QStringLiteral("#supplied"))) {
                 continue;
             }
             // Words between verses, or a note standing outside any verse or

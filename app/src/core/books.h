@@ -39,6 +39,22 @@ QString sanitisedBookId(const QString &raw);
 /// Otherwise sanitisedBookId().
 QString normalisedBookId(const QString &raw);
 
+/// Which part of the canon a book belongs to, for grouping a library: the Hebrew
+/// Bible with the deuterocanon, the New Testament, or neither — a
+/// non-biblical work, or an id the canon does not know. Accepts a name or an id
+/// in any case ("JAS", "james"), and the collection codes "OT" and "NT" that
+/// whole-testament files are named with.
+enum class Testament { Old, New, Other };
+Testament testamentOf(const QString &book);
+
+/// "Old Testament", "New Testament", "Other texts".
+QString testamentName(Testament testament);
+
+/// Orders the books of the Hebrew Bible as the Tanakh does — Torah, Nevi'im,
+/// Ketuvim, ending with Chronicles — for browsing Hebrew manuscripts, which
+/// follow it. Anything else falls back to compareBooks().
+int compareTanakh(const QString &left, const QString &right);
+
 /// Orders books by their canonical position, falling back to a plain string
 /// comparison for anything outside the canon.
 int compareBooks(const QString &left, const QString &right);

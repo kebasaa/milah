@@ -33,4 +33,10 @@ QStringList verseIdsAtLocation(
     const DocumentRefs &manuscripts,
     const Location &location);
 
+/// Which of `allIds` (a chapter's verses, as verseIdsAtLocation() gives them)
+/// `source` holds, as runs a reader can take in: "1–7, 9". Verses it wrote
+/// together with another count as held. Empty when it holds them all — the
+/// usual case, and the one not worth saying.
+QString versesHeld(const SourceDocument &source, const QStringList &allIds);
+
 } // namespace milah
