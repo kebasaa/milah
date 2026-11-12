@@ -821,6 +821,18 @@ go stale the moment the edition was corrected — so a transcription opened on
 another machine, or one written before Milah remembered the source, asks **once**
 and never again.
 
+**A pointed edition onto an unpointed leaf.** The fill window's *Without vowel
+points* and *Without accents* pour the text as the scribe wrote it — the Open
+Scriptures Hebrew Bible, say, onto a manuscript with neither. The choice is
+remembered, and carrying on to the next folio or laying the text again pours
+the same way.
+
+**Works that are not the Bible.** The fill window and *Continue* also take a
+plain UTF-8 `.txt` file: a mishnah, a liturgical poem, a letter. Blank lines
+divide it into sections, numbered from 1, which do for it what verses do for
+the Bible — a place to start from and a place to carry on from — without
+pouring a numeral onto the leaf for each. The book is named after the file.
+
 **Chapters come across with the text.** A leaf running from Jas 1:25 into chapter
 2 numbers those verses 2:1, 2:2 — the chapter break is written where the source
 has it, and the folio records which chapter it opens in.

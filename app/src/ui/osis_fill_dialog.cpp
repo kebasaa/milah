@@ -4,6 +4,7 @@
 #include "core/osis.h"
 #include "core/transcription.h"
 
+#include <QCheckBox>
 #include <QComboBox>
 #include <QDialogButtonBox>
 #include <QFile>
@@ -127,11 +128,33 @@ OsisFillDialog::OsisFillDialog(Setup setup, QWidget *parent)
         rebuild();
     });
 
+    // A pointed, cantillated edition poured onto a leaf that has neither would
+    // put marks on every word the scribe never wrote. Remembered, because a
+    // manuscript is unpointed on every leaf or on none.
+    m_withoutPoints = new QCheckBox(QStringLiteral("Without vowel points"));
+    m_withoutPoints->setChecked(pourWithoutPoints());
+    m_withoutAccents = new QCheckBox(QStringLiteral("Without accents"));
+    m_withoutAccents->setChecked(pourWithoutAccents());
+    for (QCheckBox *box : {m_withoutPoints, m_withoutAccents}) {
+        connect(box, &QCheckBox::toggled, this, [this] {
+            QSettings settings;
+            settings.setValue(QStringLiteral("fill/withoutPoints"), m_withoutPoints->isChecked());
+            settings.setValue(QStringLiteral("fill/withoutAccents"), m_withoutAccents->isChecked());
+            gather();
+            rebuild();
+        });
+    }
+    auto *marks = new QHBoxLayout;
+    marks->addWidget(m_withoutPoints);
+    marks->addWidget(m_withoutAccents);
+    marks->addStretch(1);
+
     auto *form = new QFormLayout;
     form->addRow(QStringLiteral("Book"), m_book);
     form->addRow(QStringLiteral("Chapter"), m_chapter);
     form->addRow(QStringLiteral("First verse of the text"), m_verse);
     form->addRow(QStringLiteral("Skipping the first … words of it"), m_skip);
+    form->addRow(QStringLiteral("Pour it"), marks);
 
     m_summary = new QLabel;
     m_summary->setWordWrap(true);
@@ -251,7 +274,7 @@ void OsisFillDialog::chooseSource()
         this,
         QStringLiteral("Choose a transcription of this manuscript"),
         QSettings().value(QStringLiteral("paths/lastOsis")).toString(),
-        QStringLiteral("OSIS files (*.osis *.xml);;All files (*)"));
+        QStringLiteral("OSIS files (*.osis *.xml);;Plain text (*.txt);;All files (*)"));
     if (path.isEmpty()) {
         return;
     }
@@ -264,6 +287,16 @@ void OsisFillDialog::chooseSource()
     if (!failure.isEmpty()) {
         QMessageBox::warning(this, QStringLiteral("Milah"), failure);
     }
+}
+
+bool OsisFillDialog::pourWithoutPoints()
+{
+    return QSettings().value(QStringLiteral("fill/withoutPoints"), false).toBool();
+}
+
+bool OsisFillDialog::pourWithoutAccents()
+{
+    return QSettings().value(QStringLiteral("fill/withoutAccents"), false).toBool();
 }
 
 QString OsisFillDialog::loadSource(const QString &path)
@@ -351,12 +384,15 @@ void OsisFillDialog::gather()
     // Two definitions of it is one more than the number that can be right, and
     // the difference shows up as a folio repeating words the leaf before it had
     // rather than as anything that looks like a fault.
-    const Passage passage = gatherPassage(
-        m_source,
-        m_book->currentText(),
-        m_chapter->currentData().toInt(),
-        m_verse->value(),
-        m_skip->value());
+    const Passage passage = withoutMarks(
+        gatherPassage(
+            m_source,
+            m_book->currentText(),
+            m_chapter->currentData().toInt(),
+            m_verse->value(),
+            m_skip->value()),
+        pourWithoutPoints(),
+        pourWithoutAccents());
     m_passage = passage.words;
     m_passageVerses = passage.verses;
 }

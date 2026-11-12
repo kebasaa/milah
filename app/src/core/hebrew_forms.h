@@ -88,6 +88,11 @@ bool hasNiqqud(const QString &text);
 /// Combined text as אלהים.
 QString withoutNiqqud(const QString &text);
 
+/// The same text without its cantillation (U+0591–U+05AF): the accents of a
+/// Hebrew Bible edition, which most manuscripts do not write. Vowel points,
+/// maqaf, paseq and sof pasuq stay.
+QString withoutAccents(const QString &text);
+
 /// A conservative guess at the consonantal skeleton a word is built on, or an
 /// empty string when guessing would be worse than having no opinion.
 ///

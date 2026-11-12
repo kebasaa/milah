@@ -2155,7 +2155,7 @@ void TranscriptionController::continueFill(QPoint folioPixel, const ResumePoint 
             m_dialogParent,
             QStringLiteral("Which transcription is this folio carrying on?"),
             QSettings().value(QStringLiteral("paths/lastOsis")).toString(),
-            QStringLiteral("OSIS files (*.osis *.xml);;All files (*)"));
+            QStringLiteral("OSIS files (*.osis *.xml);;Plain text (*.txt);;All files (*)"));
         if (path.isEmpty()) {
             return;
         }
@@ -2224,12 +2224,16 @@ void TranscriptionController::continueFill(QPoint folioPixel, const ResumePoint 
         startLine = std::max(0, int(lines.indices.indexOf(pointed)));
     }
 
-    const Passage passage = gatherPassage(
-        source,
-        book,
-        resume.verse.section(QLatin1Char('.'), 1, 1).toInt(),
-        resume.verse.section(QLatin1Char('.'), 2, 2).toInt(),
-        resume.word);
+    // Without points or accents if that is how the window last poured.
+    const Passage passage = withoutMarks(
+        gatherPassage(
+            source,
+            book,
+            resume.verse.section(QLatin1Char('.'), 1, 1).toInt(),
+            resume.verse.section(QLatin1Char('.'), 2, 2).toInt(),
+            resume.word),
+        OsisFillDialog::pourWithoutPoints(),
+        OsisFillDialog::pourWithoutAccents());
     if (passage.isEmpty()) {
         setMessage(
             QStringLiteral("%1 has no more text after %2 — the book ends there.")
@@ -3769,12 +3773,15 @@ void TranscriptionController::reflowFrom(int line)
 
     // Where this folio began, plus everything already standing above the line
     // being laid again.
-    const Passage passage = gatherPassage(
-        source,
-        startVerse.section(QLatin1Char('.'), 0, 0),
-        startVerse.section(QLatin1Char('.'), 1, 1).toInt(),
-        startVerse.section(QLatin1Char('.'), 2, 2).toInt(),
-        startWord + pouredWordsBefore(*page, line));
+    const Passage passage = withoutMarks(
+        gatherPassage(
+            source,
+            startVerse.section(QLatin1Char('.'), 0, 0),
+            startVerse.section(QLatin1Char('.'), 1, 1).toInt(),
+            startVerse.section(QLatin1Char('.'), 2, 2).toInt(),
+            startWord + pouredWordsBefore(*page, line)),
+        OsisFillDialog::pourWithoutPoints(),
+        OsisFillDialog::pourWithoutAccents());
     if (passage.isEmpty()) {
         setMessage(QStringLiteral("The transcription has no more text after this "
                                   "point, so nothing was laid again."));

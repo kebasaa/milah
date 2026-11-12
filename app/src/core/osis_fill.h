@@ -80,8 +80,27 @@ Passage gatherPassage(
     int firstVerse,
     int skip);
 
+/// `passage` as a manuscript without pointing writes it: without its vowel
+/// points, its accents, or both, for pouring a pointed and cantillated edition
+/// onto a leaf that has neither. A word left empty — a lone accent — is kept,
+/// so the words stay in step with their verses.
+Passage withoutMarks(const Passage &passage, bool points, bool accents);
+
+/// A work that is not in OSIS, as a fill source: plain UTF-8 text divided into
+/// sections by blank lines, each section a "verse" of chapter 1 of a book
+/// named after `name` (letters and digits only, "Text" when nothing is left).
+/// A mishnah, a liturgical poem or a letter has no verses, but a fill needs a
+/// place to start from and a place to carry on from, and a numbered section is
+/// both. A file with no blank lines is one section per line.
+SourceDocument plainTextSource(const QString &text, const QString &name);
+
+/// The work type plainTextSource() gives what it makes, so a fill knows not to
+/// pour verse numerals for its sections.
+inline constexpr const char kPlainTextWork[] = "x-plain-text";
+
 /// The published text a fill pours from, read and parsed with the same reader
-/// the comparison uses, so a file that opens there opens here. Empty, with
+/// the comparison uses, so a file that opens there opens here. A `.txt`
+/// file is read with plainTextSource(). Empty, with
 /// `error` set to something fit to show a person, when the file cannot be
 /// opened or is not OSIS.
 std::optional<SourceDocument> readFillSource(const QString &path, QString *error);

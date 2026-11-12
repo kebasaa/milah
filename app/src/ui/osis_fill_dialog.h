@@ -12,6 +12,7 @@
 
 #include <functional>
 
+class QCheckBox;
 class QComboBox;
 class QLabel;
 class QListWidget;
@@ -65,6 +66,12 @@ class OsisFillDialog final : public QDialog
     Q_OBJECT
 
 public:
+    /// Whether text is poured without its vowel points, and without its
+    /// accents, as last chosen in this window. Continuing onto the next folio
+    /// and laying the text again pour the same way.
+    static bool pourWithoutPoints();
+    static bool pourWithoutAccents();
+
     /// Everything this needs to do its work, and the two things it cannot do
     /// itself.
     struct Setup
@@ -168,6 +175,8 @@ private:
     /// Visible, because it is the difference between the passage starting where
     /// the controls say and starting somewhere else.
     QSpinBox *m_skip = nullptr;
+    QCheckBox *m_withoutPoints = nullptr;
+    QCheckBox *m_withoutAccents = nullptr;
     QLabel *m_summary = nullptr;
     QListWidget *m_lineList = nullptr;
     QPushButton *m_fill = nullptr;

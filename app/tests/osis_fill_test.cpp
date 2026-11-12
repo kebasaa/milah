@@ -367,6 +367,44 @@ private slots:
         page.verses.append(verse);
         QCOMPARE(folioLines(page, 1).indices, QList<int>({1, 2}));
     }
+
+    void aPlainTextWorkIsASourceToo()
+    {
+        // A non-biblical work: sections divided by blank lines, numbered so a
+        // fill can start at one and carry on from where it stopped.
+        const SourceDocument work = plainTextSource(
+            QString::fromUtf8("משה קבל תורה מסיני\r\nומסרה ליהושע\r\n\r\n"
+                              "הם אמרו שלשה דברים\n\n\n   \n"
+                              "שמעון הצדיק היה משירי כנסת הגדולה\n"),
+            QStringLiteral("Pirkei Avot 1"));
+        QCOMPARE(work.verses.size(), 3);
+        QCOMPARE(work.verses.at(0).reference.id, QStringLiteral("PirkeiAvot1.1.1"));
+        QCOMPARE(work.verses.at(0).text, QString::fromUtf8("משה קבל תורה מסיני ומסרה ליהושע"));
+
+        const Passage passage =
+            gatherPassage(work, QStringLiteral("PirkeiAvot1"), 1, 2, 1);
+        QCOMPARE(passage.words.first(), QString::fromUtf8("אמרו"));
+        QCOMPARE(passage.verses.first(), QStringLiteral("PirkeiAvot1.1.2"));
+
+        // No blank lines: a line is a section.
+        QCOMPARE(plainTextSource(QStringLiteral("a\nb\nc"), QString()).verses.size(), 3);
+        QCOMPARE(plainTextSource(QStringLiteral("a\nb"), QString()).verses.first().reference.book,
+                 QStringLiteral("Text"));
+    }
+
+    void aPointedEditionCanBePouredPlain()
+    {
+        Passage passage;
+        passage.words = {QString::fromUtf8("בְּרֵאשִׁ֖ית"), QString::fromUtf8("בָּרָ֣א")};
+        passage.verses = {QStringLiteral("Gen.1.1"), QStringLiteral("Gen.1.1")};
+
+        QCOMPARE(withoutMarks(passage, false, true).words,
+                 QStringList({QString::fromUtf8("בְּרֵאשִׁית"), QString::fromUtf8("בָּרָא")}));
+        QCOMPARE(withoutMarks(passage, true, true).words,
+                 QStringList({QString::fromUtf8("בראשית"), QString::fromUtf8("ברא")}));
+        QCOMPARE(withoutMarks(passage, false, false).words, passage.words);
+        QCOMPARE(withoutMarks(passage, true, true).verses, passage.verses);
+    }
 };
 
 QTEST_MAIN(OsisFillTest)

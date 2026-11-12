@@ -1,7 +1,12 @@
 #include "core/osis_fill.h"
 
+#include "core/hebrew_forms.h"
 #include "core/line_fill.h"
+#include "core/books.h"
 #include "core/osis.h"
+#include "core/tokenize.h"
+
+#include <QRegularExpression>
 
 #include <QFile>
 #include <QFileInfo>
@@ -130,7 +135,11 @@ Passage gatherPassage(
         // written onto the leaf for a verse that is not on it would take a box
         // from the verse that is.
         bool opened = false;
-        const QString marker = verseMarker(verse);
+        // A plain-text work numbers its sections only so a fill can find its
+        // place; nothing on the leaf says "2", so nothing is poured for it.
+        const QString marker = source.metadata.workType == QLatin1String(kPlainTextWork)
+            ? QString()
+            : verseMarker(verse);
         for (const SourceToken &token : verse.tokens) {
             const QString text = token.text.trimmed();
             if (text.isEmpty()) {
@@ -235,6 +244,18 @@ std::optional<SourceDocument> readFillSource(const QString &path, QString *error
         }
         return std::nullopt;
     }
+    // A work that is not in OSIS — most that are not the Bible — as plain text.
+    if (QFileInfo(path).suffix().compare(QLatin1String("txt"), Qt::CaseInsensitive) == 0) {
+        const SourceDocument text = plainTextSource(QString::fromUtf8(file.readAll()),
+                                                    QFileInfo(path).completeBaseName());
+        if (text.verses.isEmpty()) {
+            if (error) {
+                *error = QStringLiteral("%1 holds no text.").arg(QFileInfo(path).fileName());
+            }
+            return std::nullopt;
+        }
+        return text;
+    }
     try {
         return parseOsis(QString::fromUtf8(file.readAll()), ParseOptions{});
     } catch (const OsisError &failure) {
@@ -243,6 +264,71 @@ std::optional<SourceDocument> readFillSource(const QString &path, QString *error
         }
         return std::nullopt;
     }
+}
+
+} // namespace milah
+
+namespace milah {
+
+Passage withoutMarks(const Passage &passage, bool points, bool accents)
+{
+    if (!points && !accents) {
+        return passage;
+    }
+    Passage plain = passage;
+    for (QString &word : plain.words) {
+        if (accents) {
+            word = withoutAccents(word);
+        }
+        if (points) {
+            word = withoutNiqqud(word);
+        }
+    }
+    return plain;
+}
+
+} // namespace milah
+
+namespace milah {
+
+SourceDocument plainTextSource(const QString &text, const QString &name)
+{
+    QString book = sanitisedBookId(name);
+    if (book.isEmpty()) {
+        book = QStringLiteral("Text");
+    }
+    QString normalised = text;
+    normalised.replace(QStringLiteral("\r\n"), QStringLiteral("\n"));
+    static const QRegularExpression blankLines(QStringLiteral("\\n\\s*\\n"));
+    QStringList sections = normalised.split(blankLines, Qt::SkipEmptyParts);
+    if (sections.size() <= 1) {
+        sections = normalised.split(QLatin1Char('\n'), Qt::SkipEmptyParts);
+    }
+
+    SourceDocument document;
+    document.id = book;
+    document.name = name;
+    document.role = SourceRole::Manuscript;
+    document.metadata.title = name;
+    document.metadata.workType = QLatin1String(kPlainTextWork);
+    int number = 0;
+    for (const QString &section : sections) {
+        const QString collapsed = collapseWhitespace(section);
+        if (collapsed.isEmpty()) {
+            continue;
+        }
+        ++number;
+        SourceVerse verse;
+        verse.reference.book = book;
+        verse.reference.chapter = 1;
+        verse.reference.verse = QString::number(number);
+        verse.reference.id = QStringLiteral("%1.1.%2").arg(book).arg(number);
+        verse.label = verse.reference.verse;
+        verse.text = collapsed;
+        verse.tokens = tokenize(verse.reference.id, collapsed, {}, TokenStyle::Separate);
+        document.appendVerse(verse);
+    }
+    return document;
 }
 
 } // namespace milah

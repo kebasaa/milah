@@ -230,6 +230,20 @@ QString withoutNiqqud(const QString &text)
     return result.normalized(QString::NormalizationForm_C);
 }
 
+QString withoutAccents(const QString &text)
+{
+    const QString decomposed = text.normalized(QString::NormalizationForm_D);
+    QString result;
+    result.reserve(decomposed.size());
+    for (const QChar character : decomposed) {
+        const char16_t code = character.unicode();
+        if (code < 0x0591 || code > 0x05AF) {
+            result.append(character);
+        }
+    }
+    return result.normalized(QString::NormalizationForm_C);
+}
+
 QString skeletonKey(const QString &key, const AttestedForms *attested)
 {
     if (countsLetters(key) < kMinimumSkeleton) {
