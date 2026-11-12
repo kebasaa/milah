@@ -19,6 +19,12 @@ struct CombinedApparatus
     QHash<QString, QList<SourceNote>> notes;
 };
 
+/// `raw` made fit to name an OSIS work: letters, digits and underscores, in
+/// dot-separated parts, as the schema's osisWorkType requires. Everything else
+/// becomes an underscore, so "Sloane MS 237" names its work as Sloane_MS_237.
+/// Empty when nothing usable is left.
+QString osisWorkName(const QString &raw);
+
 /// Renders the Combined edition as a standalone OSIS document.
 QString serializeCombinedOsis(
     const QMap<QString, CombinedDraft> &drafts,

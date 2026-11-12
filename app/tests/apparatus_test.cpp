@@ -422,7 +422,7 @@ private slots:
             {{preamble.reference.id, preamble}, {first.reference.id, first}});
 
         QVERIFY(xml.contains(
-            QStringLiteral("<div type=\"introduction\" osisRef=\"Rev.4\">incipit</div>")));
+            QStringLiteral("<div type=\"introduction\" canonical=\"true\" osisRef=\"Rev.4\" n=\"0\">incipit</div>")));
         QVERIFY(!xml.contains(QStringLiteral("osisID=\"Rev.4.0\"")));
         // And it stands before verse 1, which is the whole of what a preamble
         // is. The drafts sort it there; this is the check that they still do.

@@ -108,6 +108,29 @@ private slots:
         QCOMPARE(notes.at(1).charOffset, 4);
     }
 
+    void eachFolioBeginsWithAPageBreak()
+    {
+        TranscriptionDocument document;
+        TranscribedPage first = page(QStringLiteral("2"), {word(QStringLiteral("א")),
+                                                           word(QStringLiteral("ב"))});
+        first.imageLabel = QStringLiteral("1r");
+        TranscribedPage second = page(QStringLiteral("2"), {word(QStringLiteral("ג"))});
+        second.imageLabel = QStringLiteral("1v");
+        document.pages = {first, second};
+
+        const TranscriptionDrafts out = transcriptionDrafts(document);
+        const QList<SourceMilestone> breaks = out.apparatus.milestones;
+        QCOMPARE(breaks.size(), 2);
+        QCOMPARE(breaks.at(0).type, QStringLiteral("pb"));
+        QCOMPARE(breaks.at(0).n, QStringLiteral("1r"));
+        QCOMPARE(breaks.at(0).charOffset, 0);
+        // Before the second folio's first word, past the space that joins it
+        // to the first folio's "א ב".
+        QCOMPARE(breaks.at(1).n, QStringLiteral("1v"));
+        QCOMPARE(breaks.at(1).verseId, std::optional<QString>(QStringLiteral("Jas.1.2")));
+        QCOMPARE(breaks.at(1).charOffset, 4);
+    }
+
     void aVerseWithNoNumberIsCountedNotExported()
     {
         TranscriptionDocument document;

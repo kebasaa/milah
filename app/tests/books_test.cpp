@@ -63,7 +63,6 @@ private slots:
     {
         // Not an error: a transcriber may be reading an apocryphal work, and is
         // then asked what it should be called rather than being refused.
-        QVERIFY(bookIdFor(QStringLiteral("Tobit")).isEmpty());
         QVERIFY(bookIdFor(QStringLiteral("1 Enoch")).isEmpty());
         QVERIFY(bookIdFor(QString()).isEmpty());
         QVERIFY(bookIdFor(QStringLiteral("   ")).isEmpty());
@@ -87,7 +86,17 @@ private slots:
     {
         // bookName's standing promise, relied on by the transcription toolbar
         // when it fills the Book field for a work it coined an id for.
-        QCOMPARE(bookName(QStringLiteral("Tob")), QStringLiteral("Tob"));
+        QCOMPARE(bookName(QStringLiteral("1En")), QStringLiteral("1En"));
+    }
+
+    void theDeuterocanonHasItsOsisIds()
+    {
+        QCOMPARE(bookIdFor(QStringLiteral("Tobit")), QStringLiteral("Tob"));
+        QCOMPARE(bookIdFor(QStringLiteral("Sirach")), QStringLiteral("Sir"));
+        QCOMPARE(bookIdFor(QStringLiteral("1 Maccabees")), QStringLiteral("1Macc"));
+        // Between the testaments.
+        QVERIFY(compareBooks(QStringLiteral("Mal"), QStringLiteral("Sir")) < 0);
+        QVERIFY(compareBooks(QStringLiteral("Sir"), QStringLiteral("Matt")) < 0);
     }
 
     void aKnownBookIsStoredUnderItsOsisId()

@@ -13,6 +13,10 @@ TranscriptionDrafts transcriptionDrafts(const TranscriptionDocument &original)
     // any verse of the work.
     const TranscriptionDocument document = withoutMarginalia(original);
     for (const TranscribedPage &page : document.pages) {
+        // Where this folio begins in the running text, written as OSIS's page
+        // break so the exported file still says which leaf a verse is on.
+        bool folioMarked = false;
+        int folioAt = -1;
         for (int index = 0; index < page.verses.size(); ++index) {
             const TranscribedVerse &verse = page.verses.at(index);
             const QString id = transcribedVerseId(page, index);
@@ -41,6 +45,20 @@ TranscriptionDrafts transcriptionDrafts(const TranscriptionDocument &original)
             }
             const int first = int(draft.columns.size());
 
+            if (!folioMarked && !verse.words.isEmpty()) {
+                folioMarked = true;
+                SourceMilestone folio;
+                folio.type = QStringLiteral("pb");
+                folio.n = page.imageLabel.isEmpty() ? page.imageName : page.imageLabel;
+                folio.verseId = id;
+                folio.id = QStringLiteral("pb-%1").arg(out.apparatus.milestones.size());
+                // Measured once the folio's first word is in place, so the
+                // break stands before it rather than before the space after
+                // the previous folio's last word.
+                folioAt = int(out.apparatus.milestones.size());
+                out.apparatus.milestones.append(folio);
+            }
+
             QList<int> notedColumns;
             for (int word = 0; word < verse.words.size(); ++word) {
                 const TranscribedWord &written = verse.words.at(word);
@@ -54,6 +72,10 @@ TranscriptionDrafts transcriptionDrafts(const TranscriptionDocument &original)
                 if (!written.note.isEmpty()) {
                     notedColumns.append(column);
                 }
+            }
+            if (folioAt >= 0) {
+                out.apparatus.milestones[folioAt].charOffset = columnCharOffset(draft, first);
+                folioAt = -1;
             }
 
             // Anchored twice, because the two writers ask different questions.

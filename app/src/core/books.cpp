@@ -56,6 +56,28 @@ const BookEntry kBooks[] = {
     {"Hag", "Haggai"},
     {"Zech", "Zechariah"},
     {"Mal", "Malachi"},
+    // The deuterocanon, under the ids the OSIS manual gives it, between the
+    // testaments where the editions that print it put it. Hebrew manuscripts
+    // carry Ben Sira and Tobit among others; typing "Tobit" used to coin an id
+    // of its own rather than find this one.
+    {"Tob", "Tobit"},
+    {"Jdt", "Judith"},
+    {"AddEsth", "Additions to Esther"},
+    {"Wis", "Wisdom of Solomon"},
+    {"Sir", "Sirach"},
+    {"Bar", "Baruch"},
+    {"EpJer", "Letter of Jeremiah"},
+    {"PrAzar", "Prayer of Azariah"},
+    {"Sus", "Susanna"},
+    {"Bel", "Bel and the Dragon"},
+    {"1Macc", "1 Maccabees"},
+    {"2Macc", "2 Maccabees"},
+    {"3Macc", "3 Maccabees"},
+    {"4Macc", "4 Maccabees"},
+    {"PrMan", "Prayer of Manasseh"},
+    {"1Esd", "1 Esdras"},
+    {"2Esd", "2 Esdras"},
+    {"AddPs", "Psalm 151"},
     {"Matt", "Matthew"},
     {"Mark", "Mark"},
     {"Luke", "Luke"},

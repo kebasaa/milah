@@ -1,6 +1,7 @@
 #include "core/osis.h"
 
 #include "core/tokenize.h"
+#include "core/transcription.h"
 
 #include <QRegularExpression>
 #include <QRegularExpressionMatch>
@@ -10,6 +11,8 @@
 
 namespace milah {
 namespace {
+
+constexpr const char *kOsisNamespace = "http://www.bibletechnologies.net/2003/OSIS/namespace";
 
 const QSet<QString> &supportedInline()
 {
@@ -71,13 +74,36 @@ bool isAllDigits(const QString &value)
     return true;
 }
 
-VerseReference parseReference(const QString &id)
+/// The ids in an osisID attribute, each without the parts Milah does not
+/// address by: a work prefix ("Bible.KJV:Gen.1.1") and a grain ("Gen.1.1!a").
+/// OSIS allows a space-separated list, for an element that carries several
+/// verses at once.
+QStringList osisIdsOf(const QString &attribute)
 {
     static const QRegularExpression whitespace(QStringLiteral("\\s+"));
+    QStringList ids;
+    for (QString id : attribute.split(whitespace, Qt::SkipEmptyParts)) {
+        const qsizetype prefix = id.lastIndexOf(QLatin1Char(':'));
+        if (prefix >= 0) {
+            id = id.mid(prefix + 1);
+        }
+        const qsizetype grain = id.indexOf(QLatin1Char('!'));
+        if (grain >= 0) {
+            id.truncate(grain);
+        }
+        if (!id.isEmpty()) {
+            ids.append(id);
+        }
+    }
+    return ids;
+}
+
+VerseReference parseReference(const QString &id)
+{
     static const QRegularExpression pattern(
         QStringLiteral("^([^.]+)\\.(\\d+)\\.(.+)$"));
 
-    const QString first = id.split(whitespace).value(0);
+    const QString first = osisIdsOf(id).value(0);
     const QRegularExpressionMatch match = pattern.match(first);
     if (!match.hasMatch()) {
         throw OsisError(QStringLiteral("Invalid verse osisID: %1").arg(id));
@@ -98,6 +124,12 @@ struct PendingVerse
     QString text;
     QList<SourceNote> notes;
     bool milestone = false;
+    /// The sID a milestone verse opened with, which its eID repeats. Usually
+    /// the osisID, but not always: CrossWire's modules write
+    /// sID="Gen.1.1.seID.00002", and an eID is matched against what was opened.
+    QString startId;
+    /// The further ids of an osisID list, folded into this verse.
+    QStringList joined;
     std::optional<QString> altNumber;
 };
 
@@ -148,6 +180,11 @@ SourceDocument parseOsis(const QString &rawOsis, const ParseOptions &options)
     QString metadataField;
     QString metadataText;
     QString identifierType;
+    /// How many header <work>s have opened, so the second one — which
+    /// describes the versification — cannot overwrite the text's own fields.
+    int worksSeen = 0;
+    bool warnedJoined = false;
+    bool warnedStrayText = false;
 
     const auto addWarning = [&warnings](const QString &warning) {
         if (!warnings.contains(warning)) {
@@ -194,6 +231,11 @@ SourceDocument parseOsis(const QString &rawOsis, const ParseOptions &options)
                                                     : TokenStyle::Separate);
         verse.altNumber = currentVerse->altNumber;
         document.appendVerse(verse);
+        for (const QString &joined : currentVerse->joined) {
+            if (joined != verse.reference.id && !document.hasVerse(joined)) {
+                document.joinedVerses.insert(joined, verse.reference.id);
+            }
+        }
 
         currentVerse.reset();
     };
@@ -251,6 +293,21 @@ SourceDocument parseOsis(const QString &rawOsis, const ParseOptions &options)
             elementStack.append(local);
             const QXmlStreamAttributes attributes = reader.attributes();
 
+            if (local == QLatin1String("osis")
+                && reader.namespaceUri() != QLatin1String(kOsisNamespace)) {
+                // Read all the same: an OSIS 1.x file, or one written without
+                // its namespace, still has verses worth having.
+                addWarning(QStringLiteral("The file is not in the OSIS namespace (%1); it was "
+                                          "read as OSIS anyway.")
+                               .arg(reader.namespaceUri().isEmpty()
+                                        ? QStringLiteral("none")
+                                        : reader.namespaceUri().toString()));
+            }
+
+            if (local == QLatin1String("work") && elementStack.contains(QLatin1String("header"))) {
+                ++worksSeen;
+            }
+
             if (local == QLatin1String("osisText")) {
                 document.metadata.workId =
                     attributeValue(attributes, QLatin1String("osisIDWork"));
@@ -262,6 +319,7 @@ SourceDocument parseOsis(const QString &rawOsis, const ParseOptions &options)
                  || local == QLatin1String("language")
                  || local == QLatin1String("scope")
                  || local == QLatin1String("rights")
+                 || local == QLatin1String("refSystem")
                  || local == QLatin1String("identifier"))
                 && elementStack.contains(QLatin1String("header"))) {
                 metadataField = local;
@@ -289,11 +347,27 @@ SourceDocument parseOsis(const QString &rawOsis, const ParseOptions &options)
                 // typed and what everything inside Milah keys it by.
                 const QString introduces =
                     attributeValue(attributes, QLatin1String("osisRef"));
+                // A chapter's, that is: "Gen.1". An introduction to a whole
+                // book ("Gen") is editorial matter with no verse to key it by.
+                static const QRegularExpression chapterRef(
+                    QStringLiteral("^[^.\\s]+\\.\\d+$"));
+                const QString chapter = osisIdsOf(introduces).value(0);
                 if (divType == QLatin1String("introduction") && !introduces.isEmpty()
-                    && !currentVerse) {
+                    && !chapterRef.match(chapter).hasMatch()) {
+                    addWarning(QStringLiteral("The introduction to %1 is not tied to a chapter "
+                                              "and was not imported.")
+                                   .arg(introduces));
+                }
+                if (divType == QLatin1String("introduction")
+                    && chapterRef.match(chapter).hasMatch() && !currentVerse) {
+                    // Its number from n where Milah wrote one, so that a second
+                    // preamble ("0b", a second superscription) does not come
+                    // back as a duplicate of the first.
+                    const QString number = attributeValue(attributes, QLatin1String("n"));
                     PendingVerse verse;
-                    verse.reference =
-                        parseReference(introduces + QStringLiteral(".0"));
+                    verse.reference = parseReference(
+                        chapter + QLatin1Char('.')
+                        + (isPreamble(number) ? number : QStringLiteral("0")));
                     verse.label = verse.reference.verse;
                     // Closed by its own end tag rather than by a milestone.
                     verse.milestone = false;
@@ -369,7 +443,8 @@ SourceDocument parseOsis(const QString &rawOsis, const ParseOptions &options)
                 const QString endId = attributeValue(attributes, QLatin1String("eID"));
                 if (!endId.isEmpty()) {
                     if (!currentVerse || !currentVerse->milestone
-                        || currentVerse->reference.id != endId) {
+                        || (endId != currentVerse->startId
+                            && osisIdsOf(endId).value(0) != currentVerse->reference.id)) {
                         throw OsisError(
                             QStringLiteral("Unbalanced verse milestone: %1").arg(endId));
                     }
@@ -398,6 +473,17 @@ SourceDocument parseOsis(const QString &rawOsis, const ParseOptions &options)
                     verse.label = verse.reference.verse;
                 }
                 verse.milestone = !startId.isEmpty();
+                verse.startId = startId;
+                const QStringList ids = osisIdsOf(id);
+                if (ids.size() > 1) {
+                    verse.joined = ids.mid(1);
+                    if (!warnedJoined) {
+                        warnedJoined = true;
+                        addWarning(QStringLiteral("Some verses are written together (%1, for "
+                                                  "one); their text is kept under the first.")
+                                       .arg(ids.join(QLatin1Char(' '))));
+                    }
+                }
                 const QRegularExpressionMatch subType = altNumberPattern().match(
                     attributeValue(attributes, QLatin1String("subType")));
                 if (subType.hasMatch()) {
@@ -435,6 +521,18 @@ SourceDocument parseOsis(const QString &rawOsis, const ParseOptions &options)
             if (!metadataField.isEmpty()) {
                 metadataText += text;
                 continue;
+            }
+            // Words between verses, or a note standing outside any verse or
+            // heading, have nowhere to go in Milah's model. Dropped as before,
+            // but said, so a file that loses a paragraph does not do so quietly.
+            const bool stray = !currentVerse && !currentTitle
+                && !elementStack.contains(QLatin1String("header"))
+                && !text.trimmed().isEmpty();
+            if (stray && !warnedStrayText) {
+                warnedStrayText = true;
+                addWarning(QStringLiteral("Text outside any verse was not imported, "
+                                          "beginning “%1”.")
+                               .arg(collapseWhitespace(text).left(60)));
             }
             if (elementStack.contains(QLatin1String("note"))) {
                 if (currentVerse || currentTitle) {
@@ -479,10 +577,17 @@ SourceDocument parseOsis(const QString &rawOsis, const ParseOptions &options)
                 } else if (local == QLatin1String("title") && !value.isEmpty()
                            && document.metadata.title == options.name) {
                     document.metadata.title = value;
-                } else if (local == QLatin1String("language") && !value.isEmpty()) {
+                } else if (local == QLatin1String("language") && !value.isEmpty()
+                           && worksSeen <= 1) {
+                    // The first <work> only: the header carries a second one
+                    // for the versification, whose language is not the text's.
                     document.metadata.language = value;
-                } else if (local == QLatin1String("scope") && !value.isEmpty()) {
+                } else if (local == QLatin1String("scope") && !value.isEmpty()
+                           && worksSeen <= 1) {
                     document.metadata.scope = value;
+                } else if (local == QLatin1String("refSystem") && !value.isEmpty()
+                           && document.metadata.refSystem.isEmpty()) {
+                    document.metadata.refSystem = value;
                 } else if (local == QLatin1String("rights") && !value.isEmpty()) {
                     // Two of them, told apart by type: who holds the text, and
                     // what may be done with it. An untyped one is read as the

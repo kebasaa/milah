@@ -62,6 +62,11 @@ struct WorkMetadata
     /// Empty means an edition, which is what Milah's own collations are, so a
     /// caller that says nothing gets the file it always got.
     QString workType;
+    /// The versification the verse ids follow, as OSIS names it in the header's
+    /// <refSystem>: "Bible.KJV" for the English numbering most editions use,
+    /// "Bible.Leningrad" for the Hebrew Bible's own. Empty when a file does not
+    /// say, which the writer takes as Bible.KJV.
+    QString refSystem;
     QMap<QString, QString> identifiers;
     /// `<description type="…">` elements, keyed by the type attribute in full —
     /// "x-folios", "x-exemplar". What the header says about the manuscript that
@@ -147,6 +152,10 @@ struct SourceDocument
     WorkMetadata metadata;
     QList<SourceVerse> verses;
     QHash<QString, int> verseIndex;
+    /// Verses a source wrote as one element with several osisIDs ("Rom.3.10
+    /// Rom.3.11"), each later id mapped to the first. Their text is kept under
+    /// that first verse; the others are present, just not separately.
+    QHash<QString, QString> joinedVerses;
     QList<SourceTitle> titles;
     QList<SourceMilestone> milestones;
     QStringList warnings;

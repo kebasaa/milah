@@ -361,6 +361,167 @@ private slots:
             read.verse(QStringLiteral("Rev.4.1"))->text.trimmed(),
             QString::fromUtf8("שלום"));
     }
+
+    void twoPreamblesComeBackAsTwo()
+    {
+        // 0a and 0b both used to read back as Rev.4.0, and the second was then
+        // refused as a duplicate: Milah could not reopen its own file.
+        QMap<QString, CombinedDraft> drafts;
+        for (const QString &number : {QStringLiteral("0a"), QStringLiteral("0b")}) {
+            CombinedDraft draft;
+            draft.reference.id = QStringLiteral("Rev.4.") + number;
+            draft.reference.book = QStringLiteral("Rev");
+            draft.reference.chapter = 4;
+            draft.reference.verse = number;
+            ConsensusColumn column;
+            column.text = number;
+            draft.columns.append(column);
+            drafts.insert(draft.reference.id, draft);
+        }
+        const SourceDocument read = parseOsis(serializeCombinedOsis(drafts),
+                                              options(QStringLiteral("w"), QStringLiteral("w")));
+        QVERIFY(read.hasVerse(QStringLiteral("Rev.4.0a")));
+        QVERIFY(read.hasVerse(QStringLiteral("Rev.4.0b")));
+    }
+
+    void crossWireMilestonesPairByTheirStartId()
+    {
+        // How CrossWire's modules write verses: the eID repeats the sID, which
+        // is not the osisID. Such a file used to be refused outright.
+        const QString osis = QStringLiteral(
+            "<osis xmlns='http://www.bibletechnologies.net/2003/OSIS/namespace'>"
+            "<osisText osisIDWork='KJV'><div type='book' osisID='Gen'>"
+            "<chapter osisID='Gen.1' sID='Gen.1.seID.00001'/>"
+            "<verse osisID='Gen.1.1' sID='Gen.1.1.seID.00002' n='1'/>In the beginning"
+            "<verse eID='Gen.1.1.seID.00002'/>"
+            "<chapter eID='Gen.1.seID.00001'/></div></osisText></osis>");
+        const SourceDocument read =
+            parseOsis(osis, options(QStringLiteral("kjv"), QStringLiteral("kjv")));
+        QCOMPARE(read.verse(QStringLiteral("Gen.1.1"))->text, QStringLiteral("In the beginning"));
+    }
+
+    void aWorkPrefixAndAGrainAreSetAside()
+    {
+        const QString osis = QStringLiteral(
+            "<osis xmlns='http://www.bibletechnologies.net/2003/OSIS/namespace'>"
+            "<osisText osisIDWork='W'><div type='book' osisID='Gen'>"
+            "<verse osisID='Bible.KJV:Gen.1.1'>one</verse>"
+            "<verse osisID='Gen.1.2!a'>two</verse>"
+            "</div></osisText></osis>");
+        const SourceDocument read =
+            parseOsis(osis, options(QStringLiteral("w"), QStringLiteral("w")));
+        QVERIFY(read.hasVerse(QStringLiteral("Gen.1.1")));
+        QVERIFY(read.hasVerse(QStringLiteral("Gen.1.2")));
+    }
+
+    void versesWrittenTogetherAreRemembered()
+    {
+        // One element for two verses, as an edition that cannot divide them
+        // writes it. The second used to vanish without a word.
+        const QString osis = QStringLiteral(
+            "<osis xmlns='http://www.bibletechnologies.net/2003/OSIS/namespace'>"
+            "<osisText osisIDWork='W'><div type='book' osisID='Rom'>"
+            "<verse osisID='Rom.3.10 Rom.3.11'>both</verse>"
+            "</div></osisText></osis>");
+        const SourceDocument read =
+            parseOsis(osis, options(QStringLiteral("w"), QStringLiteral("w")));
+        QVERIFY(read.hasVerse(QStringLiteral("Rom.3.10")));
+        QCOMPARE(read.joinedVerses.value(QStringLiteral("Rom.3.11")),
+                 QStringLiteral("Rom.3.10"));
+        QCOMPARE(read.warnings.size(), 1);
+    }
+
+    void aBookIntroductionIsReportedNotFatal()
+    {
+        const QString osis = QStringLiteral(
+            "<osis xmlns='http://www.bibletechnologies.net/2003/OSIS/namespace'>"
+            "<osisText osisIDWork='W'><div type='book' osisID='Gen'>"
+            "<div type='introduction' osisRef='Gen'>About Genesis</div>"
+            "<verse osisID='Gen.1.1'>one</verse>"
+            "</div></osisText></osis>");
+        const SourceDocument read =
+            parseOsis(osis, options(QStringLiteral("w"), QStringLiteral("w")));
+        QVERIFY(read.hasVerse(QStringLiteral("Gen.1.1")));
+        QVERIFY(!read.warnings.isEmpty());
+    }
+
+    void textBetweenVersesIsReported()
+    {
+        const QString osis = QStringLiteral(
+            "<osis xmlns='http://www.bibletechnologies.net/2003/OSIS/namespace'>"
+            "<osisText osisIDWork='W'><div type='book' osisID='Gen'>"
+            "<verse osisID='Gen.1.1'>one</verse> a stray paragraph "
+            "<verse osisID='Gen.1.2'>two</verse>"
+            "</div></osisText></osis>");
+        const SourceDocument read =
+            parseOsis(osis, options(QStringLiteral("w"), QStringLiteral("w")));
+        QCOMPARE(read.warnings.size(), 1);
+        QVERIFY(read.warnings.first().contains(QStringLiteral("a stray paragraph")));
+    }
+
+    void aFileOutsideTheNamespaceIsReadWithAWarning()
+    {
+        const QString osis = QStringLiteral(
+            "<osis><osisText osisIDWork='W'><div type='book' osisID='Gen'>"
+            "<verse osisID='Gen.1.1'>one</verse></div></osisText></osis>");
+        const SourceDocument read =
+            parseOsis(osis, options(QStringLiteral("w"), QStringLiteral("w")));
+        QVERIFY(read.hasVerse(QStringLiteral("Gen.1.1")));
+        QCOMPARE(read.warnings.size(), 1);
+    }
+
+    void theVersificationAndTheTermsSurviveARoundTrip()
+    {
+        CombinedDraft draft;
+        draft.reference = {QStringLiteral("Mal.3.19"), QStringLiteral("Mal"), 3,
+                           QStringLiteral("19")};
+        ConsensusColumn column;
+        column.text = QStringLiteral("x");
+        draft.columns.append(column);
+        WorkMetadata metadata;
+        metadata.refSystem = QStringLiteral("Bible.Leningrad");
+        metadata.rights = QStringLiteral("© somebody");
+        metadata.license = QStringLiteral("CC BY 4.0");
+        metadata.language = QStringLiteral("he");
+
+        const SourceDocument read = parseOsis(
+            serializeCombinedOsis({{draft.reference.id, draft}}, metadata),
+            options(QStringLiteral("w"), QStringLiteral("w")));
+        QCOMPARE(read.metadata.refSystem, QStringLiteral("Bible.Leningrad"));
+        QCOMPARE(read.metadata.rights, QStringLiteral("© somebody"));
+        QCOMPARE(read.metadata.license, QStringLiteral("CC BY 4.0"));
+        QCOMPARE(read.metadata.language, QStringLiteral("he"));
+    }
+
+    void anUnnamedVersificationIsWrittenAsKjv()
+    {
+        const QString written = serializeCombinedOsis({});
+        QVERIFY(written.contains(QStringLiteral("<refSystem>Bible.KJV</refSystem>")));
+        QVERIFY(!written.contains(QStringLiteral("StandardV11N")));
+    }
+
+    void typedFieldsAreMadeFitForTheSchema()
+    {
+        QCOMPARE(osisWorkName(QStringLiteral("Sloane MS 237")), QStringLiteral("Sloane_MS_237"));
+        QCOMPARE(osisWorkName(QStringLiteral("Oo.1.32")), QStringLiteral("Oo.1.32"));
+        QCOMPARE(osisWorkName(QStringLiteral(" .Cod. hebr. 5 ")), QStringLiteral("Cod.hebr.5"));
+        QCOMPARE(osisWorkName(QStringLiteral("—")), QString());
+
+        WorkMetadata metadata;
+        metadata.workId = QStringLiteral("Sloane MS 237");
+        metadata.language = QStringLiteral("Hebrew (pointed)");
+        const QString written = serializeCombinedOsis({}, metadata);
+        QVERIFY(written.contains(QStringLiteral("osisIDWork=\"Sloane_MS_237\"")));
+        QVERIFY(written.contains(QStringLiteral("xml:lang=\"he\"")));
+    }
+
+    void aPercentSignInTheTitleIsLeftAlone()
+    {
+        WorkMetadata metadata;
+        metadata.title = QStringLiteral("Codex %5 and %9");
+        const QString written = serializeCombinedOsis({}, metadata);
+        QVERIFY(written.contains(QStringLiteral("<title>Codex %5 and %9</title>")));
+    }
 };
 
 QTEST_MAIN(OsisTest)

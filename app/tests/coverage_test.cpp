@@ -168,7 +168,7 @@ private slots:
 
         // A manuscript may carry something outside the canon; its id names its
         // own book rather than coming back empty.
-        QCOMPARE(bookName(QStringLiteral("Sir")), QStringLiteral("Sir"));
+        QCOMPARE(bookName(QStringLiteral("1En")), QStringLiteral("1En"));
         QCOMPARE(bookName(QString()), QString());
     }
 };

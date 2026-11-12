@@ -2872,7 +2872,14 @@ void TranscriptionController::harvestReadings(const RecognisedPage &recognised)
 WorkMetadata TranscriptionController::workMetadata() const
 {
     WorkMetadata work;
-    work.workId = QStringLiteral("Milah.Transcription");
+    // Named after the manuscript, so two transcriptions loaded side by side are
+    // two works rather than one name twice — the comparison builds its short
+    // labels from this. The writer makes it fit for OSIS.
+    const QString named = !m_document.metadata.shelfmark.isEmpty()
+        ? m_document.metadata.shelfmark
+        : m_document.metadata.manuscriptName;
+    work.workId = osisWorkName(named).isEmpty() ? QStringLiteral("Milah.Transcription")
+                                                : osisWorkName(named);
     // A transcription is a witness, not an edition, and the library's own files
     // say so in this line.
     work.workType = QStringLiteral("x-manuscript");

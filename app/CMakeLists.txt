@@ -426,7 +426,8 @@ if(MILAH_BUILD_TESTS)
         target_link_libraries(${target} PRIVATE
             Qt6::Core Qt6::Test milah_warnings ${arg_LIBRARIES})
         target_compile_definitions(${target} PRIVATE
-            MILAH_REPO_ROOT="${MILAH_REPO_ROOT}")
+            MILAH_REPO_ROOT="${MILAH_REPO_ROOT}"
+            MILAH_TEST_FIXTURES="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures")
         # The data files are read from beside the executable, so the tests
         # exercise exactly the path an installed copy uses.
         add_dependencies(${target} MilahData)
@@ -441,7 +442,7 @@ if(MILAH_BUILD_TESTS)
             coverage alignment catalogue word_marker transcription books
             scan_catalogue recent_files docx transcription_docx page_layout
             reading_marks collation_docx name_forms training_export line_fill
-            osis_fill data_paths transcription_osis)
+            osis_fill data_paths transcription_osis osis_schema)
         milah_add_test(${name}
             SOURCES tests/test_data.cpp tests/test_data.h
             LIBRARIES MilahCore)
