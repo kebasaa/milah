@@ -128,7 +128,8 @@ private slots:
     {
         // The four columns the download window shows beside a title. Without
         // them the window is a list of names, which is what it was.
-        const CatalogueEntry &witness = catalogueFrom(sampleManifest()).entries().first();
+        const auto catalogue = catalogueFrom(sampleManifest());
+        const CatalogueEntry &witness = catalogue.entries().first();
         QCOMPARE(witness.shelfmark, QStringLiteral("British Library, Sloane MS 237"));
         QCOMPARE(witness.folios, QStringLiteral("1r-4v"));
         QCOMPARE(witness.translatedFrom, QStringLiteral("Translated from the Greek"));

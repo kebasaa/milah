@@ -341,7 +341,7 @@ QList<LexiconEntry> HebrewLexicon::lookup(const QString &word) const
         if (entry != m_entries.constEnd()) {
             result.append(entry.value());
         } else {
-            result.append(LexiconEntry{number, QString(), QString(), QString()});
+            result.append(LexiconEntry{.strongs = number});
         }
     }
     return result;

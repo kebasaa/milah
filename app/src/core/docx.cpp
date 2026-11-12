@@ -226,7 +226,7 @@ QString plainParagraph(const QString &text, const QString &style)
 {
     DocxParagraph paragraph;
     paragraph.style = style;
-    paragraph.runs.append(DocxRun{text});
+    paragraph.runs.append(DocxRun{.text = text});
     return paragraphXml(paragraph);
 }
 

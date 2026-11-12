@@ -42,7 +42,7 @@ DocxDocument oneHebrewParagraph()
     hebrew.hebrew = true;
     paragraph.runs.append(hebrew);
 
-    paragraph.runs.append(DocxRun{QStringLiteral("in the beginning")});
+    paragraph.runs.append(DocxRun{.text = QStringLiteral("in the beginning")});
     document.blocks.append(paragraph);
     return document;
 }
@@ -62,7 +62,7 @@ DocxTable twoRowTable(bool rightToLeft = false)
          {QStringLiteral("Sloane"), QStringLiteral("first"), QStringLiteral("second")}) {
         DocxParagraph paragraph;
         paragraph.style = QStringLiteral("TableCell");
-        paragraph.runs.append(DocxRun{text});
+        paragraph.runs.append(DocxRun{.text = text});
         filled.cells.append(DocxTableCell{{paragraph}});
     }
     table.rows.append(filled);
@@ -137,7 +137,7 @@ private slots:
         DocxDocument document;
         DocxParagraph gloss;
         gloss.style = QStringLiteral("Gloss");
-        gloss.runs.append(DocxRun{QStringLiteral("in the beginning")});
+        gloss.runs.append(DocxRun{.text = QStringLiteral("in the beginning")});
         document.blocks.append(gloss);
 
         const QString xml = QString::fromUtf8(docxDocumentXml(document));
@@ -273,7 +273,7 @@ private slots:
         // by one. A reader that trimmed them would run the words together.
         DocxDocument document;
         DocxParagraph paragraph;
-        paragraph.runs.append(DocxRun{QStringLiteral("1 ")});
+        paragraph.runs.append(DocxRun{.text = QStringLiteral("1 ")});
         document.blocks.append(paragraph);
         QVERIFY(QString::fromUtf8(docxDocumentXml(document))
                     .contains(QStringLiteral("xml:space=\"preserve\"")));
@@ -472,7 +472,7 @@ private slots:
         missing.strikeThrough = true;
         paragraph.runs.append(missing);
 
-        paragraph.runs.append(DocxRun{QStringLiteral("plain")});
+        paragraph.runs.append(DocxRun{.text = QStringLiteral("plain")});
         document.blocks.append(paragraph);
 
         const QString xml = QString::fromUtf8(docxDocumentXml(document));

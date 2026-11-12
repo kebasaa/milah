@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.24)
+cmake_minimum_required(VERSION 3.25)
 
 # The one place the application version is written. It reaches the binary as
 # MILAH_VERSION (below), the About dialog, `Milah.exe --version`, and the
@@ -10,30 +10,113 @@ project(Milah VERSION 1.3.0 LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
-set(CMAKE_AUTOMOC ON)
 
 option(MILAH_BUILD_TESTS "Build Milah's test suite" OFF)
-option(MILAH_DEPLOY_QT "Run windeployqt after a Windows build" OFF)
 
-# Used by the apparatus test to find the repository's OSIS corpus. The test
-# skips itself when this points nowhere useful, so the suite stays runnable
-# from a standalone copy of app/.
+# Used by the corpus tests to find the published OSIS files, which live in the
+# sibling hebrew_manuscripts repository rather than in this one: they carry
+# their own licences. The tests skip themselves when no corpus is found, so the
+# suite stays runnable from a standalone copy of app/.
 set(MILAH_REPO_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/.." CACHE PATH
-    "Repository root containing the data/ corpus")
+    "Repository root; the corpus tests look for ../hebrew_manuscripts beside it")
+
+# A Windows install is a portable folder: the executable, Qt's DLLs and data/
+# all side by side, which is what dataSearchPaths() looks for first. Set in the
+# cache and before find_package(Qt6), because Qt writes its deployment script
+# from it there: set later, Milah.exe landed in one folder and its DLLs in
+# another.
+if(WIN32)
+    set(CMAKE_INSTALL_BINDIR "." CACHE PATH "Executables (portable layout)" FORCE)
+endif()
 
 # Network is used by exactly one thing: fetching published manuscripts into the
 # local library. MilahCore never touches it.
 find_package(Qt6 6.6 REQUIRED COMPONENTS Core Gui Network Widgets)
-find_package(QuaZip-Qt6 CONFIG REQUIRED)
 
-qt_standard_project_setup()
+# Sets AUTOMOC/AUTOUIC, GNUInstallDirs and the Qt policies for every version
+# up to the one named, as Qt's own CMake documentation recommends.
+qt_standard_project_setup(REQUIRES 6.6)
+
+# --------------------------------------------------------------------------
+# Third-party: QuaZip (and the zlib it needs)
+#
+# Built from pinned sources as a static library, so every platform links the
+# same QuaZip and no extra DLL has to be found at run time or deployed. An
+# installed QuaZip is used instead when CMake can find one, which is what a
+# distribution packager wants (FIND_PACKAGE_ARGS below).
+# --------------------------------------------------------------------------
+
+include(FetchContent)
+
+# QuaZip looks for zlib with find_package(ZLIB REQUIRED). Linux and macOS have a
+# system copy; a Windows toolchain usually does not, and Qt keeps its own zlib
+# inside Qt6Core where nothing else can link it. Build one there instead.
+find_package(ZLIB QUIET)
+if(NOT ZLIB_FOUND)
+    FetchContent_Declare(ZLIB
+        URL https://github.com/madler/zlib/releases/download/v1.3.2/zlib-1.3.2.tar.gz
+        URL_HASH SHA256=bb329a0a2cd0274d05519d61c667c062e06990d72e125ee2dfa8de64f0119d16
+        OVERRIDE_FIND_PACKAGE
+        EXCLUDE_FROM_ALL
+    )
+    block()
+        set(ZLIB_BUILD_SHARED OFF)
+        set(ZLIB_BUILD_STATIC ON)
+        set(ZLIB_BUILD_TESTING OFF)
+        set(ZLIB_INSTALL OFF)
+        set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+        FetchContent_MakeAvailable(ZLIB)
+    endblock()
+    # zlib's own CMake names only its static target ZLIB::ZLIBSTATIC; QuaZip
+    # links ZLIB::ZLIB.
+    add_library(ZLIB::ZLIB ALIAS zlibstatic)
+endif()
+
+FetchContent_Declare(QuaZip-Qt6
+    URL https://github.com/stachenov/quazip/archive/refs/tags/v1.7.1.zip
+    URL_HASH SHA256=244c9971544cac9b9132f239c2f10bc336cc94c00e313b7da5bc03e1fe5cba0f
+    EXCLUDE_FROM_ALL
+    FIND_PACKAGE_ARGS CONFIG
+)
+block()
+    set(BUILD_SHARED_LIBS OFF)
+    set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+    set(QUAZIP_QT_MAJOR_VERSION 6)
+    # QTextCodec would need Qt6::Core5Compat; QuaZip falls back to
+    # QStringConverter without it, which is all Milah needs.
+    set(QUAZIP_ENABLE_QTEXTCODEC OFF)
+    set(QUAZIP_BZIP2 OFF)
+    set(QUAZIP_FETCH_LIBS OFF)
+    set(QUAZIP_INSTALL OFF)
+    set(QUAZIP_ENABLE_TESTS OFF)
+    FetchContent_MakeAvailable(QuaZip-Qt6)
+endblock()
+
+# --------------------------------------------------------------------------
+# Warnings and deprecations, for Milah's own targets only
+# --------------------------------------------------------------------------
+
+add_library(milah_warnings INTERFACE)
+if(MSVC)
+    target_compile_options(milah_warnings INTERFACE /W4 /permissive-)
+else()
+    # Designated initialisers that leave defaulted members out are the idiom
+    # here (DocxRun{.text = ...}), not an oversight.
+    target_compile_options(milah_warnings INTERFACE
+        -Wall -Wextra -Wpedantic -Wno-missing-field-initializers)
+endif()
+# Anything Qt deprecated up to the oldest version Milah supports is an error
+# at compile time rather than a surprise at the next Qt upgrade.
+target_compile_definitions(milah_warnings INTERFACE
+    QT_DISABLE_DEPRECATED_UP_TO=0x060600
+)
 
 # --------------------------------------------------------------------------
 # MilahCore: OSIS parsing, alignment, consensus, serialisation and storage.
 # No widgets, so the tests can link it directly.
 # --------------------------------------------------------------------------
 
-add_library(MilahCore STATIC
+qt_add_library(MilahCore STATIC
     src/core/types.cpp
     src/core/types.h
     src/core/books.cpp
@@ -98,14 +181,23 @@ add_library(MilahCore STATIC
 
 target_include_directories(MilahCore PUBLIC src)
 
+target_link_libraries(MilahCore
+    PUBLIC
+        Qt6::Core
+        QuaZip::QuaZip
+    PRIVATE
+        milah_warnings
+)
+
 # --------------------------------------------------------------------------
 # Data files
 #
 # Read from disk rather than compiled in, so a regenerated lexicon or an edited
 # rule table can replace the shipped one without rebuilding Milah. They are
 # staged beside the binaries here so the application and the tests both find
-# them the same way they would in an installed copy; packaging has to carry the
-# directory too. See data/README.md for sources, licences and the search order.
+# them the same way they would in an installed copy, and installed below for
+# each platform's layout. See data/README.md for sources, licences and the
+# search order.
 # --------------------------------------------------------------------------
 
 set(MILAH_DATA_FILES
@@ -131,16 +223,11 @@ add_custom_target(MilahData ALL
     DEPENDS "${CMAKE_CURRENT_BINARY_DIR}/data/.staged"
 )
 
-target_link_libraries(MilahCore PUBLIC
-    Qt6::Core
-    QuaZip::QuaZip
-)
-
 # --------------------------------------------------------------------------
 # Milah: the Qt Widgets application.
 # --------------------------------------------------------------------------
 
-qt_add_executable(Milah WIN32
+qt_add_executable(Milah
     src/main.cpp
     src/app_controller.cpp
     src/app_controller.h
@@ -210,12 +297,22 @@ qt_add_executable(Milah WIN32
     src/ui/verse_grid_widget.h
 )
 
+set_target_properties(Milah PROPERTIES
+    WIN32_EXECUTABLE ON
+    MACOSX_BUNDLE ON
+    MACOSX_BUNDLE_GUI_IDENTIFIER "org.milah.Milah"
+    MACOSX_BUNDLE_BUNDLE_NAME "Milah"
+    MACOSX_BUNDLE_BUNDLE_VERSION "${PROJECT_VERSION}"
+    MACOSX_BUNDLE_SHORT_VERSION_STRING "${PROJECT_VERSION}"
+)
+
 target_link_libraries(Milah PRIVATE
     MilahCore
     Qt6::Core
     Qt6::Gui
     Qt6::Network
     Qt6::Widgets
+    milah_warnings
 )
 
 add_dependencies(Milah MilahData)
@@ -271,14 +368,39 @@ target_compile_definitions(Milah PRIVATE
     MILAH_BUILD_DATE="${MILAH_BUILD_DATE}"
 )
 
-if(WIN32 AND MILAH_DEPLOY_QT)
-    add_custom_command(TARGET Milah POST_BUILD
-        COMMAND "${CMAKE_COMMAND}"
-            -DMILAH_EXECUTABLE=$<TARGET_FILE:Milah>
-            -P "${CMAKE_CURRENT_SOURCE_DIR}/packaging/deploy_windows.cmake"
-        VERBATIM
-    )
+# --------------------------------------------------------------------------
+# Install and deploy
+#
+# `cmake --install <build> --prefix <dir>` produces a runnable copy: Qt's
+# deployment script brings in Qt's libraries and plugins (windeployqt and
+# macdeployqt underneath), and the data files go wherever dataSearchPaths()
+# looks on that platform:
+#   Windows  <prefix>/Milah.exe, <prefix>/data/
+#   macOS    <prefix>/Milah.app, Milah.app/Contents/Resources/data/
+#   Linux    <prefix>/bin/Milah, <prefix>/share/milah/data/
+# --------------------------------------------------------------------------
+
+install(TARGETS Milah
+    BUNDLE DESTINATION .
+    RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+)
+
+if(APPLE)
+    set(MILAH_DATA_INSTALL_DIR "Milah.app/Contents/Resources/data")
+elseif(WIN32)
+    set(MILAH_DATA_INSTALL_DIR "data")
+else()
+    set(MILAH_DATA_INSTALL_DIR "${CMAKE_INSTALL_DATADIR}/milah/data")
 endif()
+install(FILES ${MILAH_DATA_FILES} DESTINATION "${MILAH_DATA_INSTALL_DIR}")
+
+qt_generate_deploy_app_script(
+    TARGET Milah
+    OUTPUT_SCRIPT MILAH_DEPLOY_SCRIPT
+    NO_TRANSLATIONS
+    NO_UNSUPPORTED_PLATFORM_ERROR
+)
+install(SCRIPT "${MILAH_DEPLOY_SCRIPT}")
 
 # --------------------------------------------------------------------------
 # Tests
@@ -288,68 +410,52 @@ if(MILAH_BUILD_TESTS)
     enable_testing()
     find_package(Qt6 6.6 REQUIRED COMPONENTS Test)
 
-    foreach(test_name
+    # One test executable. Plain add_executable, not qt_add_executable: the
+    # latter finalises the target as a GUI application on Windows, and a
+    # GUI-subsystem binary discards the stdout QTest reports through, leaving a
+    # failing test with nothing to show for it.
+    #
+    #   milah_add_test(<name> SOURCES <extra sources...> LIBRARIES <libs...>)
+    function(milah_add_test name)
+        cmake_parse_arguments(PARSE_ARGV 1 arg "" "" "SOURCES;LIBRARIES")
+        set(target Milah_${name}_test)
+        add_executable(${target} tests/${name}_test.cpp ${arg_SOURCES})
+        target_include_directories(${target} PRIVATE src tests)
+        target_link_libraries(${target} PRIVATE
+            Qt6::Core Qt6::Test milah_warnings ${arg_LIBRARIES})
+        target_compile_definitions(${target} PRIVATE
+            MILAH_REPO_ROOT="${MILAH_REPO_ROOT}")
+        # The data files are read from beside the executable, so the tests
+        # exercise exactly the path an installed copy uses.
+        add_dependencies(${target} MilahData)
+        add_test(NAME ${target} COMMAND ${target})
+        set_tests_properties(${target} PROPERTIES ENVIRONMENT
+            # No display on a CI runner; nothing here draws to a screen.
+            "QT_QPA_PLATFORM=offscreen;QT_ASSUME_STDERR_HAS_CONSOLE=1")
+    endfunction()
+
+    foreach(name
             project_storage osis consensus apparatus diff acronym lexicon suggestions
             coverage alignment catalogue word_marker transcription books
             scan_catalogue recent_files docx transcription_docx page_layout
             reading_marks collation_docx name_forms training_export line_fill
-            osis_fill)
-        # Plain add_executable, not qt_add_executable: the latter finalises the
-        # target as a Windows GUI application, and a GUI-subsystem binary
-        # discards the stdout QTest reports through, leaving a failing test
-        # with nothing to show for it.
-        add_executable(Milah_${test_name}_test
-            tests/${test_name}_test.cpp
-            tests/test_data.cpp
-            tests/test_data.h
-        )
-        target_include_directories(Milah_${test_name}_test PRIVATE tests)
-        # The data files are read from beside the executable, so the tests
-        # exercise exactly the path an installed copy uses.
-        add_dependencies(Milah_${test_name}_test MilahData)
-        target_link_libraries(Milah_${test_name}_test PRIVATE
-            MilahCore
-            Qt6::Core
-            Qt6::Test
-        )
-        target_compile_definitions(Milah_${test_name}_test PRIVATE
-            MILAH_REPO_ROOT="${MILAH_REPO_ROOT}"
-        )
-        add_test(NAME Milah_${test_name}_test COMMAND Milah_${test_name}_test)
+            osis_fill data_paths)
+        milah_add_test(${name}
+            SOURCES tests/test_data.cpp tests/test_data.h
+            LIBRARIES MilahCore)
     endforeach()
 
-    # The training set lives in the application target rather than in MilahCore,
-    # because where it puts its files is an application question. It is still
-    # worth testing, so this one target takes the source in directly and links
-    # the Gui module it needs to read a picture's size.
-    add_executable(Milah_training_set_test
-        tests/training_set_test.cpp
-        src/ui/training_set.cpp
-        src/ui/training_set.h
-    )
-    target_include_directories(Milah_training_set_test PRIVATE src tests)
-    target_link_libraries(Milah_training_set_test PRIVATE
-        MilahCore
-        Qt6::Core
-        Qt6::Gui
-        Qt6::Test
-    )
-    add_test(NAME Milah_training_set_test COMMAND Milah_training_set_test)
+    # The training set lives in the application target rather than in
+    # MilahCore, because where it puts its files is an application question.
+    # It is still worth testing, so this target takes the source in directly
+    # and links the Gui module it needs to read a picture's size.
+    milah_add_test(training_set
+        SOURCES src/ui/training_set.cpp src/ui/training_set.h
+        LIBRARIES MilahCore Qt6::Gui)
 
     # Pure string and arithmetic work over what a IIIF service says about
     # itself, so it takes no network and no widgets.
-    add_executable(Milah_iiif_image_test
-        tests/iiif_image_test.cpp
-        src/ui/iiif_image.cpp
-        src/ui/iiif_image.h
-    )
-    target_include_directories(Milah_iiif_image_test PRIVATE src tests)
-    target_link_libraries(Milah_iiif_image_test PRIVATE Qt6::Core Qt6::Gui Qt6::Test)
-    add_test(NAME Milah_iiif_image_test COMMAND Milah_iiif_image_test)
-
-    # Which line a point on the folio falls on used to be tested here, against a
-    # build of the whole image widget. lineAtPoint() has moved into MilahCore —
-    # the fill dialog needs it too, to turn a click on an unread folio into a
-    # line once it has read one — so its cases moved into line_fill_test above,
-    # where they cost no window and no Widgets link.
+    milah_add_test(iiif_image
+        SOURCES src/ui/iiif_image.cpp src/ui/iiif_image.h
+        LIBRARIES Qt6::Gui)
 endif()

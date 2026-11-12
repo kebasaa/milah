@@ -11,7 +11,10 @@ namespace milah {
 ///
 ///   1. `$MILAH_DATA_DIR`, when set — for pointing at a freshly generated file
 ///   2. `data/` under the user's application data directory — a personal copy
-///   3. `data/` beside the executable — what ships with the application
+///   3. `data/` beside the executable — what ships with the application —
+///      then the installed layouts: `../data` (a bin/ folder),
+///      `../Resources/data` (a macOS bundle) and `../share/milah/data` (a
+///      Linux prefix)
 ///
 /// The files are read rather than compiled in, so a newer lexicon can replace
 /// an older one without rebuilding Milah.

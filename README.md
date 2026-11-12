@@ -944,26 +944,27 @@ restore it.
 
 ### Requirements
 
-- Windows 10 or 11.
-- Qt 6.6 or newer with Core, Gui, Widgets and Network, built for MinGW.
-- The MinGW toolchain, CMake 3.24+ and Ninja. A default Qt installation
-  supplies all three under `Tools/`.
+- Windows 10 or 11, Linux, or macOS 12+.
+- Qt 6.6 or newer with Core, Gui, Widgets and Network. On Windows, the MinGW
+  kit.
+- CMake 3.25+ and Ninja. On Windows a default Qt installation supplies both,
+  and the MinGW toolchain, under `Tools/`.
 
-ZLIB and QuaZip are built automatically by the build script; nothing else is
-needed.
+QuaZip, and zlib where the system has none, are fetched and built by CMake
+itself; nothing else is needed.
 
 ### Build
 
-From the repository root:
+On Windows, from the repository root:
 
 ```powershell
 .\build_milah_windows.ps1
 ```
 
-The script discovers Qt, MinGW, CMake and Ninja by itself, builds the ZLIB and
-QuaZip dependencies under `build\deps\`, builds Milah, and assembles a
-self-contained `milah-portable\` folder with `windeployqt`. Nothing needs to be
-on `PATH` beforehand.
+The script discovers Qt, MinGW, CMake and Ninja by itself, configures and
+builds with the `windows-mingw` preset, and assembles a self-contained
+`milah-portable\` folder with `cmake --install`, which runs Qt's own deployment
+script. Nothing needs to be on `PATH` beforehand.
 
 Qt is looked for under `C:\Qt` first and then `%USERPROFILE%\Qt` — the
 system-wide and the per-user location the online installer offers — taking the
@@ -973,15 +974,27 @@ other root and finally to `PATH`, so an installation split across the two still
 builds. `-QtRoot` pins the search to a single directory instead.
 
 Useful switches: `-Configuration Debug`, `-Tests`, `-Clean`, `-SkipPortable`,
-`-KeepBuildArtifacts`, `-NoDownload`. Paths can be forced with `-QtBin`,
-`-MinGwBin`, `-CMake`, `-Ninja`, `-QuaZipRoot` and `-ZlibRoot`.
+`-NoDownload` (build from the already-fetched QuaZip and zlib sources). Paths
+can be forced with `-QtBin`, `-MinGwBin`, `-CMake` and `-Ninja`.
 
-To build by hand instead:
+Anywhere else, or by hand, use the presets in `app/CMakePresets.json`
+(`windows-mingw`, `linux`, `macos`) with the tools on `PATH`:
 
-```powershell
-cmake -S app -B build/milah -G Ninja -DCMAKE_PREFIX_PATH="<qt-kit>;<quazip>;<zlib>"
-cmake --build build/milah
+```bash
+cd app
+cmake --preset linux -DCMAKE_PREFIX_PATH=<qt-kit>
+cmake --build --preset linux
+ctest --preset linux
+cmake --install ../build/linux --prefix <where-to-put-it>
 ```
+
+The install lays Milah out the way each platform expects: a portable folder
+with `data\` beside `Milah.exe` on Windows, `Milah.app` with the data in
+`Contents/Resources/data` on macOS, and `bin/Milah` with `share/milah/data` on
+Linux.
+
+GitHub Actions builds and tests every push and pull request on all three
+(`.github/workflows/build.yml`) and keeps the installed result as an artifact.
 
 ### Running
 
@@ -1005,10 +1018,15 @@ status bar says which directories were searched when that happens.
 .\build_milah_windows.ps1 -Tests
 ```
 
-Thirteen QTest binaries run under `ctest`, covering OSIS import and note
+Each area has its own QTest binary under `ctest` — OSIS import and note
 anchoring, alignment and its scoring, consensus, coverage, the apparatus,
-transcription, the manuscript catalogue, word markers, the lexicon, the
-spelling suggestions, the grapheme diff, acronyms and the `.milah` round trip.
+transcription and its exports, filling and training data, the manuscript and
+scan catalogues, word markers, the lexicon, the spelling suggestions, the
+grapheme diff, acronyms, data-file lookup and the `.milah` round trip. They
+need no display. A few also check themselves against the published corpus,
+and skip when the
+[hebrew_manuscripts](https://github.com/kebasaa/hebrew_manuscripts) repository
+is not checked out beside this one.
 
 The comparison logic lives in `app/src/core/` and is built as a `MilahCore`
 static library, so the tests exercise it without a display.

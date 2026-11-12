@@ -731,8 +731,6 @@ int VerseGridWidget::addTranslationRows(
     const SourceDocument *translation,
     const QHash<QString, QString> &acronyms)
 {
-    const SourceVerse *verse = translation->verse(m_aligned.reference.id);
-
     QList<TranslationSpan> spans;
     for (const TranslationSpan &span : m_controller->translationSpans()) {
         // A group the editor took out keeps its place in the project so the
