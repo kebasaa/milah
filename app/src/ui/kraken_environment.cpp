@@ -1,5 +1,6 @@
 #include "ui/kraken_environment.h"
 
+#include <QCoreApplication>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
@@ -10,6 +11,7 @@
 #include <QRegularExpression>
 #include <QSettings>
 #include <QStandardPaths>
+#include <QTemporaryDir>
 
 #include <algorithm>
 #include <cstdint>
@@ -455,7 +457,14 @@ QString KrakenEnvironment::firstDistro()
 #ifdef Q_OS_WIN
     QProcess wsl;
     wsl.start(QStringLiteral("wsl.exe"), {QStringLiteral("-l"), QStringLiteral("-q")});
-    if (!wsl.waitForFinished(ProbeTimeoutMs) || wsl.exitCode() != 0) {
+    if (!wsl.waitForFinished(ProbeTimeoutMs)) {
+        // Left running, it would be destroyed mid-flight, which QProcess
+        // complains about and which leaves wsl.exe to finish on its own.
+        wsl.kill();
+        wsl.waitForFinished(1000);
+        return QString();
+    }
+    if (wsl.exitCode() != 0) {
         return QString();
     }
     const QByteArray raw = wsl.readAllStandardOutput();
@@ -580,15 +589,32 @@ QString KrakenEnvironment::pathFor(const QString &local)
 #endif
 }
 
+namespace {
+
+/// A folder of this process's own for the helper scripts, so two Milahs open at
+/// once never run each other's half-written copy. Removed again when Milah
+/// exits; the temporary directory itself if it cannot be made.
+QDir scratchDirectory()
+{
+    static QTemporaryDir directory(QDir(QDir::tempPath()).filePath(QStringLiteral("milah-XXXXXX")));
+    return QDir(directory.isValid() ? directory.path() : QDir::tempPath());
+}
+
+} // namespace
+
 QString KrakenEnvironment::writeHelperScript() const
 {
     const QString local =
-        QDir(QDir::tempPath()).filePath(QStringLiteral("milah-htr-models.py"));
+        scratchDirectory().filePath(QStringLiteral("milah-htr-models.py"));
     QFile file(local);
     if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
         return QString();
     }
-    file.write(kHelperSource);
+    // Checked, so a full disk is not a mystery later.
+    const QByteArray source(kHelperSource);
+    if (file.write(source) != source.size()) {
+        return QString();
+    }
     file.close();
     // As the environment will see it: under WSL the temporary directory is on
     // the Windows disk, which the distribution reaches through /mnt.
@@ -607,12 +633,15 @@ QStringList KrakenEnvironment::listCommand(const QString &script) const
 QString KrakenEnvironment::writeStripScript() const
 {
     const QString local =
-        QDir(QDir::tempPath()).filePath(QStringLiteral("milah-htr-strips.py"));
+        scratchDirectory().filePath(QStringLiteral("milah-htr-strips.py"));
     QFile file(local);
     if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
         return QString();
     }
-    file.write(kStripSource);
+    const QByteArray source(kStripSource);
+    if (file.write(source) != source.size()) {
+        return QString();
+    }
     file.close();
     return pathFor(local);
 }
@@ -754,6 +783,15 @@ QStringList KrakenEnvironment::convertCommand(
                  quotedPath(QStringLiteral("venv/bin/ketos")),
                  quotedPath(QStringLiteral("%1/%2.mlmodel").arg(folder, name)),
                  quoted(checkpoint)));
+}
+
+void KrakenEnvironment::finishIfNeverStarted(QProcess *process)
+{
+    QObject::connect(process, &QProcess::errorOccurred, process, [process](QProcess::ProcessError error) {
+        if (error == QProcess::FailedToStart) {
+            emit process->finished(-1, QProcess::NormalExit);
+        }
+    });
 }
 
 QString KrakenEnvironment::rootDirectory() const
@@ -1059,12 +1097,15 @@ bool KrakenEnvironment::openConsole(const QString &line) const
     // CreateProcess, once by cmd and once by the shell — which is three chances
     // to arrive as something else.
     const QString script =
-        QDir(QDir::tempPath()).filePath(QStringLiteral("milah-kraken-setup.sh"));
+        QDir(QDir::tempPath()).filePath(QStringLiteral("milah-kraken-setup-%1.sh").arg(QCoreApplication::applicationPid()));
     QFile file(script);
     if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
         return false;
     }
-    file.write(line.toUtf8());
+    const QByteArray script8 = line.toUtf8();
+    if (file.write(script8) != script8.size()) {
+        return false;
+    }
     file.close();
 
     QProcess console;
@@ -1259,6 +1300,19 @@ bool KrakenEnvironment::remove(QString *error)
     // The venv and the models, and nothing else. Not WSL2, not the distro, not
     // any Python: a transcriber who asks Milah to remove Kraken has not asked
     // it to remove their Ubuntu.
+#ifndef Q_OS_WIN
+    // Off Windows the root comes from QStandardPaths, which can come back
+    // empty; the result would then be the relative path `htr`, deleted from
+    // whatever directory Milah happened to be started in.
+    const QString root = rootDirectory();
+    if (!QDir::isAbsolutePath(root) || !root.endsWith(QStringLiteral("/htr"))) {
+        if (error) {
+            *error = QStringLiteral("Milah could not work out where Kraken is installed, "
+                                    "so it deleted nothing.");
+        }
+        return false;
+    }
+#endif
     const int code = run(QStringLiteral("rm -rf %1").arg(quotedPath()), &output);
     if (code != 0) {
         if (error) {

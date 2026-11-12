@@ -4,6 +4,7 @@
 #include "core/serialize.h"
 #include "core/training_export.h"
 #include "core/transcription.h"
+#include "core/transcription_osis.h"
 #include "ui/kraken_environment.h"
 #include "ui/training_set.h"
 
@@ -532,16 +533,7 @@ private:
     ///
     /// Built once and used by both commands, so what is exported and what is
     /// filed in the library cannot come to differ in anything but their shape.
-    struct Exportable
-    {
-        QMap<QString, CombinedDraft> drafts;
-        InterlinearGlosses glosses;
-        CombinedApparatus apparatus;
-        /// Verses with no book, chapter or number, which OSIS cannot address.
-        int unnamed = 0;
-        /// Notes on those verses, which go nowhere with them.
-        int strandedNotes = 0;
-    };
+    using Exportable = TranscriptionDrafts;
     Exportable exportable() const;
     /// The work header both commands write, from the Manuscript panel.
     WorkMetadata workMetadata() const;

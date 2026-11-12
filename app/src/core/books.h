@@ -26,6 +26,19 @@ QStringList bookNames();
 /// left to say what it should be called.
 QString bookIdFor(const QString &nameOrId);
 
+/// `raw` with only its letters and digits: what an osisID can carry as a book.
+/// It separates book, chapter and verse with dots and a work prefix with a
+/// colon, so "Tob.it" or "1 Enoch: Book" would make an id nobody could read
+/// back. Stripped rather than refused: the transcriber meant a book, not a
+/// syntax.
+QString sanitisedBookId(const QString &raw);
+
+/// The id a book is stored and exported under. The canonical OSIS id when the
+/// canon knows the book, however it arrived — "JAS" from an old file or a scan
+/// catalogue, "james", "Jas" — so one book is never filed under two ids.
+/// Otherwise sanitisedBookId().
+QString normalisedBookId(const QString &raw);
+
 /// Orders books by their canonical position, falling back to a plain string
 /// comparison for anything outside the canon.
 int compareBooks(const QString &left, const QString &right);

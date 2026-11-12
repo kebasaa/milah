@@ -1167,10 +1167,11 @@ void ManuscriptImageView::mousePressEvent(QMouseEvent *event)
             break;
         }
     }
-    if (found.isNull() && page.contains(event->pos())) {
+    const QPointF at = event->position();
+    if (found.isNull() && page.contains(at.toPoint())) {
         const QPoint folioPixel(
-            qRound((event->pos().x() - page.x()) * double(m_image.width()) / page.width()),
-            qRound((event->pos().y() - page.y()) * double(m_image.height()) / page.height()));
+            qRound((at.x() - page.x()) * double(m_image.width()) / page.width()),
+            qRound((at.y() - page.y()) * double(m_image.height()) / page.height()));
         found = wordAtPoint(m_words, folioPixel);
     }
     if (found.isNull()) {

@@ -173,6 +173,24 @@ QString bookIdFor(const QString &nameOrId)
     return byKey.value(lookupKey(nameOrId));
 }
 
+QString sanitisedBookId(const QString &raw)
+{
+    QString id;
+    id.reserve(raw.size());
+    for (const QChar character : raw) {
+        if (character.isLetterOrNumber()) {
+            id.append(character);
+        }
+    }
+    return id;
+}
+
+QString normalisedBookId(const QString &raw)
+{
+    const QString canonical = bookIdFor(raw);
+    return canonical.isEmpty() ? sanitisedBookId(raw) : canonical;
+}
+
 QString bookName(const QString &osisId)
 {
     static const QHash<QString, QString> names = [] {

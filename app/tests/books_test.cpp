@@ -89,6 +89,28 @@ private slots:
         // when it fills the Book field for a work it coined an id for.
         QCOMPARE(bookName(QStringLiteral("Tob")), QStringLiteral("Tob"));
     }
+
+    void aKnownBookIsStoredUnderItsOsisId()
+    {
+        // Old files and the scan catalogue wrote "JAS"; exported, that was a
+        // second book beside "Jas", and not a valid OSIS id at all.
+        QCOMPARE(normalisedBookId(QStringLiteral("JAS")), QStringLiteral("Jas"));
+        QCOMPARE(normalisedBookId(QStringLiteral("Jas")), QStringLiteral("Jas"));
+        QCOMPARE(normalisedBookId(QStringLiteral("1 kings")), QStringLiteral("1Kgs"));
+    }
+
+    void anUnknownBookKeepsOnlyWhatAnIdCanCarry()
+    {
+        QCOMPARE(normalisedBookId(QStringLiteral("1 Enoch: Book")),
+                 QStringLiteral("1EnochBook"));
+        QCOMPARE(sanitisedBookId(QStringLiteral("Tob.it")), QStringLiteral("Tobit"));
+        QCOMPARE(sanitisedBookId(QStringLiteral("Bar-'Ilan!")),
+                 QStringLiteral("BarIlan"));
+        // Hebrew letters are letters: a work may be named in its own script.
+        QCOMPARE(sanitisedBookId(QStringLiteral("פרקי אבות")),
+                 QStringLiteral("פרקיאבות"));
+        QCOMPARE(normalisedBookId(QString()), QString());
+    }
 };
 
 QTEST_MAIN(BooksTest)

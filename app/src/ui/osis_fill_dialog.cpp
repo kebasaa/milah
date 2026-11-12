@@ -423,7 +423,9 @@ void OsisFillDialog::rebuild()
         taken = laid.from + laid.count;
     }
 
-    if (!m_filled.isEmpty()) {
+    // taken, not just m_filled: a line can be filled with no words, and then
+    // there is no last verse to name.
+    if (!m_filled.isEmpty() && taken > 0) {
         m_range = QStringLiteral("%1 – %2")
                       .arg(m_passageVerses.first(), m_passageVerses.at(taken - 1));
         m_endVerse = m_passageVerses.at(taken - 1);

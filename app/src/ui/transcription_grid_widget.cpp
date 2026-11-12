@@ -607,7 +607,9 @@ bool TranscriptionGridWidget::handleBackspace(QLineEdit *field, int verse, int c
     }
 
     const TranscribedPage *page = m_controller->currentPage();
-    if (!page) {
+    if (!page
+        || verse < 0 || verse >= page->verses.size()
+        || column > page->verses.at(verse).words.size()) {
         return false;
     }
     // Where the seam will be, measured before the merge because afterwards the

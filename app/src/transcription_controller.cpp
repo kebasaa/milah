@@ -49,6 +49,7 @@
 #include <QProgressDialog>
 #include <QSaveFile>
 #include <QSettings>
+#include <QStringDecoder>
 #include <QTemporaryDir>
 
 namespace milah {
@@ -603,7 +604,10 @@ bool TranscriptionController::ensureImageFetched()
     // this feature is worth.
     QEventLoop waiting;
     connect(reply, &QNetworkReply::finished, &waiting, &QEventLoop::quit);
-    waiting.exec();
+    // Without user input: a page turned or a fill started while this waits would
+    // re-enter the controller with the page it is fetching no longer on screen.
+    // The transfer timeout in fetch() bounds how long that lasts.
+    waiting.exec(QEventLoop::ExcludeUserInputEvents);
 
     QApplication::restoreOverrideCursor();
     reply->deleteLater();
@@ -677,7 +681,9 @@ void TranscriptionController::openOnlineScan()
             QStringLiteral("%1-%2.jpg")
                 .arg(scan.id)
                 .arg(folio.number, 4, 10, QLatin1Char('0')));
-        page.book = scan.book;
+        // A scan catalogue names books its own way ("JAS"); the transcription
+        // files them under the OSIS id.
+        page.book = normalisedBookId(scan.book);
         m_document.pages.append(page);
     }
 
@@ -1268,7 +1274,8 @@ QByteArray TranscriptionController::fetchMasterImage(
             fetch(m_network, url, Redirects::AnywhereNoLessSafe, m_preferIPv4);
         QEventLoop waiting;
         connect(reply, &QNetworkReply::finished, &waiting, &QEventLoop::quit);
-        waiting.exec();
+        // Without user input, for the reason given in ensureImageFetched().
+        waiting.exec(QEventLoop::ExcludeUserInputEvents);
         reply->deleteLater();
         return reply->error() == QNetworkReply::NoError ? reply->read(ScanImageLimit)
                                                         : QByteArray();
@@ -1428,8 +1435,10 @@ QList<TrainingStrip> TranscriptionController::cutStrips(
     QObject::connect(&cutter, &QProcess::readyReadStandardOutput, &loop, [&] {
         answer += cutter.readAllStandardOutput();
     });
+    // Stateful, so a character split across two reads is not mangled.
+    QStringDecoder decoder(QStringDecoder::Utf8);
     QObject::connect(&cutter, &QProcess::readyReadStandardError, &loop, [&] {
-        said += QString::fromUtf8(cutter.readAllStandardError());
+        said += decoder.decode(cutter.readAllStandardError());
         const QStringList spoken = said.split(QLatin1Char('\n'));
         for (const QString &line : spoken) {
             if (!line.startsWith(QLatin1String(KrakenEnvironment::progressMarker()))) {
@@ -2917,75 +2926,7 @@ WorkMetadata TranscriptionController::workMetadata() const
 
 TranscriptionController::Exportable TranscriptionController::exportable() const
 {
-    // The transcription is shaped into the same drafts the edition exports, so
-    // the OSIS a folio produces and the OSIS an edition produces are written by
-    // one function and cannot drift apart.
-    Exportable out;
-
-    // The marginalia come out of the running text and go in as notes on the
-    // lines they stand beside: they are on the leaf, but they are not words of
-    // any verse of the work.
-    const TranscriptionDocument document = withoutMarginalia(m_document);
-    for (const TranscribedPage &page : document.pages) {
-        for (int index = 0; index < page.verses.size(); ++index) {
-            const TranscribedVerse &verse = page.verses.at(index);
-            const QString id = transcribedVerseId(page, index);
-            if (id.isEmpty()) {
-                ++out.unnamed;
-                for (const TranscribedWord &word : verse.words) {
-                    if (!word.note.isEmpty()) {
-                        // A note is anchored to a verse by its osisID, and this
-                        // verse has none — so it goes nowhere, and that is
-                        // worth saying rather than discovering later.
-                        ++out.strandedNotes;
-                    }
-                }
-                continue;
-            }
-
-            CombinedDraft draft;
-            draft.reference.id = id;
-            draft.reference.book = page.book;
-            draft.reference.chapter = chapterOfVerse(page, index);
-            draft.reference.verse = verse.number;
-
-            QMap<int, QString> verseGlosses;
-            QList<int> notedColumns;
-            for (int column = 0; column < verse.words.size(); ++column) {
-                const TranscribedWord &word = verse.words.at(column);
-                ConsensusColumn cell;
-                cell.text = word.hebrew;
-                draft.columns.append(cell);
-                if (!word.english.isEmpty()) {
-                    verseGlosses.insert(column, word.english);
-                }
-                if (!word.note.isEmpty()) {
-                    notedColumns.append(column);
-                }
-            }
-
-            // Anchored twice, because the two writers ask different questions.
-            // The interlinear one writes each word separately and wants to know
-            // which word; the plain one writes running text and wants to know
-            // how many characters in. Answering only one of them is how every
-            // note in a verse ends up piled onto its first word.
-            for (const int column : notedColumns) {
-                SourceNote note;
-                note.text = verse.words.at(column).note;
-                note.tokenIndex = column;
-                note.charOffset = columnCharOffset(draft, column);
-                note.number = QString::number(out.apparatus.notes[id].size() + 1);
-                out.apparatus.notes[id].append(note);
-            }
-
-            if (!verseGlosses.isEmpty()) {
-                out.glosses.insert(id, verseGlosses);
-            }
-            out.drafts.insert(id, draft);
-        }
-    }
-
-    return out;
+    return transcriptionDrafts(m_document);
 }
 
 /// What to say when some of the folio could not be addressed. Empty when all of

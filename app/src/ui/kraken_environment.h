@@ -4,6 +4,8 @@
 #include <QString>
 #include <QStringList>
 
+class QProcess;
+
 namespace milah {
 
 /// Where kraken lives, how to reach it, and how to put it there or take it away.
@@ -129,6 +131,12 @@ public:
     /// The prefix a progress line carries on stderr, so the two readers agree.
     static const char *progressMarker() { return "MILAH-PROGRESS"; }
     static const char *errorMarker() { return "MILAH-ERROR"; }
+
+    /// QProcess emits no finished() for a program that never starts — wsl.exe
+    /// missing, say — so a dialog waiting on finished() would stay busy for
+    /// ever with nothing to cancel. After this call such a process finishes
+    /// like any failed one, with exit code -1.
+    static void finishIfNeverStarted(QProcess *process);
 
     /// The command that reads one folio into an ALTO file, as a program and
     /// argument list ready for QProcess. Both paths are local; the conversion

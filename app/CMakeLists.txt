@@ -171,6 +171,8 @@ qt_add_library(MilahCore STATIC
     src/core/recent_files.h
     src/core/docx.cpp
     src/core/docx.h
+    src/core/transcription_osis.cpp
+    src/core/transcription_osis.h
     src/core/transcription_docx.cpp
     src/core/transcription_docx.h
     src/core/collation_docx.cpp
@@ -439,7 +441,7 @@ if(MILAH_BUILD_TESTS)
             coverage alignment catalogue word_marker transcription books
             scan_catalogue recent_files docx transcription_docx page_layout
             reading_marks collation_docx name_forms training_export line_fill
-            osis_fill data_paths)
+            osis_fill data_paths transcription_osis)
         milah_add_test(${name}
             SOURCES tests/test_data.cpp tests/test_data.h
             LIBRARIES MilahCore)

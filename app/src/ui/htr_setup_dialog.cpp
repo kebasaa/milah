@@ -8,7 +8,10 @@
 #include <QMessageBox>
 #include <QPlainTextEdit>
 #include <QPushButton>
+#include <QStringDecoder>
 #include <QVBoxLayout>
+
+#include <memory>
 
 namespace milah {
 namespace {
@@ -207,8 +210,12 @@ void HtrSetupDialog::runNextStep()
 
     m_process = new QProcess(this);
     m_process->setProcessChannelMode(QProcess::MergedChannels);
-    connect(m_process, &QProcess::readyRead, this, [this] {
-        const QString said = QString::fromUtf8(m_process->readAll());
+    // One decoder for the whole run: output arrives in arbitrary chunks, and a
+    // Hebrew letter or a progress bar's block character split across two of
+    // them would otherwise come out as two replacement characters.
+    auto decoder = std::make_shared<QStringDecoder>(QStringDecoder::Utf8);
+    connect(m_process, &QProcess::readyRead, this, [this, decoder] {
+        const QString said = decoder->decode(m_process->readAll());
         appendLog(said);
         // The last line beside the bar as well as in the log, so that something
         // visibly moves during the five minutes pip spends on PyTorch.
@@ -219,6 +226,14 @@ void HtrSetupDialog::runNextStep()
         &QProcess::finished,
         this,
         &HtrSetupDialog::stepFinished);
+    // A program that never starts (wsl.exe missing, say) emits no finished(),
+    // and the dialog would sit busy forever with nothing to cancel.
+    connect(m_process, &QProcess::errorOccurred, this, [this](QProcess::ProcessError error) {
+        if (error == QProcess::FailedToStart && m_process) {
+            appendLog(QStringLiteral("\n%1").arg(m_process->errorString()));
+            stepFinished(-1, QProcess::NormalExit);
+        }
+    });
     m_process->start(step.program, step.arguments);
 }
 

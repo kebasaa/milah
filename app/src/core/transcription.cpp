@@ -320,7 +320,15 @@ TranscribedPage pageFromJson(const QJsonObject &json)
     // reads correctly as "this one came off a disk".
     page.imageUrl = json.value(QStringLiteral("imageUrl")).toString();
     page.imageLabel = json.value(QStringLiteral("imageLabel")).toString();
-    page.book = json.value(QStringLiteral("book")).toString();
+    // Normalised, because files written before ids were checked carry "JAS"
+    // on some folios and "Jas" on others: one book, exported as two.
+    // Only a book the canon knows: an id the transcriber coined is theirs, and
+    // rewriting it would orphan the fill resume points stored against it.
+    {
+        const QString stored = json.value(QStringLiteral("book")).toString();
+        const QString canonical = bookIdFor(stored);
+        page.book = canonical.isEmpty() ? stored : canonical;
+    }
     // Absent from files written before the book could be named as well as
     // abbreviated, which reads correctly as "the canonical name of the id".
     page.bookLabel = json.value(QStringLiteral("bookLabel")).toString();

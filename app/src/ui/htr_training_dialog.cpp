@@ -16,9 +16,12 @@
 #include <QMessageBox>
 #include <QPlainTextEdit>
 #include <QPushButton>
+#include <QStringDecoder>
 #include <QRegularExpression>
 #include <QUrl>
 #include <QVBoxLayout>
+
+#include <memory>
 
 namespace milah {
 namespace {
@@ -161,6 +164,7 @@ void HtrTrainingDialog::askAlphabet()
         m_alphabet = answer.value(QStringLiteral("alphabet")).toString();
         updateReadiness();
     });
+    KrakenEnvironment::finishIfNeverStarted(asking);
     asking->start(program, command);
 }
 
@@ -354,8 +358,11 @@ void HtrTrainingDialog::runStage(Stage stage)
     const QString program = command.takeFirst();
     m_process = new QProcess(this);
     m_process->setProcessChannelMode(QProcess::MergedChannels);
-    connect(m_process, &QProcess::readyRead, this, [this] {
-        const QString text = QString::fromUtf8(m_process->readAll());
+    // One decoder for the run, so a character split across two reads is not
+    // mangled into two replacement characters.
+    auto decoder = std::make_shared<QStringDecoder>(QStringDecoder::Utf8);
+    connect(m_process, &QProcess::readyRead, this, [this, decoder] {
+        const QString text = decoder->decode(m_process->readAll());
         m_output += text;
         appendLog(text);
         const QString last = text.section(QLatin1Char('\n'), -2, -1).trimmed();
@@ -365,6 +372,7 @@ void HtrTrainingDialog::runStage(Stage stage)
     });
     connect(m_process, &QProcess::finished, this, &HtrTrainingDialog::stageFinished);
     setBusy(true);
+    KrakenEnvironment::finishIfNeverStarted(m_process);
     m_process->start(program, command);
 }
 

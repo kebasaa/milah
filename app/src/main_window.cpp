@@ -193,24 +193,6 @@ void showArrowWithWord(QToolBar *toolBar, QAction *action, const QString &label)
 /// characters and a pixel count that suits one interface font clips at the
 /// next — and because a field that is too narrow here silently truncates the
 /// name of the book being transcribed.
-/// An abbreviation fit to stand in a verse id.
-///
-/// A verse is addressed as book, chapter and number with dots between them, so
-/// a book carrying a dot of its own would make "Tob.it.1.1" out of Tobit and
-/// there would be no reading it back. Whitespace goes for the same reason.
-/// Stripped rather than refused: the transcriber meant a book, not a syntax.
-QString sanitisedBookId(const QString &raw)
-{
-    QString id;
-    id.reserve(raw.size());
-    for (const QChar character : raw) {
-        if (!character.isSpace() && character != QLatin1Char('.')) {
-            id.append(character);
-        }
-    }
-    return id;
-}
-
 int fieldWidthFor(const QWidget *field, const QStringList &entries)
 {
     const QFontMetrics metrics(field->font());
@@ -1902,7 +1884,7 @@ void MainWindow::commitBookAcronym()
         statusBar()->showMessage(
             QStringLiteral("A book is written as %1: a verse is addressed as "
                            "book, chapter and number separated by dots, so the "
-                           "book itself cannot carry one.")
+                           "book itself can carry only letters and digits.")
                 .arg(id));
     }
     m_transcriptionController->setBook(id, page->bookLabel);

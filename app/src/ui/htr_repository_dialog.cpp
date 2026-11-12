@@ -393,6 +393,7 @@ void HtrRepositoryDialog::startListing()
         updateButtons();
     });
 
+    KrakenEnvironment::finishIfNeverStarted(m_process);
     m_process->start(program, command);
     updateButtons();
 }
@@ -510,6 +511,7 @@ void HtrRepositoryDialog::startDownload()
         accept();
     });
 
+    KrakenEnvironment::finishIfNeverStarted(m_process);
     m_process->start(program, command);
     updateButtons();
 }
