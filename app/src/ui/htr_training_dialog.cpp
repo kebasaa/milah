@@ -18,6 +18,7 @@
 #include <QPushButton>
 #include <QStringDecoder>
 #include <QRegularExpression>
+#include <QSettings>
 #include <QUrl>
 #include <QVBoxLayout>
 
@@ -43,6 +44,13 @@ QString asModelName(const QString &text)
         out.chop(1);
     }
     return out;
+}
+
+/// Where the model last trained for `hand` is remembered. By the hand's
+/// model-name form, so "Sephardi square" and "sephardi  square" are one.
+QString handModelKey(const QString &hand)
+{
+    return QStringLiteral("htr/modelForHand/") + asModelName(hand).toLower();
 }
 
 } // namespace
@@ -136,9 +144,30 @@ HtrTrainingDialog::HtrTrainingDialog(KrakenEnvironment *environment, QWidget *pa
     askAlphabet();
 }
 
+QString HtrTrainingDialog::baseModel() const
+{
+    // The model last trained for this hand, where there is one, so each round
+    // builds on the last rather than on whatever happens to be in use.
+    const QString forHand =
+        m_hand.isEmpty() ? QString() : QSettings().value(handModelKey(m_hand)).toString();
+    return forHand.isEmpty() ? KrakenEnvironment::modelPath() : forHand;
+}
+
+void HtrTrainingDialog::setHand(const QString &hand)
+{
+    const QString before = baseModel();
+    m_hand = hand.trimmed();
+    refreshSets();
+    // Asked again only if the hand changed which model training starts from;
+    // the window already asked about the one in use when it opened.
+    if (baseModel() != before) {
+        askAlphabet();
+    }
+}
+
 void HtrTrainingDialog::askAlphabet()
 {
-    const QString base = KrakenEnvironment::modelPath();
+    const QString base = baseModel();
     if (base.isEmpty() || m_environment->state() != KrakenEnvironment::State::Ready) {
         return;
     }
@@ -176,23 +205,31 @@ void HtrTrainingDialog::refreshSets()
     for (const TrainingSet::Set &set : m_known) {
         m_letters.append(TrainingSet::lettersOf(set.slug));
         auto *item = new QListWidgetItem(
-            QStringLiteral("%1 — %2 line(s) off %3 folio(s), %4")
-                .arg(set.label)
+            QStringLiteral("%1%2 — %3 line(s) off %4 folio(s), %5")
+                .arg(set.label,
+                     set.hand.isEmpty() ? QString() : QStringLiteral(" (%1)").arg(set.hand))
                 .arg(set.lines)
                 .arg(set.folios)
                 .arg(QLocale().formattedDataSize(set.bytes)));
         item->setFlags(item->flags() | Qt::ItemIsUserCheckable);
-        // The one worth training on opens ticked, so the common case is one
-        // press. Everything else is a deliberate choice about a shared hand.
-        item->setCheckState(
-            set.lines >= TrainingSet::EnoughLines ? Qt::Checked : Qt::Unchecked);
         m_sets->addItem(item);
+    }
+    // The ones in this hand open ticked, so the common case is one press.
+    // Anything else is a deliberate choice about a shared hand.
+    const QList<bool> ticked = TrainingSet::preselected(m_known, m_hand);
+    for (int row = 0; row < m_sets->count() && row < ticked.size(); ++row) {
+        m_sets->item(row)->setCheckState(ticked.at(row) ? Qt::Checked : Qt::Unchecked);
     }
     updateReadiness();
 }
 
 QString HtrTrainingDialog::defaultModelName() const
 {
+    // After the hand where there is one: a model reads a hand, not a
+    // manuscript, and the menu it lands in is chosen from by hand.
+    if (!asModelName(m_hand).isEmpty()) {
+        return asModelName(m_hand) + QStringLiteral("-tuned");
+    }
     QStringList parts;
     for (int row = 0; row < m_sets->count(); ++row) {
         if (m_sets->item(row)->checkState() == Qt::Checked && row < m_known.size()) {
@@ -309,7 +346,7 @@ void HtrTrainingDialog::start()
         m_modelName = defaultModelName();
     }
 
-    const QString base = KrakenEnvironment::modelPath();
+    const QString base = baseModel();
     if (base.isEmpty()) {
         QMessageBox::warning(
             this,
@@ -337,7 +374,7 @@ void HtrTrainingDialog::runStage(Stage stage)
     case Stage::Training:
         m_progress->begin(QStringLiteral("Training %1").arg(m_modelName));
         m_progress->setDetail(QStringLiteral("This is the long one."));
-        command = m_environment->trainingCommand(m_chosenSets, KrakenEnvironment::modelPath());
+        command = m_environment->trainingCommand(m_chosenSets, baseModel());
         break;
     case Stage::Choosing:
         m_progress->begin(QStringLiteral("Choosing the best round"));
@@ -455,6 +492,9 @@ void HtrTrainingDialog::stageFinished(int code, QProcess::ExitStatus status)
         }
 
         KrakenEnvironment::rememberModel(m_modelPath, m_name->text().trimmed());
+        if (!m_hand.isEmpty()) {
+            QSettings().setValue(handModelKey(m_hand), m_modelPath);
+        }
         // And run it. Remembering a model only puts it in the list, so this used
         // to end with hours of somebody's processor spent and the thing it made
         // sitting unused until they made a separate trip to a submenu — the next

@@ -88,6 +88,15 @@ QMap<int, int> wordCounts(const TranscribedPage &page);
 /// Words with no box or no text are not ground truth and are passed over.
 int vouchForLine(TranscribedPage &page, int line);
 
+/// vouchForLine() for every line of the folio at once, for a transcriber who
+/// has read the whole leaf against the ink. Marginalia are left alone, for the
+/// same reason. Returns how many words that changed.
+int vouchForFolio(TranscribedPage &page);
+
+/// How many words vouchForFolio() would mark: read, boxed, not in the margin
+/// and not yet looked at.
+int unvouchedWords(const TranscribedPage &page);
+
 /// Puts the words of the line after `line` onto `line`, undoing a cut the
 /// segmenter made in the wrong place.
 ///

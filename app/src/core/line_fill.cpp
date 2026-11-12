@@ -120,6 +120,37 @@ int vouchForLine(TranscribedPage &page, int line)
     return vouched;
 }
 
+int vouchForFolio(TranscribedPage &page)
+{
+    QList<int> lines;
+    for (const TranscribedVerse &verse : page.verses) {
+        for (const TranscribedWord &word : verse.words) {
+            if (word.line >= 0 && !lines.contains(word.line)) {
+                lines.append(word.line);
+            }
+        }
+    }
+    int vouched = 0;
+    for (const int line : lines) {
+        vouched += vouchForLine(page, line);
+    }
+    return vouched;
+}
+
+int unvouchedWords(const TranscribedPage &page)
+{
+    int count = 0;
+    for (const TranscribedVerse &verse : page.verses) {
+        for (const TranscribedWord &word : verse.words) {
+            if (word.line >= 0 && !word.box.isNull() && !word.hebrew.isEmpty()
+                && !word.marginal && word.unchecked) {
+                ++count;
+            }
+        }
+    }
+    return count;
+}
+
 int pouredWordsBefore(const TranscribedPage &page, int line)
 {
     if (page.fillStartLine < 0 || line <= page.fillStartLine) {

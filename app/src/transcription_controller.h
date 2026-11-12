@@ -229,6 +229,16 @@ public slots:
     /// Counts each folio before fetching anything: a folio with nothing finished
     /// must not cost a scan pulled across the network to say so.
     void saveEveryFolioForTraining();
+    /// Marks every line of the folio on screen as read, after asking: for a
+    /// transcriber who has read the whole leaf against the ink, so it does not
+    /// take a keypress per line. Marginalia are left alone. See vouchForFolio().
+    void markFolioChecked();
+    /// Carries the fill on across every folio after this one: reads each that
+    /// has not been read, and pours the text on from where the last stopped.
+    /// Stops at the first folio that already holds text, cannot be read or
+    /// cannot be filled, and says where. Nothing it pours is marked read —
+    /// each folio still has to be checked against the ink.
+    void fillRemainingFolios();
     /// Shows what training would actually be shown for this folio: one strip
     /// per finished line, cut the way ketos compile cuts it.
     ///

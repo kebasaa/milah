@@ -43,6 +43,18 @@ class HtrTrainingDialog final : public QDialog
 public:
     explicit HtrTrainingDialog(KrakenEnvironment *environment, QWidget *parent = nullptr);
 
+    /// The hand of the transcription the window was opened from: its sets open
+    /// ticked, the model is named after it, and training starts from the model
+    /// last trained for it.
+    void setHand(const QString &hand);
+
+private:
+    /// The model training starts from: the last one trained for this hand, or
+    /// the one Transcribe is using.
+    QString baseModel() const;
+
+public:
+
 protected:
     /// Refuses to close mid-run, offering to stop first. Hours of somebody's
     /// processor should not be thrown away by a stray Escape.
@@ -114,6 +126,7 @@ private:
     /// What the base model can write, once kraken has said; empty until then
     /// and for good where it could not.
     QString m_alphabet;
+    QString m_hand;
     /// Each known set's letters, read once per refresh rather than per tick.
     QList<QString> m_letters;
 };

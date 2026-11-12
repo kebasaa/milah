@@ -31,6 +31,9 @@ struct Set
     QString slug;
     /// What to call it on screen — the shelfmark as the transcriber wrote it.
     QString label;
+    /// The hand its folios are written in, as the transcriptions that saved
+    /// them named it. Empty for a set saved before the hand was asked for.
+    QString hand;
     int folios = 0;
     int lines = 0;
     qint64 bytes = 0;
@@ -43,6 +46,29 @@ struct Set
 /// with — and hours of somebody's processor deserve a set worth spending them
 /// on. Five folios is where this starts being worth doing.
 inline constexpr int EnoughLines = 50;
+
+/// Every hand a set has been saved under, for offering back to a transcriber.
+QStringList knownHands();
+
+/// Which of `sets` the training window opens with ticked, for a transcription
+/// in `hand`. The sets in that hand that are big enough; or, when no set is in
+/// that hand or none is named, every set big enough — which is what the window
+/// did before hands were recorded. Sets in another named hand are never ticked
+/// for this one: two hands taught as one teach neither.
+QList<bool> preselected(const QList<Set> &sets, const QString &hand);
+
+/// Records the hand `metadata` names on its set, if the set exists already, so
+/// naming the hand after folios were saved does not wait for the next save.
+void nameHand(const TranscriptionMetadata &metadata);
+
+/// Whether a set holds enough to train on. The one place the rule is applied:
+/// the menu entry, the Training panel, the training window's ticks and the
+/// save messages all ask this.
+inline bool isTrainable(const Set &set) { return set.lines >= EnoughLines; }
+
+/// One sentence saying whether `set` is enough to train on yet, for the
+/// messages that follow a save.
+QString readiness(const Set &set);
 
 /// Which set a transcription belongs to: its shelfmark, else its manuscript
 /// name, else `unnamed`.
@@ -70,6 +96,32 @@ QByteArray uprightImage(const QByteArray &bytes);
 
 /// Where a set's files live. Made if it is not there.
 QString directoryOf(const QString &slug);
+
+/// Keeps every set under `directory` instead of Milah's own data folder, for
+/// the rest of the process. Empty puts it back. For the command-line export,
+/// which writes where it is told rather than into the application's sets.
+void setRoot(const QString &directory);
+
+/// What exportTranscriptions() did, file by file, for a person to read.
+struct ExportReport
+{
+    int folios = 0;
+    int lines = 0;
+    QStringList said;
+};
+
+/// Writes the finished lines of each `.trscrpt` in `files` as a training set
+/// under `directory`/<hand>/<set>/: ALTO and the folio picture saved in the
+/// file, ready for `ketos train -f alto <directory>/<hand>/*/*.xml`.
+/// Transcriptions with no hand named go under `unnamed-hand`. With `hand`
+/// given, only transcriptions in that hand are written.
+///
+/// Nothing is fetched: a folio whose picture the file does not hold is passed
+/// over and named in the report, and nothing a person has not marked read is
+/// written — the same rule saving from the window follows.
+ExportReport exportTranscriptions(const QStringList &files,
+                                  const QString &directory,
+                                  const QString &hand = QString());
 
 /// Every set on disk, by label.
 QList<Set> known();

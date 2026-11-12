@@ -35,18 +35,16 @@ namespace {
 /// a transcription is started in.
 QList<FolioLine> linesOf(const TranscribedPage &page)
 {
-    const QMap<int, QList<QRect>> boxes = fillableLines(page);
-
     // The box count is only a guess at how many words a line holds; where the
-    // transcriber has corrected one on the folio, that answer stands here too.
-    const QMap<int, int> held = wordCounts(page);
+    // transcriber has corrected one on the folio, folioLines() keeps that.
+    const FolioLines lines = folioLines(page);
 
     QMap<int, FolioLine> found;
-    for (auto entry = boxes.constBegin(); entry != boxes.constEnd(); ++entry) {
-        FolioLine &line = found[entry.key()];
-        line.index = entry.key();
-        line.boxes = entry.value();
-        line.words = held.value(entry.key(), int(entry.value().size()));
+    for (int at = 0; at < lines.indices.size(); ++at) {
+        FolioLine &line = found[lines.indices.at(at)];
+        line.index = lines.indices.at(at);
+        line.boxes = lines.boxes.at(at);
+        line.words = lines.counts.at(at);
     }
     // What the recogniser read there, for the lines the fill does not reach —
     // marginalia included, because this is shown to help somebody find their
@@ -270,20 +268,12 @@ void OsisFillDialog::chooseSource()
 
 QString OsisFillDialog::loadSource(const QString &path)
 {
-    QFile file(path);
-    if (!file.open(QIODevice::ReadOnly)) {
-        return QStringLiteral("%1 could not be opened.\n%2")
-            .arg(QFileInfo(path).fileName(), file.errorString());
+    QString failure;
+    const std::optional<SourceDocument> read = readFillSource(path, &failure);
+    if (!read) {
+        return failure;
     }
-
-    SourceDocument parsed;
-    try {
-        // The same reader the comparison side loads these very files with, so a
-        // file that opens there opens here.
-        parsed = parseOsis(QString::fromUtf8(file.readAll()), ParseOptions{});
-    } catch (const OsisError &failure) {
-        return failure.message();
-    }
+    const SourceDocument &parsed = *read;
 
     QStringList books;
     for (const SourceVerse &verse : parsed.verses) {
@@ -405,23 +395,18 @@ void OsisFillDialog::rebuild()
     m_endWord = -1;
     m_range.clear();
 
-    int taken = 0;
-    for (const LineFill::Laid &laid :
-         LineFill::layOut(m_counts, m_startLine, 0, int(m_passage.size()))) {
-        FilledLine line;
-        line.index = m_lines.at(laid.line).index;
-        line.words = m_passage.mid(laid.from, laid.count);
-        line.boxes = LineFill::place(m_lines.at(laid.line).boxes, laid.count);
-        if (line.boxes.size() != line.words.size()) {
-            // A line with no boxes at all, which linesOf() cannot produce — but
-            // a box each is what the caller is promised, so it is checked
-            // rather than assumed.
-            continue;
-        }
-        m_filledVerses += m_passageVerses.mid(laid.from, laid.count);
-        m_filled.append(line);
-        taken = laid.from + laid.count;
+    // The same pour continuing and re-flowing go through, with the counts as
+    // this window has them — nudged, perhaps, from what the lines hold.
+    FolioLines lines;
+    for (const FolioLine &line : m_lines) {
+        lines.indices.append(line.index);
+        lines.boxes.append(line.boxes);
+        lines.counts.append(line.words);
     }
+    const Pour pour = pourPassage(lines, m_counts, m_passage, m_passageVerses, m_startLine);
+    m_filled = pour.filled;
+    m_filledVerses = pour.wordVerses;
+    const int taken = pour.taken;
 
     // taken, not just m_filled: a line can be filled with no words, and then
     // there is no last verse to name.

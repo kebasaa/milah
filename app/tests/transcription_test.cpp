@@ -1045,6 +1045,7 @@ private slots:
         original.metadata.translatedFrom = QStringLiteral("Translated from the Greek");
         original.metadata.translatedFromCertainty = QStringLiteral("uncertain");
         original.metadata.exemplar = QStringLiteral("Copied from Cambridge MS Oo.1.32");
+        original.metadata.hand = QStringLiteral("Cochin cursive");
 
         QString error;
         const QString path = home.filePath(QStringLiteral("details.trscrpt"));
@@ -1069,6 +1070,7 @@ private slots:
             restored.metadata.translatedFromCertainty,
             original.metadata.translatedFromCertainty);
         QCOMPARE(restored.metadata.exemplar, original.metadata.exemplar);
+        QCOMPARE(restored.metadata.hand, original.metadata.hand);
     }
 
     void aTranscriptionWrittenBeforeTheseFieldsStillOpens()
@@ -1094,6 +1096,7 @@ private slots:
 
         QVERIFY(restored.metadata.folios.isEmpty());
         QVERIFY(restored.metadata.exemplar.isEmpty());
+        QVERIFY(restored.metadata.hand.isEmpty());
         // And everything that was written is still there.
         QCOMPARE(restored.metadata.manuscriptName, original.metadata.manuscriptName);
     }

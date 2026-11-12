@@ -1,5 +1,11 @@
 #include "core/osis_fill.h"
 
+#include "core/line_fill.h"
+#include "core/osis.h"
+
+#include <QFile>
+#include <QFileInfo>
+
 #include <algorithm>
 
 namespace milah {
@@ -165,6 +171,78 @@ Passage gatherPassage(
     passage.words = passage.words.mid(drop);
     passage.verses = passage.verses.mid(drop);
     return passage;
+}
+
+} // namespace milah
+
+namespace milah {
+
+FolioLines folioLines(const TranscribedPage &page, int fromLine)
+{
+    const QMap<int, QList<QRect>> boxes = fillableLines(page);
+    const QMap<int, int> held = wordCounts(page);
+    FolioLines lines;
+    for (auto entry = boxes.constBegin(); entry != boxes.constEnd(); ++entry) {
+        if (entry.key() < fromLine) {
+            continue;
+        }
+        lines.indices.append(entry.key());
+        lines.boxes.append(entry.value());
+        lines.counts.append(held.value(entry.key(), int(entry.value().size())));
+    }
+    return lines;
+}
+
+Pour pourPassage(const FolioLines &lines,
+                 const QList<int> &counts,
+                 const QStringList &words,
+                 const QStringList &verses,
+                 int startLine)
+{
+    Pour pour;
+    for (const LineFill::Laid &laid :
+         LineFill::layOut(counts, startLine, 0, int(words.size()))) {
+        if (laid.line < 0 || laid.line >= lines.indices.size()) {
+            continue;
+        }
+        FilledLine line;
+        line.index = lines.indices.at(laid.line);
+        line.words = words.mid(laid.from, laid.count);
+        line.boxes = LineFill::place(lines.boxes.at(laid.line), laid.count);
+        if (line.boxes.size() != line.words.size()) {
+            // A line with no boxes at all, which folioLines() cannot produce —
+            // but a box each is what the caller is promised.
+            continue;
+        }
+        pour.wordVerses += verses.mid(laid.from, laid.count);
+        pour.filled.append(line);
+        pour.taken = laid.from + laid.count;
+    }
+    return pour;
+}
+
+} // namespace milah
+
+namespace milah {
+
+std::optional<SourceDocument> readFillSource(const QString &path, QString *error)
+{
+    QFile file(path);
+    if (!file.open(QIODevice::ReadOnly)) {
+        if (error) {
+            *error = QStringLiteral("%1 could not be opened.\n%2")
+                         .arg(QFileInfo(path).fileName(), file.errorString());
+        }
+        return std::nullopt;
+    }
+    try {
+        return parseOsis(QString::fromUtf8(file.readAll()), ParseOptions{});
+    } catch (const OsisError &failure) {
+        if (error) {
+            *error = failure.message();
+        }
+        return std::nullopt;
+    }
 }
 
 } // namespace milah

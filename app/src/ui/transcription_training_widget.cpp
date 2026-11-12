@@ -225,7 +225,7 @@ void TranscriptionTrainingWidget::refresh()
         // to say about a folio and still, possibly, something to train.
         const TrainingSet::Set set =
             TrainingSet::contentsOf(TrainingSet::slugFor(m_controller->metadata()));
-        m_train->setVisible(set.lines >= TrainingSet::EnoughLines);
+        m_train->setVisible(TrainingSet::isTrainable(set));
         return;
     }
 
@@ -388,7 +388,7 @@ void TranscriptionTrainingWidget::refresh()
                                               "in now — saving again replaces them.")
                              : QStringLiteral("Every line read."));
         m_do->setText(QStringLiteral("Save %1 line(s)").arg(progress.finished));
-    } else if (set.lines >= TrainingSet::EnoughLines) {
+    } else if (TrainingSet::isTrainable(set)) {
         // This folio is in and up to date, and the hand has enough. The one
         // thing left is the hours.
         m_step = Step::Train;
@@ -430,7 +430,7 @@ void TranscriptionTrainingWidget::refresh()
 
     // Offered whenever the hand has enough, whatever this folio is doing — and
     // hidden when the button above it already says the same thing.
-    m_train->setVisible(set.lines >= TrainingSet::EnoughLines && m_step != Step::Train);
+    m_train->setVisible(TrainingSet::isTrainable(set) && m_step != Step::Train);
 }
 
 void TranscriptionTrainingWidget::act()

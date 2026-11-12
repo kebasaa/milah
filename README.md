@@ -570,6 +570,49 @@ saved again.** Re-reading a line, un-checking it, or laying a fill over it again
 means the set's copy is no longer anybody's reading, and the save offers to take
 it out instead of leaving it to be taught.
 
+#### One model per hand
+
+A model reads a hand, not a manuscript, so **name the hand** in the
+Manuscript panel's *Hand* field — *Cochin cursive*, *Sephardi square*. The field
+offers the hands you have already used, so one hand is not saved under three
+spellings, and the training set remembers it as soon as it is named. Then:
+
+- **Train a model…** opens with only the sets in this transcription's hand
+  ticked. Sets in another named hand are never ticked for this one, since two
+  hands taught as one teach neither; sets saved before hands were named are
+  ticked only when no set is in this hand yet.
+- The model is named after the hand (*Cochin-cursive-tuned*), and the next
+  round of training for that hand starts from it rather than from whatever
+  model happens to be in use.
+
+#### Producing training data in bulk
+
+Two entries under **File ▸ Handwriting recognition** take the clicking out of
+a long manuscript:
+
+- **Fill the remaining folios…** carries the text on from the folio on screen
+  across every folio after it, reading each with Kraken first if it has not been
+  read. It stops at the first folio somebody has checked or typed on, or one
+  that cannot be read or filled, and says which. Nothing it pours is marked
+  read.
+- **Mark every line of this folio read…** does for the whole folio what Space
+  does for one line, once you have read it against the ink. It asks first, and
+  leaves notes in the margin for you to read on their own.
+
+**From the command line**, without opening Milah, `milah-training` (installed
+beside it) writes the finished lines of any number of transcriptions out as
+Kraken training data, one folder per hand:
+
+```bash
+milah-training export --out training Cochin-1.trscrpt Cochin-2.trscrpt Gaster.trscrpt
+ketos train -f alto -i base.mlmodel training/Cochin_cursive-*/*/*.xml
+```
+
+`--hand "Cochin cursive"` limits it to one hand. It uses the folio pictures
+saved in each file and fetches nothing, writes only lines somebody marked read,
+and leaves Milah's own training sets alone. It exits non-zero when nothing was
+written, so a script can stop before starting an hour of training on nothing.
+
 
 #### Seeing what the model will be shown
 

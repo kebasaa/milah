@@ -269,6 +269,8 @@ private:
     QAction *m_previewStripsAction = nullptr;
     QAction *m_saveForTrainingAction = nullptr;
     QAction *m_saveAllForTrainingAction = nullptr;
+    QAction *m_vouchFolioAction = nullptr;
+    QAction *m_fillRemainingAction = nullptr;
     /// And training a model on what has been gathered. Live only once some set
     /// has enough in it to be worth the hours.
     QAction *m_trainAction = nullptr;

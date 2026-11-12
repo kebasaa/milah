@@ -1,7 +1,9 @@
 #include "ui/training_set.h"
 
 #include "core/training_export.h"
+#include "core/project.h"
 #include "core/transcription.h"
+#include "project_storage.h"
 
 #include <QBuffer>
 #include <QCryptographicHash>
@@ -32,8 +34,17 @@ namespace {
 /// stem is a file name, and "150r" is what the transcriber knows the leaf by.
 constexpr char kAbout[] = "about.json";
 
+QString &rootOverride()
+{
+    static QString path;
+    return path;
+}
+
 QString root()
 {
+    if (!rootOverride().isEmpty()) {
+        return rootOverride();
+    }
     const QString base = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
     return QDir(base).filePath(QStringLiteral("htr-training"));
 }
@@ -254,6 +265,14 @@ QString stemFor(const TranscribedPage &page)
     return fragment + QLatin1Char('-') + shortHash(folioIdentity(page));
 }
 
+QString readiness(const Set &set)
+{
+    return isTrainable(set)
+        ? QStringLiteral("That is enough to train on — File ▸ Handwriting "
+                         "recognition ▸ Train a model….")
+        : QStringLiteral("Train a model… opens at %1 lines.").arg(EnoughLines);
+}
+
 QString labelFor(const TranscriptionMetadata &metadata)
 {
     if (!metadata.shelfmark.isEmpty()) {
@@ -283,10 +302,12 @@ Set contentsOf(const QString &slug)
         return set;
     }
 
-    const QString label = aboutIn(folder).value(QStringLiteral("label")).toString();
+    const QJsonObject about = aboutIn(folder);
+    const QString label = about.value(QStringLiteral("label")).toString();
     if (!label.isEmpty()) {
         set.label = label;
     }
+    set.hand = about.value(QStringLiteral("hand")).toString();
 
     for (const QFileInfo &entry :
          folder.entryInfoList({QStringLiteral("*.xml")}, QDir::Files)) {
@@ -305,6 +326,50 @@ Set contentsOf(const QString &slug)
         }
     }
     return set;
+}
+
+QList<bool> preselected(const QList<Set> &sets, const QString &hand)
+{
+    const QString wanted = hand.trimmed();
+    const auto sameHand = [&wanted](const Set &set) {
+        return !wanted.isEmpty() && set.hand.compare(wanted, Qt::CaseInsensitive) == 0;
+    };
+    const bool anyInHand = std::any_of(sets.cbegin(), sets.cend(), [&](const Set &set) {
+        return sameHand(set) && isTrainable(set);
+    });
+
+    QList<bool> ticked;
+    for (const Set &set : sets) {
+        ticked.append(isTrainable(set) && (anyInHand ? sameHand(set) : set.hand.isEmpty() || wanted.isEmpty()));
+    }
+    return ticked;
+}
+
+void nameHand(const TranscriptionMetadata &metadata)
+{
+    const QString hand = metadata.hand.trimmed();
+    const QDir folder(QDir(root()).filePath(slugFor(metadata)));
+    if (hand.isEmpty() || !folder.exists()) {
+        return;
+    }
+    QJsonObject about = aboutIn(folder);
+    if (about.value(QStringLiteral("hand")).toString() == hand) {
+        return;
+    }
+    about.insert(QStringLiteral("hand"), hand);
+    writeAbout(folder, about);
+}
+
+QStringList knownHands()
+{
+    QStringList hands;
+    for (const Set &set : known()) {
+        if (!set.hand.isEmpty() && !hands.contains(set.hand, Qt::CaseInsensitive)) {
+            hands.append(set.hand);
+        }
+    }
+    hands.sort(Qt::CaseInsensitive);
+    return hands;
 }
 
 QList<Set> known()
@@ -461,12 +526,97 @@ int add(
 
     QJsonObject about = aboutIn(folder);
     about.insert(QStringLiteral("label"), labelFor(metadata));
+    // The latest save speaks for the set: a shelfmark is one hand, and a
+    // transcriber correcting what they called it corrects the set too.
+    if (!metadata.hand.trimmed().isEmpty()) {
+        about.insert(QStringLiteral("hand"), metadata.hand.trimmed());
+    }
     QJsonObject folios = about.value(QStringLiteral("folios")).toObject();
     folios.insert(stem, page.imageLabel.isEmpty() ? page.imageName : page.imageLabel);
     about.insert(QStringLiteral("folios"), folios);
     writeAbout(folder, about);
 
     return truth.lines;
+}
+
+void setRoot(const QString &directory)
+{
+    rootOverride() = directory;
+}
+
+ExportReport exportTranscriptions(const QStringList &files,
+                                  const QString &directory,
+                                  const QString &hand)
+{
+    ExportReport report;
+    const QString previous = rootOverride();
+    for (const QString &path : files) {
+        const QString name = QFileInfo(path).fileName();
+        QString error;
+        const QJsonObject read =
+            ProjectStorage::loadFromPath(path, &error, ProjectStorage::ImageEntryLimit);
+        if (read.isEmpty()) {
+            report.said << QStringLiteral("%1: %2").arg(name, error);
+            continue;
+        }
+        const MilahProjectPayload payload = payloadFromJson(read);
+        TranscriptionDocument document;
+        try {
+            document = restoreTranscription(payload);
+        } catch (const ProjectError &failure) {
+            report.said << QStringLiteral("%1: %2").arg(name, failure.message());
+            continue;
+        }
+
+        const QString written = document.metadata.hand.trimmed();
+        if (!hand.trimmed().isEmpty()
+            && written.compare(hand.trimmed(), Qt::CaseInsensitive) != 0) {
+            report.said << QStringLiteral("%1: in %2, not %3 — passed over")
+                               .arg(name,
+                                    written.isEmpty() ? QStringLiteral("no named hand")
+                                                      : written,
+                                    hand.trimmed());
+            continue;
+        }
+        const QString handFolder = written.isEmpty()
+            ? QStringLiteral("unnamed-hand")
+            : uniqueName(written, QStringLiteral("hand"));
+        rootOverride() = QDir(directory).filePath(handFolder);
+
+        const QHash<QString, QByteArray> images = transcriptionImages(payload);
+        int folios = 0;
+        int lines = 0;
+        int unpictured = 0;
+        for (const TranscribedPage &page : document.pages) {
+            const QByteArray image = images.value(page.imageEntry);
+            if (image.isEmpty()) {
+                if (!isUntouched(page)) {
+                    ++unpictured;
+                }
+                continue;
+            }
+            const int added = add(page, document.metadata, image);
+            if (added > 0) {
+                ++folios;
+                lines += added;
+            }
+        }
+        report.folios += folios;
+        report.lines += lines;
+        report.said << QStringLiteral("%1: %2 line(s) off %3 folio(s) into %4%5")
+                           .arg(name)
+                           .arg(lines)
+                           .arg(folios)
+                           .arg(QDir(directory).relativeFilePath(
+                               QDir(root()).filePath(slugFor(document.metadata))),
+                                unpictured > 0
+                                    ? QStringLiteral("; %1 worked-on folio(s) have no "
+                                                     "picture in the file")
+                                          .arg(unpictured)
+                                    : QString());
+    }
+    rootOverride() = previous;
+    return report;
 }
 
 } // namespace TrainingSet

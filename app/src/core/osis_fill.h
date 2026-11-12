@@ -1,11 +1,14 @@
 #pragma once
 
+#include "core/transcription.h"
 #include "core/types.h"
 
 #include <QList>
 #include <QRect>
 #include <QString>
 #include <QStringList>
+
+#include <optional>
 
 namespace milah {
 
@@ -76,5 +79,45 @@ Passage gatherPassage(
     int chapter,
     int firstVerse,
     int skip);
+
+/// The published text a fill pours from, read and parsed with the same reader
+/// the comparison uses, so a file that opens there opens here. Empty, with
+/// `error` set to something fit to show a person, when the file cannot be
+/// opened or is not OSIS.
+std::optional<SourceDocument> readFillSource(const QString &path, QString *error);
+
+/// The lines of a folio a fill may pour into, in order: the boxes each holds,
+/// from fillableLines() so marginalia are left out, and how many words each
+/// takes, from wordCounts() where the transcriber has said and the box count
+/// otherwise. From `fromLine` down, for a re-flow below a held-out box.
+struct FolioLines
+{
+    QList<int> indices;
+    QList<QList<QRect>> boxes;
+    QList<int> counts;
+
+    bool isEmpty() const { return indices.isEmpty(); }
+};
+FolioLines folioLines(const TranscribedPage &page, int fromLine = 0);
+
+/// What a fill comes to: the lines with their words and boxes, which verse
+/// each word belongs to, and how many words of the passage were used.
+struct Pour
+{
+    QList<FilledLine> filled;
+    QStringList wordVerses;
+    int taken = 0;
+};
+
+/// `words` (with the verse of each in `verses`) laid onto `lines` from the
+/// `startLine`-th, `counts` words to a line — the lines' own counts, or ones a
+/// person has nudged. The one pour every fill goes through: the window's,
+/// continuing onto the next folio, and laying the rest again after a box is
+/// held out, which used to be three copies of this loop.
+Pour pourPassage(const FolioLines &lines,
+                 const QList<int> &counts,
+                 const QStringList &words,
+                 const QStringList &verses,
+                 int startLine);
 
 } // namespace milah

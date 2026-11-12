@@ -1,4 +1,6 @@
 #include "core/transcription.h"
+#include "core/project.h"
+#include "project_storage.h"
 #include "ui/training_set.h"
 
 #include <QBuffer>
@@ -6,6 +8,7 @@
 #include <QFileInfo>
 #include <QImage>
 #include <QStandardPaths>
+#include <QTemporaryDir>
 #include <QtTest>
 
 using namespace milah;
@@ -334,6 +337,99 @@ private slots:
     void aFolioWithNoPictureIsNotSaved()
     {
         QCOMPARE(TrainingSet::add(folio(QStringLiteral("1r"), 3), cochin(), QByteArray()), 0);
+    }
+
+    void theHandIsRecordedOnTheSet()
+    {
+        const QByteArray image = picture(QSize(400, 200));
+        TranscriptionMetadata metadata = cochin();
+        metadata.shelfmark = QStringLiteral("MS Hand 1");
+        metadata.hand = QStringLiteral("Cochin cursive");
+        QCOMPARE(TrainingSet::add(folio(QStringLiteral("1r"), 3), metadata, image), 1);
+        QCOMPARE(TrainingSet::contentsOf(TrainingSet::slugFor(metadata)).hand,
+                 QStringLiteral("Cochin cursive"));
+        QVERIFY(TrainingSet::knownHands().contains(QStringLiteral("Cochin cursive")));
+
+        // Renamed after the fact: the set learns it without another save.
+        metadata.hand = QStringLiteral("Cochin semi-cursive");
+        TrainingSet::nameHand(metadata);
+        QCOMPARE(TrainingSet::contentsOf(TrainingSet::slugFor(metadata)).hand,
+                 QStringLiteral("Cochin semi-cursive"));
+    }
+
+    void theTrainingWindowTicksTheSetsInThisHand()
+    {
+        const auto set = [](const char *hand, int lines) {
+            TrainingSet::Set made;
+            made.hand = QString::fromUtf8(hand);
+            made.lines = lines;
+            return made;
+        };
+        const QList<TrainingSet::Set> sets = {
+            set("Cochin cursive", 80),   // this hand, enough
+            set("cochin CURSIVE", 60),   // this hand, spelt otherwise
+            set("Cochin cursive", 10),   // this hand, too small
+            set("Sephardi square", 200), // another hand
+            set("", 90),                 // never said
+        };
+        QCOMPARE(TrainingSet::preselected(sets, QStringLiteral("Cochin cursive")),
+                 QList<bool>({true, true, false, false, false}));
+
+        // No set in a hand nobody has trained yet: the unnamed ones, not the
+        // other named hand.
+        QCOMPARE(TrainingSet::preselected(sets, QStringLiteral("Italian")),
+                 QList<bool>({false, false, false, false, true}));
+
+        // A transcription with no hand named gets the old behaviour.
+        QCOMPARE(TrainingSet::preselected(sets, QString()),
+                 QList<bool>({true, true, false, true, true}));
+    }
+
+    void aTranscriptionExportsByHandWithoutTheApplication()
+    {
+        // A real .trscrpt, written the way the application writes one.
+        QTemporaryDir scratch;
+        QVERIFY(scratch.isValid());
+        TranscriptionDocument document;
+        document.metadata = cochin();
+        document.metadata.shelfmark = QStringLiteral("MS Export 1");
+        document.metadata.hand = QStringLiteral("Cochin cursive");
+        TranscribedPage page = folio(QStringLiteral("7r"), 3);
+        page.imageEntry = imageEntryFor(0, QStringLiteral("7r.png"));
+        document.pages = {page};
+        const QHash<QString, QByteArray> images = {
+            {page.imageEntry, picture(QSize(400, 200))}};
+        const QString file = scratch.filePath(QStringLiteral("cochin.trscrpt"));
+        QString error;
+        QVERIFY2(ProjectStorage::saveToPath(file,
+                                            payloadToJson(transcriptionPayload(document, images)),
+                                            &error, ProjectStorage::ImageEntryLimit),
+                 qPrintable(error));
+
+        const QString out = scratch.filePath(QStringLiteral("out"));
+        const TrainingSet::ExportReport report =
+            TrainingSet::exportTranscriptions({file}, out);
+        QCOMPARE(report.folios, 1);
+        QCOMPARE(report.lines, 1);
+
+        // <out>/<hand>/<set>/<folio>.xml and .jpg, which is what ketos reads.
+        const QDir hands(out);
+        const QStringList handFolders = hands.entryList(QDir::Dirs | QDir::NoDotAndDotDot);
+        QCOMPARE(handFolders.size(), 1);
+        QVERIFY(handFolders.first().toLower().startsWith(QStringLiteral("cochin")));
+        QDir set(hands.filePath(handFolders.first()));
+        const QStringList sets = set.entryList(QDir::Dirs | QDir::NoDotAndDotDot);
+        QCOMPARE(sets.size(), 1);
+        set.cd(sets.first());
+        QCOMPARE(set.entryList({QStringLiteral("*.xml")}, QDir::Files).size(), 1);
+        QCOMPARE(set.entryList({QStringLiteral("*.jpg")}, QDir::Files).size(), 1);
+
+        // Another hand asked for: nothing of this one is written.
+        const TrainingSet::ExportReport other = TrainingSet::exportTranscriptions(
+            {file}, scratch.filePath(QStringLiteral("other")), QStringLiteral("Sephardi square"));
+        QCOMPARE(other.lines, 0);
+        // And the application's own sets were never touched.
+        QCOMPARE(TrainingSet::contentsOf(TrainingSet::slugFor(document.metadata)).folios, 0);
     }
 };
 

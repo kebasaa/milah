@@ -321,6 +321,52 @@ private slots:
         const Passage passage = gatherPassage(book(), QStringLiteral("JAS"), 1, 1, 5);
         QCOMPARE(passage.words.size(), passage.verses.size());
     }
+
+    void pouringFillsTheLinesInOrder()
+    {
+        // Two lines, three boxes and two, right to left; four words to pour.
+        TranscribedPage page;
+        TranscribedVerse verse;
+        const auto box = [](int line, int x) {
+            TranscribedWord word;
+            word.line = line;
+            word.box = QRect(x, line * 50, 40, 30);
+            word.hebrew = QStringLiteral("x");
+            return word;
+        };
+        verse.words = {box(0, 300), box(0, 200), box(0, 100), box(1, 300), box(1, 200)};
+        page.verses.append(verse);
+
+        const FolioLines lines = folioLines(page);
+        QCOMPARE(lines.indices, QList<int>({0, 1}));
+        QCOMPARE(lines.counts, QList<int>({3, 2}));
+
+        const QStringList words = {QStringLiteral("a"), QStringLiteral("b"),
+                                   QStringLiteral("c"), QStringLiteral("d")};
+        const QStringList verses = {QStringLiteral("Gen.1.1"), QStringLiteral("Gen.1.1"),
+                                    QStringLiteral("Gen.1.2"), QStringLiteral("Gen.1.2")};
+        const Pour pour = pourPassage(lines, lines.counts, words, verses, 0);
+        QCOMPARE(pour.filled.size(), 2);
+        QCOMPARE(pour.filled.at(0).words, words.mid(0, 3));
+        QCOMPARE(pour.filled.at(1).words, words.mid(3, 1));
+        QCOMPARE(pour.filled.at(1).boxes.size(), 1);
+        QCOMPARE(pour.wordVerses, verses);
+        QCOMPARE(pour.taken, 4);
+    }
+
+    void aRefillBelowALineStartsThere()
+    {
+        TranscribedPage page;
+        TranscribedVerse verse;
+        for (int line = 0; line < 3; ++line) {
+            TranscribedWord word;
+            word.line = line;
+            word.box = QRect(0, line * 50, 40, 30);
+            verse.words.append(word);
+        }
+        page.verses.append(verse);
+        QCOMPARE(folioLines(page, 1).indices, QList<int>({1, 2}));
+    }
 };
 
 QTEST_MAIN(OsisFillTest)

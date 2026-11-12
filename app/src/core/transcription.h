@@ -271,6 +271,11 @@ struct TranscriptionMetadata
     /// The older manuscript this one copies, where it is known to copy one:
     /// "Copied from Cambridge MS Oo.1.32". A judgement too.
     QString exemplar;
+    /// The hand it is written in, as the transcriber names it: "Ashkenazi
+    /// semi-cursive", "Sephardi square". What decides which training sets are
+    /// taught together: one hand runs across several manuscripts, and two
+    /// hands taught as one teach neither. Empty until somebody says.
+    QString hand;
     QString language;
     QString notes;
     /// Anything the fields above do not cover, so a project can carry a note

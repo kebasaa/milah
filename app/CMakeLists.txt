@@ -192,6 +192,25 @@ target_link_libraries(MilahCore
 )
 
 # --------------------------------------------------------------------------
+# MilahTraining: the HTR training sets — saving a folio's finished lines as
+# ALTO and a picture, and exporting whole transcriptions. Core plus Gui, for
+# reading and writing the pictures; no widgets, so a command-line tool and the
+# tests can link it.
+# --------------------------------------------------------------------------
+
+qt_add_library(MilahTraining STATIC
+    src/ui/training_set.cpp
+    src/ui/training_set.h
+)
+target_link_libraries(MilahTraining
+    PUBLIC
+        MilahCore
+        Qt6::Gui
+    PRIVATE
+        milah_warnings
+)
+
+# --------------------------------------------------------------------------
 # Data files
 #
 # Read from disk rather than compiled in, so a regenerated lexicon or an edited
@@ -263,8 +282,6 @@ qt_add_executable(Milah
     src/ui/iiif_image.h
     src/ui/osis_fill_dialog.cpp
     src/ui/osis_fill_dialog.h
-    src/ui/training_set.cpp
-    src/ui/training_set.h
     src/ui/training_set_dialog.cpp
     src/ui/training_set_dialog.h
     src/ui/kraken_environment.cpp
@@ -310,6 +327,7 @@ set_target_properties(Milah PROPERTIES
 
 target_link_libraries(Milah PRIVATE
     MilahCore
+    MilahTraining
     Qt6::Core
     Qt6::Gui
     Qt6::Network
@@ -371,6 +389,17 @@ target_compile_definitions(Milah PRIVATE
 )
 
 # --------------------------------------------------------------------------
+# milah-training: the same training sets written from the command line, for
+# producing training data from many transcriptions without opening Milah.
+# --------------------------------------------------------------------------
+
+qt_add_executable(milah-training src/tools/milah_training.cpp)
+# A console program everywhere: its output is the point.
+set_target_properties(milah-training PROPERTIES WIN32_EXECUTABLE OFF MACOSX_BUNDLE OFF)
+target_link_libraries(milah-training PRIVATE MilahTraining milah_warnings)
+target_compile_definitions(milah-training PRIVATE MILAH_VERSION="${PROJECT_VERSION}")
+
+# --------------------------------------------------------------------------
 # Install and deploy
 #
 # `cmake --install <build> --prefix <dir>` produces a runnable copy: Qt's
@@ -386,6 +415,18 @@ install(TARGETS Milah
     BUNDLE DESTINATION .
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
 )
+# The command-line exporter goes where it finds the Qt Milah's deployment
+# brings: beside Milah.exe on Windows, inside the bundle on macOS, and in bin/
+# with lib/ on its run path on Linux.
+if(APPLE)
+    install(TARGETS milah-training RUNTIME DESTINATION "Milah.app/Contents/MacOS")
+else()
+    if(NOT WIN32)
+        set_target_properties(milah-training PROPERTIES
+            INSTALL_RPATH "$ORIGIN/../${CMAKE_INSTALL_LIBDIR}")
+    endif()
+    install(TARGETS milah-training RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+endif()
 
 if(APPLE)
     set(MILAH_DATA_INSTALL_DIR "Milah.app/Contents/Resources/data")
@@ -448,13 +489,10 @@ if(MILAH_BUILD_TESTS)
             LIBRARIES MilahCore)
     endforeach()
 
-    # The training set lives in the application target rather than in
-    # MilahCore, because where it puts its files is an application question.
-    # It is still worth testing, so this target takes the source in directly
-    # and links the Gui module it needs to read a picture's size.
+    # The training sets, against a temporary data folder.
     milah_add_test(training_set
-        SOURCES src/ui/training_set.cpp src/ui/training_set.h
-        LIBRARIES MilahCore Qt6::Gui)
+        SOURCES tests/test_data.cpp tests/test_data.h
+        LIBRARIES MilahTraining)
 
     # Pure string and arithmetic work over what a IIIF service says about
     # itself, so it takes no network and no widgets.

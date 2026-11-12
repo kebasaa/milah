@@ -2,6 +2,7 @@
 
 #include "app_controller.h"
 #include "core/books.h"
+#include "core/line_fill.h"
 #include "core/recent_files.h"
 #include "core/tokenize.h"
 #include "core/transcription.h"
@@ -964,6 +965,29 @@ void MainWindow::createTranscriptionActions()
         m_transcriptionController,
         &TranscriptionController::saveFolioForTraining);
 
+    m_vouchFolioAction =
+        new QAction(QStringLiteral("Mark every line of this folio read…"), this);
+    m_vouchFolioAction->setToolTip(QStringLiteral(
+        "Once you have read the whole folio against the ink: marks every line read "
+        "at once instead of a press of Space per line. Notes in the margin are left "
+        "alone."));
+    connect(
+        m_vouchFolioAction,
+        &QAction::triggered,
+        m_transcriptionController,
+        &TranscriptionController::markFolioChecked);
+
+    m_fillRemainingAction =
+        new QAction(QStringLiteral("Fill the remaining folios…"), this);
+    m_fillRemainingAction->setToolTip(QStringLiteral(
+        "Carries the text on from this folio across every one after it, reading "
+        "each first. Stops at the first folio somebody has worked on."));
+    connect(
+        m_fillRemainingAction,
+        &QAction::triggered,
+        m_transcriptionController,
+        &TranscriptionController::fillRemainingFolios);
+
     m_saveAllForTrainingAction =
         new QAction(QStringLiteral("Save every folio for training"), this);
     connect(
@@ -1115,6 +1139,8 @@ void MainWindow::buildMenuBar()
     m_htrMenu->addAction(m_lastRunAction);
     m_htrMenu->addSeparator();
     m_htrMenu->addAction(m_recoverReadingsAction);
+    m_htrMenu->addAction(m_fillRemainingAction);
+    m_htrMenu->addAction(m_vouchFolioAction);
     m_htrMenu->addAction(m_previewStripsAction);
     m_htrMenu->addAction(m_saveForTrainingAction);
     m_htrMenu->addAction(m_saveAllForTrainingAction);
@@ -1201,6 +1227,12 @@ void MainWindow::buildMenuBar()
         // Not gated on this folio: the point of it is the folios that are not
         // open. Enabled whenever there is a transcription with more than the one
         // leaf in it, and it says for itself which of them had nothing to give.
+        const TranscribedPage *open = m_transcriptionController->currentPage();
+        m_vouchFolioAction->setEnabled(open && unvouchedWords(*open) > 0);
+        m_fillRemainingAction->setEnabled(
+            open && m_transcriptionController->resumePoint().isValid()
+            && m_transcriptionController->currentPageIndex() + 1
+                < m_transcriptionController->document().pages.size());
         m_saveAllForTrainingAction->setEnabled(
             m_transcriptionController->document().pages.size() > 1);
         m_saveAllForTrainingAction->setToolTip(QStringLiteral(

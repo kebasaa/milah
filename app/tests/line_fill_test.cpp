@@ -724,6 +724,30 @@ private slots:
         QCOMPARE(lineAtPoint(shuffled, QPoint(650, 170)), 1);
         QCOMPARE(lineAtPoint(shuffled, QPoint(720, 120)), 0);
     }
+
+    void aWholeFolioIsVouchedForButNotItsMargins()
+    {
+        TranscribedPage page;
+        TranscribedVerse verse;
+        const auto word = [](int line, bool marginal) {
+            TranscribedWord made;
+            made.hebrew = QStringLiteral("x");
+            made.line = line;
+            made.box = QRect(0, line * 40, 30, 20);
+            made.unchecked = true;
+            made.marginal = marginal;
+            return made;
+        };
+        verse.words = {word(0, false), word(0, false), word(1, false), word(1, true)};
+        page.verses.append(verse);
+
+        QCOMPARE(unvouchedWords(page), 3);
+        QCOMPARE(vouchForFolio(page), 3);
+        QCOMPARE(unvouchedWords(page), 0);
+        // The note in the margin is still unread.
+        QVERIFY(page.verses.at(0).words.at(3).unchecked);
+        QCOMPARE(vouchForFolio(page), 0);
+    }
 };
 
 QTEST_MAIN(LineFillTest)

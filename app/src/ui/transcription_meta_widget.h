@@ -56,6 +56,7 @@ private:
     QLineEdit *m_translatedFrom = nullptr;
     QComboBox *m_translatedFromCertainty = nullptr;
     QLineEdit *m_exemplar = nullptr;
+    QLineEdit *m_hand = nullptr;
     QLineEdit *m_language = nullptr;
     QPlainTextEdit *m_notes = nullptr;
     QPushButton *m_save = nullptr;

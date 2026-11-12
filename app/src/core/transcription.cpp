@@ -55,6 +55,7 @@ QJsonObject metadataToJson(const TranscriptionMetadata &metadata)
         QStringLiteral("translatedFromCertainty"),
         metadata.translatedFromCertainty);
     put(json, QStringLiteral("exemplar"), metadata.exemplar);
+    put(json, QStringLiteral("hand"), metadata.hand);
     put(json, QStringLiteral("language"), metadata.language);
     put(json, QStringLiteral("notes"), metadata.notes);
 
@@ -84,6 +85,8 @@ TranscriptionMetadata metadataFromJson(const QJsonObject &json)
     metadata.translatedFromCertainty =
         json.value(QStringLiteral("translatedFromCertainty")).toString();
     metadata.exemplar = json.value(QStringLiteral("exemplar")).toString();
+    // Absent from every file written before the hand was asked for.
+    metadata.hand = json.value(QStringLiteral("hand")).toString();
     metadata.language = json.value(QStringLiteral("language")).toString();
     metadata.notes = json.value(QStringLiteral("notes")).toString();
 
