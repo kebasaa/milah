@@ -832,7 +832,8 @@ private slots:
         page.verses = {verse};
         document.pages = {page};
 
-        const TranscribedVerse &out = withoutMarginalia(document).pages.at(0).verses.at(0);
+        const TranscriptionDocument stripped = withoutMarginalia(document);
+        const TranscribedVerse &out = stripped.pages.at(0).verses.at(0);
         QCOMPARE(out.words.size(), 2);
         QCOMPARE(out.words.at(1).note, QString::fromUtf8("\xd7\x92"));
         // And a note the transcriber had already written is kept, not replaced.
@@ -856,7 +857,8 @@ private slots:
         page.verses = {verse};
         document.pages = {page};
 
-        const TranscribedVerse &out = withoutMarginalia(document).pages.at(0).verses.at(0);
+        const TranscriptionDocument stripped = withoutMarginalia(document);
+        const TranscribedVerse &out = stripped.pages.at(0).verses.at(0);
         QCOMPARE(out.words.size(), 2);
         QCOMPARE(out.words.at(1).note, QString::fromUtf8("\xd7\x92"));
     }
@@ -876,7 +878,8 @@ private slots:
         page.verses = {verse};
         document.pages = {page};
 
-        const TranscribedVerse &out = withoutMarginalia(document).pages.at(0).verses.at(0);
+        const TranscriptionDocument stripped = withoutMarginalia(document);
+        const TranscribedVerse &out = stripped.pages.at(0).verses.at(0);
         QVERIFY(out.words.isEmpty());
     }
 
