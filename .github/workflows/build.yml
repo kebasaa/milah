@@ -36,7 +36,7 @@ jobs:
             qt-arch: linux_gcc_64
             qt-tools: ''
           - name: macOS
-            os: macos-14
+            os: macos-15
             preset: macos
             qt-arch: clang_64
             qt-tools: ''
