@@ -150,7 +150,7 @@ DocxParagraph headingParagraph(const QString &text, const QString &style)
 {
     DocxParagraph paragraph;
     paragraph.style = style;
-    paragraph.runs.append(DocxRun{text});
+    paragraph.runs.append(DocxRun{.text = text});
     return paragraph;
 }
 
@@ -263,7 +263,7 @@ DocxDocument interlinearWordDocument(const TranscriptionDocument &transcription)
             if (hasAnyGloss(verse)) {
                 DocxParagraph gloss;
                 gloss.style = QStringLiteral("Gloss");
-                gloss.runs.append(DocxRun{glossLine(verse)});
+                gloss.runs.append(DocxRun{.text = glossLine(verse)});
                 document.blocks.append(gloss);
             }
         }

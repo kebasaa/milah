@@ -22,14 +22,14 @@ SourceDocument parseSample()
 
 QString corpusPath(const QString &variant)
 {
-    return QStringLiteral("%1/tools/data/01_osis/Rev_Sloane237_%2.osis")
-        .arg(QStringLiteral(MILAH_REPO_ROOT), variant);
+    return milah_test::corpusFile(QStringLiteral("REV_Sloane237_") + variant);
 }
 
+/// What the hebrew_manuscripts repository publishes for Sloane 237. A bare
+/// `hebrew` variant was generated once but is not published.
 const QStringList &corpusVariants()
 {
     static const QStringList variants = {
-        QStringLiteral("hebrew"),
         QStringLiteral("hebrew_commented"),
         QStringLiteral("translation"),
     };
@@ -221,7 +221,7 @@ private slots:
     void loadsEveryGeneratedVariantWithoutWarnings()
     {
         if (!corpusAvailable()) {
-            QSKIP("The tools/data/01_osis corpus is not available next to this build.");
+            QSKIP("The hebrew_manuscripts corpus is not checked out beside this repository.");
         }
 
         for (const QString &variant : corpusVariants()) {
@@ -239,7 +239,7 @@ private slots:
     void keepsTheManuscriptsNonVerseText()
     {
         if (!corpusAvailable()) {
-            QSKIP("The tools/data/01_osis corpus is not available next to this build.");
+            QSKIP("The hebrew_manuscripts corpus is not checked out beside this repository.");
         }
 
         ParseOptions options;
@@ -247,7 +247,7 @@ private slots:
         options.name = QStringLiteral("hebrew");
         options.role = SourceRole::Manuscript;
         const SourceDocument document =
-            parseOsis(readCorpus(QStringLiteral("hebrew")), options);
+            parseOsis(readCorpus(QStringLiteral("hebrew_commented")), options);
 
         const SourceTitle *incipit = nullptr;
         const SourceTitle *chapterTitle = nullptr;
@@ -422,7 +422,7 @@ private slots:
             {{preamble.reference.id, preamble}, {first.reference.id, first}});
 
         QVERIFY(xml.contains(
-            QStringLiteral("<div type=\"introduction\" osisRef=\"Rev.4\">incipit</div>")));
+            QStringLiteral("<div type=\"introduction\" canonical=\"true\" osisRef=\"Rev.4\" n=\"0\">incipit</div>")));
         QVERIFY(!xml.contains(QStringLiteral("osisID=\"Rev.4.0\"")));
         // And it stands before verse 1, which is the whole of what a preamble
         // is. The drafts sort it there; this is the check that they still do.

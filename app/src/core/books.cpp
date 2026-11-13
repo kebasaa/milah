@@ -56,6 +56,28 @@ const BookEntry kBooks[] = {
     {"Hag", "Haggai"},
     {"Zech", "Zechariah"},
     {"Mal", "Malachi"},
+    // The deuterocanon, under the ids the OSIS manual gives it, between the
+    // testaments where the editions that print it put it. Hebrew manuscripts
+    // carry Ben Sira and Tobit among others; typing "Tobit" used to coin an id
+    // of its own rather than find this one.
+    {"Tob", "Tobit"},
+    {"Jdt", "Judith"},
+    {"AddEsth", "Additions to Esther"},
+    {"Wis", "Wisdom of Solomon"},
+    {"Sir", "Sirach"},
+    {"Bar", "Baruch"},
+    {"EpJer", "Letter of Jeremiah"},
+    {"PrAzar", "Prayer of Azariah"},
+    {"Sus", "Susanna"},
+    {"Bel", "Bel and the Dragon"},
+    {"1Macc", "1 Maccabees"},
+    {"2Macc", "2 Maccabees"},
+    {"3Macc", "3 Maccabees"},
+    {"4Macc", "4 Maccabees"},
+    {"PrMan", "Prayer of Manasseh"},
+    {"1Esd", "1 Esdras"},
+    {"2Esd", "2 Esdras"},
+    {"AddPs", "Psalm 151"},
     {"Matt", "Matthew"},
     {"Mark", "Mark"},
     {"Luke", "Luke"},
@@ -167,10 +189,53 @@ QString bookIdFor(const QString &nameOrId)
                 result.insert(key, id);
             }
         }
+        // The three-letter codes Paratext and USFM use, which is how the scan
+        // catalogue and the older manifests name books ("MRK", "JHN") — plus
+        // "JOH", which the published library used for John. Last, so neither
+        // an id nor a name is ever shadowed by one.
+        static const char *const aliases[][2] = {
+            {"EXO", "Exod"}, {"DEU", "Deut"}, {"JOS", "Josh"}, {"JDG", "Judg"},
+            {"RUT", "Ruth"}, {"1SA", "1Sam"}, {"2SA", "2Sam"}, {"1KI", "1Kgs"},
+            {"2KI", "2Kgs"}, {"1CH", "1Chr"}, {"2CH", "2Chr"}, {"EZR", "Ezra"},
+            {"EST", "Esth"}, {"PSA", "Ps"},   {"PRO", "Prov"}, {"ECC", "Eccl"},
+            {"SNG", "Song"}, {"EZK", "Ezek"}, {"JOL", "Joel"}, {"AMO", "Amos"},
+            {"OBA", "Obad"}, {"JON", "Jonah"}, {"NAM", "Nah"}, {"ZEP", "Zeph"},
+            {"ZEC", "Zech"}, {"MAT", "Matt"}, {"MRK", "Mark"}, {"LUK", "Luke"},
+            {"JHN", "John"}, {"JOH", "John"}, {"ACT", "Acts"}, {"1CO", "1Cor"},
+            {"2CO", "2Cor"}, {"PHP", "Phil"}, {"1TH", "1Thess"}, {"2TH", "2Thess"},
+            {"1TI", "1Tim"}, {"2TI", "2Tim"}, {"TIT", "Titus"}, {"PHM", "Phlm"},
+            {"1PE", "1Pet"}, {"2PE", "2Pet"}, {"1JN", "1John"}, {"2JN", "2John"},
+            {"3JN", "3John"}, {"JUD", "Jude"}, {"TOB", "Tob"}, {"JDT", "Jdt"},
+            {"WIS", "Wis"}, {"SIR", "Sir"}, {"1MA", "1Macc"}, {"2MA", "2Macc"},
+        };
+        for (const auto &alias : aliases) {
+            const QString key = lookupKey(QString::fromLatin1(alias[0]));
+            if (!result.contains(key)) {
+                result.insert(key, QString::fromLatin1(alias[1]));
+            }
+        }
         return result;
     }();
 
     return byKey.value(lookupKey(nameOrId));
+}
+
+QString sanitisedBookId(const QString &raw)
+{
+    QString id;
+    id.reserve(raw.size());
+    for (const QChar character : raw) {
+        if (character.isLetterOrNumber()) {
+            id.append(character);
+        }
+    }
+    return id;
+}
+
+QString normalisedBookId(const QString &raw)
+{
+    const QString canonical = bookIdFor(raw);
+    return canonical.isEmpty() ? sanitisedBookId(raw) : canonical;
 }
 
 QString bookName(const QString &osisId)
@@ -189,6 +254,15 @@ QString bookName(const QString &osisId)
     // A manuscript may carry something outside the canon, and an id names its
     // book better than an empty string does.
     return names.value(osisId, osisId);
+}
+
+QString readableVerseId(const QString &id)
+{
+    const QStringList parts = id.split(QLatin1Char('.'));
+    if (parts.size() != 3) {
+        return id;
+    }
+    return QStringLiteral("%1 %2:%3").arg(parts.at(0), parts.at(1), parts.at(2));
 }
 
 int compareBooks(const QString &left, const QString &right)
@@ -269,6 +343,98 @@ int compareNumericAware(const QString &left, const QString &right)
         return 0;
     }
     return leftRemaining < rightRemaining ? -1 : 1;
+}
+
+} // namespace milah
+
+namespace milah {
+
+Testament testamentOf(const QString &book)
+{
+    const QString trimmed = book.trimmed();
+    if (trimmed.compare(QLatin1String("NT"), Qt::CaseInsensitive) == 0) {
+        return Testament::New;
+    }
+    if (trimmed.compare(QLatin1String("OT"), Qt::CaseInsensitive) == 0) {
+        return Testament::Old;
+    }
+    const QString id = bookIdFor(trimmed);
+    if (id.isEmpty()) {
+        return Testament::Other;
+    }
+    // Everything before Matthew in the table is the Hebrew Bible or the
+    // deuterocanon after it.
+    return canonicalOrder().value(id) < canonicalOrder().value(QStringLiteral("Matt"))
+        ? Testament::Old
+        : Testament::New;
+}
+
+QString testamentName(Testament testament)
+{
+    switch (testament) {
+    case Testament::Old:
+        return QStringLiteral("Old Testament");
+    case Testament::New:
+        return QStringLiteral("New Testament");
+    case Testament::Other:
+        break;
+    }
+    return QStringLiteral("Other texts");
+}
+
+int compareTanakh(const QString &left, const QString &right)
+{
+    static const QHash<QString, int> order = [] {
+        const char *const tanakh[] = {
+            // Torah
+            "Gen", "Exod", "Lev", "Num", "Deut",
+            // Nevi'im
+            "Josh", "Judg", "1Sam", "2Sam", "1Kgs", "2Kgs", "Isa", "Jer", "Ezek",
+            "Hos", "Joel", "Amos", "Obad", "Jonah", "Mic", "Nah", "Hab", "Zeph",
+            "Hag", "Zech", "Mal",
+            // Ketuvim
+            "Ps", "Prov", "Job", "Song", "Ruth", "Lam", "Eccl", "Esth", "Dan",
+            "Ezra", "Neh", "1Chr", "2Chr",
+        };
+        QHash<QString, int> result;
+        for (const char *id : tanakh) {
+            result.insert(QString::fromLatin1(id), int(result.size()));
+        }
+        return result;
+    }();
+
+    const QString leftId = bookIdFor(left).isEmpty() ? left : bookIdFor(left);
+    const QString rightId = bookIdFor(right).isEmpty() ? right : bookIdFor(right);
+    const bool leftIn = order.contains(leftId);
+    const bool rightIn = order.contains(rightId);
+    if (leftIn && rightIn) {
+        const int difference = order.value(leftId) - order.value(rightId);
+        return difference < 0 ? -1 : (difference > 0 ? 1 : 0);
+    }
+    if (leftIn != rightIn) {
+        // The Tanakh's own books first, the deuterocanon after them.
+        return leftIn ? -1 : 1;
+    }
+    return compareBooks(leftId, rightId);
+}
+
+} // namespace milah
+
+namespace milah {
+
+Testament testamentFromCategory(const QString &category, const QString &book)
+{
+    const QString code = category.trimmed().toLower();
+    if (code == QLatin1String("ot")) {
+        return Testament::Old;
+    }
+    if (code == QLatin1String("nt")) {
+        return Testament::New;
+    }
+    if (code == QLatin1String("other")) {
+        return Testament::Other;
+    }
+    return testamentOf(book);
 }
 
 } // namespace milah

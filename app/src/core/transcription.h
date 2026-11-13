@@ -5,6 +5,7 @@
 #include <QHash>
 #include <QList>
 #include <QMap>
+#include <QPoint>
 #include <QRect>
 #include <QString>
 
@@ -32,6 +33,18 @@ struct TranscribedWord
     QString hebrew;
     /// The lexicon's suggestion unless the transcriber has overwritten it.
     QString english;
+    /// What the machine read at this box, kept so it can be handed back.
+    ///
+    /// A fill overwrites `hebrew` with a word of the published work, and until
+    /// this existed that threw the recogniser's own reading away. It is needed
+    /// again the moment a box turns out to be a marginal note: the note is not
+    /// in the work, so the word poured onto it belongs further down the passage,
+    /// and what belongs on the box is what was read there.
+    ///
+    /// Empty for a word somebody typed, and for every folio read before this
+    /// existed — where a box held out of the work simply keeps its text, there
+    /// being nothing recorded to go back to.
+    QString recognised;
     /// True once the transcriber has edited the gloss themselves, after which
     /// re-reading the Hebrew word must not overwrite what they wrote.
     bool englishIsOwn = false;
@@ -48,6 +61,44 @@ struct TranscribedWord
     /// in Milah knows where on the picture a word is, because until a machine
     /// read one nothing had any way to.
     QRect box;
+    /// Which line of the folio this word was read from, counting from 0, or -1
+    /// for a word nothing read.
+    ///
+    /// Kept because a recogniser is trained on **lines**, not words, and the
+    /// only record of which words shared one is the layout file the reading
+    /// came from — which is overwritten by the next run. Without this, a folio
+    /// somebody spent an afternoon correcting could never be handed back as
+    /// ground truth. See core/training_export.h.
+    int line = -1;
+    /// The manuscript's line ends after this word, said by the transcriber.
+    ///
+    /// **For training and for nothing else.** A recogniser learns from whole
+    /// lines, and its own idea of where they end is often wrong on a hand it was
+    /// not trained for — it runs two together as readily as it splits one. This
+    /// is how a person says otherwise. It reaches core/training_export.h and no
+    /// exporter: OSIS and Word carry a text, not a page.
+    ///
+    /// Only ever *adds* a break. A line ends where the recogniser said it ends
+    /// or where this says it does, so each piece is boxed round its own words
+    /// and is right by construction; joining two recognised lines would need a
+    /// box spanning both and whatever lies between them.
+    bool endsLine = false;
+    /// On the leaf, but outside the work being transcribed: a marginal note, a
+    /// catchword, a running header, anything the scribe wrote beside the text.
+    ///
+    /// **Said by the transcriber, because nothing else can tell.** A recogniser
+    /// segments every mark with ink in it, and a published transcription holds
+    /// the work and normally no marginalia at all — so a fill treats the note's
+    /// box as one more slot in the main text, drops a word of James onto it, and
+    /// shifts every word after it by one for the rest of the leaf. The note is
+    /// destroyed and the line breaks go wrong, which for training data is worse
+    /// than losing the note.
+    ///
+    /// The word keeps its reading and stays editable. What changes is where it
+    /// counts: a fill steps over it, the exports carry it as a note on the line
+    /// rather than as a word of the verse, and training uses it only once
+    /// somebody has confirmed what it says. See core/training_export.h.
+    bool marginal = false;
     /// Read by a machine and not yet looked at by a person. Cleared the moment
     /// the word is edited, because editing it is what checking it means.
     ///
@@ -61,6 +112,29 @@ struct TranscribedWord
     /// changed a word it draws from the very many that did not, and so skip
     /// repainting a scan for nothing.
     bool operator==(const TranscribedWord &) const = default;
+};
+
+/// A line of the folio as the recogniser drew it: where it runs, and what it
+/// encloses.
+///
+/// **Kept because training cuts its strips from these two and from nothing
+/// else.** A model is shown a line dewarped along its baseline and masked to
+/// its boundary, so a level baseline through the middle of the word boxes
+/// shears the strip, and a rectangle round them takes in the neighbouring
+/// lines' ascenders and descenders. On 158r of MS Oo.1.32 a baseline falls a
+/// median of 12 pixels across the leaf and a boundary covers 0.65 of its
+/// bounding rectangle -- a third of a letter's height of shear, and half again
+/// as much ink as the line has.
+///
+/// Empty for a folio read before Milah kept these, and for a format that does
+/// not record them. core/training_export.h falls back to the old invention.
+struct TranscribedLine
+{
+    int index = 0;
+    QList<QPoint> baseline;
+    QList<QPoint> boundary;
+
+    bool operator==(const TranscribedLine &) const = default;
 };
 
 struct TranscribedVerse
@@ -111,6 +185,55 @@ struct TranscribedPage
     /// The chapter this page opens in. Verses after a chapter break count on
     /// from here; see chapterOfVerse().
     int firstChapter = 1;
+    /// Where a fill from a published transcription stopped on this folio: the
+    /// verse the next leaf resumes in, and how many of that verse's words this
+    /// folio already took.
+    ///
+    /// A folio ends mid-verse far more often than not, so a verse alone cannot
+    /// say where to carry on from — and a transcriber filling a codex leaf by
+    /// leaf should not have to find the place again every time. Empty and -1
+    /// where no fill has run, which is every folio of every file written before
+    /// filling existed.
+    ///
+    /// The *position* is here and the file is not, on the same reasoning as
+    /// sourcePath above: a transcription opened on another machine asks for the
+    /// .osis again and resumes in the right place regardless.
+    QString fillEndVerse;
+    int fillEndWord = -1;
+    /// Where this folio's poured text begins: the line, the verse, and how many
+    /// words of that verse the leaf before it already held.
+    ///
+    /// **A fact about this folio, recorded rather than worked out.** A re-flow
+    /// first tried to derive it from the folio before this one, which only ever
+    /// worked for a continuation — the first filled leaf of a document has no
+    /// leaf behind it, so the re-flow found nothing and silently did nothing.
+    /// Where a pour began is not the previous folio's business.
+    ///
+    /// -1 and empty for a folio nothing has been poured onto, and for every
+    /// folio filled before Milah wrote this down.
+    int fillStartLine = -1;
+    QString fillStartVerse;
+    int fillStartWord = -1;
+    /// What the recogniser drew for each line of this folio, in the folio
+    /// image's own pixels -- the same space the word boxes are in.
+    QList<TranscribedLine> lines;
+    /// How many words of the poured text each line takes, where the transcriber
+    /// has said, keyed by line. Absent for a line nothing has been said about,
+    /// which is nearly all of them.
+    ///
+    /// **The box count is a guess and this is the correction.** A line takes as
+    /// many words as the recogniser drew boxes on it, and on a rapid cursive
+    /// that count is not the word count: the segmenter splits one word into two
+    /// boxes as readily as it runs two into one. Where it over-segments, the
+    /// pour lays more words on the line than the manuscript holds and every word
+    /// below is one place out for the rest of the leaf.
+    ///
+    /// Not TranscribedWord::endsLine, which is a different claim and must stay
+    /// one. That says where a *manuscript* line ends inside one thing the
+    /// segmenter drew, splits the training strip, and moves no text — those
+    /// words are already on the right boxes. This says the boxes hold fewer
+    /// words than were poured onto them, and the surplus belongs further down.
+    QMap<int, int> lineWords;
     QList<TranscribedVerse> verses;
 };
 
@@ -148,6 +271,11 @@ struct TranscriptionMetadata
     /// The older manuscript this one copies, where it is known to copy one:
     /// "Copied from Cambridge MS Oo.1.32". A judgement too.
     QString exemplar;
+    /// The hand it is written in, as the transcriber names it: "Ashkenazi
+    /// semi-cursive", "Sephardi square". What decides which training sets are
+    /// taught together: one hand runs across several manuscripts, and two
+    /// hands taught as one teach neither. Empty until somebody says.
+    QString hand;
     QString language;
     QString notes;
     /// Anything the fields above do not cover, so a project can carry a note
@@ -160,9 +288,67 @@ struct TranscriptionDocument
 {
     TranscriptionMetadata metadata;
     QList<TranscribedPage> pages;
+    /// The published transcription the folios were filled from, so continuing
+    /// onto the next leaf does not mean finding the same `.osis` again.
+    ///
+    /// A path and not the file itself. The text belongs to whoever published it,
+    /// a book of it is far larger than the transcription that borrows twenty
+    /// lines, and a copy carried inside the project would go stale the moment
+    /// the edition was corrected. The cost is that a project opened on another
+    /// machine asks once — which is the right trade, and it degrades to exactly
+    /// the behaviour of every version before this one.
+    QString fillSource;
 
     bool isEmpty() const { return pages.isEmpty(); }
 };
+
+/// Where a fill left off, for the next folio to carry on from.
+struct ResumePoint
+{
+    /// The verse it stopped in, as an OSIS id: "Jas.1.25".
+    QString verse;
+    /// How many of that verse's words the folio took, because a leaf ends
+    /// mid-verse far more often than not.
+    int word = -1;
+
+    bool isValid() const { return !verse.isEmpty() && word >= 0; }
+};
+
+/// Where the text on the folio before `page` runs out, or an invalid point when
+/// no earlier leaf holds any.
+///
+/// **Read off the leaf, not out of a note about it.** Each fill also records
+/// `fillEndVerse`/`fillEndWord`, and this used to trust them — but they are
+/// written once and never touched again, while the folio they describe goes on
+/// being corrected. Deleting a word the recogniser invented, retyping one,
+/// marking a line break: every one changes what the leaf holds and none updates
+/// the pair, so the next folio resumed against a number that had stopped
+/// describing anything. Counting the words that are there now cannot drift,
+/// because there is nothing to drift from.
+///
+/// **The nearest earlier folio with text on it, not the first one.** A leaf that
+/// was skipped — a blank verso, a plate, a folio left for later — must not send
+/// the next one back two places in the book.
+///
+/// Free here rather than private to the controller because two callers need the
+/// same answer: the fill itself, and the folio's right-click, which names the
+/// place in its menu. If they disagreed the menu would promise somewhere the
+/// fill does not go.
+ResumePoint resumeFill(const TranscriptionDocument &document, int page);
+
+/// The transcription as its exports should carry it: the marginalia taken out
+/// of the text and set down as notes on the lines they stand beside.
+///
+/// A marginal note is on the leaf but not in the work, so it is not a word of
+/// any verse — exporting it as one would put it into the running text of an
+/// edition, in a place the scribe never wrote it. But it is not nothing either,
+/// and a transcriber who has read it should not lose it. So its reading joins
+/// the note on the **last word of its line that is part of the text**, which is
+/// where a marginal gloss actually attaches, and rides out as an OSIS note.
+///
+/// Derived here rather than stored, so it cannot go stale when the note is
+/// edited, the mark cleared, or the word retyped.
+TranscriptionDocument withoutMarginalia(const TranscriptionDocument &document);
 
 /// The chapter a verse falls in: the page's opening chapter, plus one for every
 /// chapter break at or before it.
@@ -177,6 +363,10 @@ int chapterOfVerse(const TranscribedPage &page, int verseIndex);
 /// The verse id a transcribed verse would carry in OSIS: "Book.Chapter.Verse",
 /// the same shape the rest of Milah keys verses by. Empty when the page has no
 /// book or the verse has no number, because half an id is worse than none.
+///
+/// The book is Milah's own code, "JAS", where the OSIS file may spell it "Jas" —
+/// so anything matching the two must do so case-insensitively. See bookNamed()
+/// in core/osis_fill.h.
 QString transcribedVerseId(const TranscribedPage &page, int verseIndex);
 
 /// True when `text` is a verse number rather than a word — digits, optionally
@@ -210,6 +400,38 @@ bool isUntouched(const TranscribedPage &page);
 /// For pasting. Words standing before any number become a verse with no number
 /// of its own, which is what a fragment out of the middle of a chapter is.
 QList<TranscribedVerse> parseTranscribedText(const QString &text);
+
+/// Cuts word `column` of `words` in two at `caret`, the second half becoming a
+/// word of its own straight after it. The glosses are the caller's to redo.
+///
+/// **The second half stays on the line it was read from.** It used to come out
+/// as a word nothing had read — no line — and the training export stepped over
+/// such words, so the line went into the ground truth with the first half's
+/// letters against the whole word's ink. It keeps the line now and has no box,
+/// because where the cut falls on the picture is not known; the export refuses
+/// a line holding a word with no box, which is the honest answer to that.
+///
+/// The line break, if the word carried one, moves to the second half: the
+/// manuscript's line ends after the whole word, not in the middle of it.
+void splitWord(QList<TranscribedWord> &words, int column, int caret);
+
+/// Joins word `column` of `words` onto the word before it, which it then
+/// replaces. The glosses are the caller's to redo.
+///
+/// What either half said survives in the joined word, because each is a claim
+/// the training export acts on:
+///
+/// - **unchecked** if either half was — a machine's reading glued to a checked
+///   word is still a machine's reading;
+/// - **a line break** if either half carried one — otherwise two manuscript
+///   lines the transcriber had separated quietly become one again;
+/// - **the box** of both, united, where both were read off the same line. Where
+///   only the first half has a box it is kept, which is exactly right for
+///   joining a split back together: splitting never shrank it. Anywhere else —
+///   halves from two lines of the folio, or a first half nothing placed — no
+///   one box holds the joined word, and it has none;
+/// - both notes.
+void joinWithPrevious(QList<TranscribedWord> &words, int column);
 
 /// How a verse should be named on screen: as much of its reference as is known.
 ///

@@ -5,6 +5,7 @@
 #include "core/transcription.h"
 
 #include <QMultiHash>
+#include <QRegularExpression>
 
 #include <algorithm>
 
@@ -71,8 +72,10 @@ QString verseBody(
         }
         Anchor anchor;
         anchor.offset = milestone.charOffset;
-        anchor.markup = QStringLiteral("<milestone type=\"%1\" n=\"%2\"/>")
-                            .arg(escapeXml(milestone.type), escapeXml(milestone.n));
+        anchor.markup = milestone.n.isEmpty()
+            ? QStringLiteral("<milestone type=\"%1\"/>").arg(escapeXml(milestone.type))
+            : QStringLiteral("<milestone type=\"%1\" n=\"%2\"/>")
+                  .arg(escapeXml(milestone.type), escapeXml(milestone.n));
         anchors.append(anchor);
     }
 
@@ -180,11 +183,16 @@ QString serializeOsis(
             return compareNumericAware(left.reference.verse, right.reference.verse) < 0;
         });
 
-    const QString workId = metadata.workId.isEmpty()
-        ? QStringLiteral("Milah.Combined")
-        : metadata.workId;
-    const QString language =
-        metadata.language.isEmpty() ? QStringLiteral("he") : metadata.language;
+    // Both checked against what the schema accepts, because both come from
+    // fields a person typed: a shelfmark with spaces, a language written as
+    // "Hebrew". Either made the whole file invalid.
+    const QString workName = osisWorkName(metadata.workId);
+    const QString workId = workName.isEmpty() ? QStringLiteral("Milah.Combined") : workName;
+    static const QRegularExpression languageTag(
+        QStringLiteral("^[A-Za-z]{1,8}(-[A-Za-z0-9]{1,8})*$"));
+    const QString language = languageTag.match(metadata.language).hasMatch()
+        ? metadata.language
+        : QStringLiteral("he");
     const QString title = metadata.title.isEmpty()
         ? QStringLiteral("Milah Combined Edition")
         : metadata.title;
@@ -203,9 +211,31 @@ QString serializeOsis(
         identifiers += QStringLiteral("        <identifier type=\"%1\">%2</identifier>\n")
                            .arg(escapeXml(item.key()), escapeXml(item.value()));
     }
+    // Who holds the text and what may be done with it, the two questions the
+    // published library keeps apart. Read on import and, until now, dropped on
+    // the way back out — so an edition built from a licensed witness lost the
+    // licence. Between <language> and <scope>, where the schema puts it.
+    QString rights;
+    if (!metadata.rights.isEmpty()) {
+        rights += QStringLiteral("        <rights type=\"x-copyright\">%1</rights>\n")
+                      .arg(escapeXml(metadata.rights));
+    }
+    if (!metadata.license.isEmpty()) {
+        rights += QStringLiteral("        <rights type=\"x-license\">%1</rights>\n")
+                      .arg(escapeXml(metadata.license));
+    }
     const QString scope = metadata.scope.isEmpty()
         ? QString()
         : QStringLiteral("        <scope>%1</scope>\n").arg(escapeXml(metadata.scope));
+    // The OSIS manual's name for a versification is Bible.<scheme>. Milah
+    // collates the Hebrew Bible in its own numbering (see versification.h)
+    // and the New Testament in the English one, so unless told otherwise a
+    // file says whichever its verses follow.
+    const bool hebrewBible = !ordered.isEmpty()
+        && testamentOf(ordered.constFirst().reference.book) == Testament::Old;
+    const QString refSystem = !metadata.refSystem.isEmpty() ? metadata.refSystem
+        : hebrewBible                                         ? QStringLiteral("Bible.Leningrad")
+                                                              : QStringLiteral("Bible.KJV");
 
     // What the header says about the manuscript that no other element holds:
     // which folios, what it is written on, what the Hebrew renders, which older
@@ -292,10 +322,11 @@ QString serializeOsis(
 
         // What the chapter this belongs to is called, which a preamble points
         // at in place of a verse of its own.
-        const QString chapterRef =
-            QStringLiteral("%1.%2").arg(escapeXml(currentBook)).arg(currentChapter);
+        // Unescaped: noteMarkup escapes what it writes, and escaping here as
+        // well turned an ampersand in a coined book id into &amp;amp;.
+        const QString chapterRef = QStringLiteral("%1.%2").arg(currentBook).arg(currentChapter);
         const bool preamble = isPreamble(reference.verse);
-        const QString anchorRef = preamble ? chapterRef : escapeXml(reference.id);
+        const QString anchorRef = preamble ? chapterRef : reference.id;
 
         const QString written = glosses
             ? interlinearBody(
@@ -308,9 +339,13 @@ QString serializeOsis(
             // verse: numbering it 0 would address a verse no versification has.
             // The drafts are sorted with 0 first within its chapter, so this is
             // already in the right place.
-            body += QStringLiteral("        <div type=\"introduction\" osisRef=\"%1\">%2"
-                                   "</div>\n")
-                        .arg(chapterRef, written);
+            //
+            // Canonical, because it is the manuscript's own text rather than an
+            // editor's introduction; numbered, so a second one ("0b") reads
+            // back as itself rather than as a duplicate of the first.
+            body += QStringLiteral("        <div type=\"introduction\" canonical=\"true\""
+                                   " osisRef=\"%1\" n=\"%2\">%3</div>\n")
+                        .arg(escapeXml(chapterRef), escapeXml(reference.verse), written);
             continue;
         }
 
@@ -328,7 +363,10 @@ QString serializeOsis(
 
     return QStringLiteral(
                "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
-               "<osis xmlns=\"http://www.bibletechnologies.net/2003/OSIS/namespace\">\n"
+               "<osis xmlns=\"http://www.bibletechnologies.net/2003/OSIS/namespace\"\n"
+               "      xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\"\n"
+               "      xsi:schemaLocation=\"http://www.bibletechnologies.net/2003/OSIS/namespace"
+               " http://www.bibletechnologies.net/osisCore.2.1.1.xsd\">\n"
                "  <osisText osisIDWork=\"%1\" osisRefWork=\"bible\" xml:lang=\"%2\">\n"
                "    <header>\n"
                "      <work osisWork=\"%1\">\n"
@@ -338,24 +376,45 @@ QString serializeOsis(
                "%5"
                "        <language>%2</language>\n"
                "%6"
+               "%7"
                "      </work>\n"
                "      <work osisWork=\"bible\">\n"
                "        <title>Referenced versification</title>\n"
                "        <identifier type=\"OSIS\">bible</identifier>\n"
                "        <language>%2</language>\n"
-               "        <refSystem>StandardV11N</refSystem>\n"
+               "        <refSystem>%8</refSystem>\n"
                "      </work>\n"
                "    </header>\n"
-               "%7  </osisText>\n"
+               "%9  </osisText>\n"
                "</osis>\n")
-        // The text itself goes in last, together with the header's free fields:
-        // a multi-argument arg() does not rescan what it substituted, so a note
-        // that happens to read "%1" stays a note rather than becoming the title.
-        .arg(escapeXml(workId), escapeXml(language), escapeXml(title), workType)
-        .arg(identifiers, scope, body);
+        // One multi-argument arg(), which does not rescan what it substituted:
+        // a title or note that happens to read "%5" stays as written. Two
+        // chained calls would let the second rewrite what the first put in.
+        .arg(escapeXml(workId), escapeXml(language), escapeXml(title), workType,
+             identifiers, rights, scope, escapeXml(refSystem), body);
 }
 
 } // namespace
+
+QString osisWorkName(const QString &raw)
+{
+    QString name;
+    for (const QChar character : raw) {
+        if (character.isLetterOrNumber() || character == QLatin1Char('_')) {
+            name += character;
+        } else if (character == QLatin1Char('.') && !name.isEmpty()
+                   && !name.endsWith(QLatin1Char('.'))) {
+            name += character;
+        } else if (!name.isEmpty() && !name.endsWith(QLatin1Char('_'))
+                   && !name.endsWith(QLatin1Char('.'))) {
+            name += QLatin1Char('_');
+        }
+    }
+    while (name.endsWith(QLatin1Char('.')) || name.endsWith(QLatin1Char('_'))) {
+        name.chop(1);
+    }
+    return name;
+}
 
 QString serializeCombinedOsis(
     const QMap<QString, CombinedDraft> &drafts,

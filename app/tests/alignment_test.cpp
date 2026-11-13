@@ -11,7 +11,6 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QJsonObject>
-#include <QProcessEnvironment>
 #include <QtTest>
 
 using namespace milah;
@@ -66,10 +65,8 @@ bool offersReading(const QStringList &expansions, const QString &consonants)
 /// places under two conventions.
 struct CorpusWitness
 {
-    /// `tools/data/01_osis/<local>.osis`, where the corpus was kept when this
-    /// dump was first taken. Never tracked in git — so on a fresh clone the
-    /// dump could not be regenerated, and the copy committed beside the sources
-    /// was a snapshot nobody could reproduce.
+    /// The name the corpus had when this dump was first taken. Only the parsed
+    /// document's name uses it now, so the dump does not change with the file.
     QString local;
     /// `../hebrew_manuscripts/manuscripts/<published>.osis`, the published
     /// repository. The same two texts, checked word for word against the
@@ -93,32 +90,10 @@ const CorpusWitness &sloaneFile()
     return witness;
 }
 
-/// The first of the two that exists, or the local one so a failure names the
-/// path a reader is most likely to be looking for.
-///
-/// $MILAH_CORPUS_DIR overrides both, for a corpus kept somewhere else; it holds
-/// files under the local naming.
+/// The published copy; see milah_test::corpusFile().
 QString corpusPath(const CorpusWitness &witness)
 {
-    const QString override =
-        QProcessEnvironment::systemEnvironment().value(QStringLiteral("MILAH_CORPUS_DIR"));
-    if (!override.isEmpty()) {
-        const QString path = QStringLiteral("%1/%2.osis").arg(override, witness.local);
-        if (QFileInfo::exists(path)) {
-            return path;
-        }
-    }
-
-    const QString local = QStringLiteral("%1/tools/data/01_osis/%2.osis")
-                              .arg(QStringLiteral(MILAH_REPO_ROOT), witness.local);
-    if (QFileInfo::exists(local)) {
-        return local;
-    }
-
-    const QString published =
-        QStringLiteral("%1/../hebrew_manuscripts/manuscripts/%2.osis")
-            .arg(QStringLiteral(MILAH_REPO_ROOT), witness.published);
-    return QFileInfo::exists(published) ? published : local;
+    return milah_test::corpusFile(witness.published);
 }
 
 bool corpusAvailable()
@@ -785,6 +760,13 @@ private slots:
         QVERIFY(isAbbreviated(QString::fromUtf8("ה֝")));  // U+059D, Matthew
         QVERIFY(isAbbreviated(QString::fromUtf8("ה׳")));  // U+05F3, Matthew
         QVERIFY(isAbbreviated(QString::fromUtf8("ה״")));  // U+05F4
+
+        // On a pointed word the accents are cantillation: a Hebrew Bible
+        // witness carries one on nearly every word, and none is abbreviated.
+        QVERIFY(!isAbbreviated(QString::fromUtf8("בְּרֵאשִׁ֖ית")));
+        QVERIFY(!isAbbreviated(QString::fromUtf8("הָאָֽרֶץ׃")));
+        // A geresh still marks one, pointed or not.
+        QVERIFY(isAbbreviated(QString::fromUtf8("רַ׳")));
     }
 
     // --- pointing, as a property of the text --------------------------------
@@ -1151,10 +1133,10 @@ private slots:
         const QList<SourceDocument> documents = {
             witness(QStringLiteral("a"), QString::fromUtf8("ספר")),
         };
-        QVERIFY_EXCEPTION_THROWN(
+        QVERIFY_THROWS_EXCEPTION(
+            AlignmentError,
             alignVerse(
-                QStringLiteral("Matt.9.9"), refs(documents), QStringLiteral("a")),
-            AlignmentError);
+                QStringLiteral("Matt.9.9"), refs(documents), QStringLiteral("a")));
     }
 
     // --- the corpus golden dump --------------------------------------------

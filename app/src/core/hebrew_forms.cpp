@@ -180,7 +180,17 @@ QString foldedKey(const QString &text)
 bool isAbbreviated(const QString &rawText)
 {
     const QString decomposed = rawText.normalized(QString::NormalizationForm_D);
+    // On a pointed word an accent is cantillation, not an abbreviation: a
+    // Hebrew Bible witness carries one on nearly every word, and treating
+    // each as abbreviated offered expansions for ordinary words. The copyists
+    // who abbreviate with an accent (יש֞ו) write the word unpointed. Geresh
+    // and gershayim mark an abbreviation either way.
+    const bool pointed = hasNiqqud(decomposed);
     for (const QChar character : decomposed) {
+        const char16_t code = character.unicode();
+        if (pointed && code >= 0x0591 && code <= 0x05AF) {
+            continue;
+        }
         if (isAbbreviationMark(character)) {
             return true;
         }
@@ -214,6 +224,20 @@ QString withoutNiqqud(const QString &text)
     result.reserve(decomposed.size());
     for (const QChar character : decomposed) {
         if (!isNiqqud(character)) {
+            result.append(character);
+        }
+    }
+    return result.normalized(QString::NormalizationForm_C);
+}
+
+QString withoutAccents(const QString &text)
+{
+    const QString decomposed = text.normalized(QString::NormalizationForm_D);
+    QString result;
+    result.reserve(decomposed.size());
+    for (const QChar character : decomposed) {
+        const char16_t code = character.unicode();
+        if (code < 0x0591 || code > 0x05AF) {
             result.append(character);
         }
     }

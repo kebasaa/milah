@@ -80,6 +80,33 @@ QRect altoBox(const QXmlStreamAttributes &attributes)
 
 /// The bounding rectangle of a PAGE `<Coords points="x,y x,y …">` polygon.
 ///
+/// The points of a BASELINE or a Polygon, in the order they were written.
+///
+/// Two spellings are in the wild and Milah reads both: ALTO's own `x1,y1 x2,y2`
+/// and the bare `x1 y1 x2 y2` kraken writes. Splitting on either separator and
+/// pairing what comes out settles it without asking which file this is.
+QList<QPoint> parsePoints(QStringView text)
+{
+    QList<int> numbers;
+    for (const QStringView piece : text.split(u' ', Qt::SkipEmptyParts)) {
+        for (const QStringView value : piece.split(u',', Qt::SkipEmptyParts)) {
+            bool ok = false;
+            const int number = coordinate(value, &ok);
+            if (ok) {
+                numbers.append(number);
+            }
+        }
+    }
+
+    QList<QPoint> points;
+    // An odd trailing number is a truncated pair and is dropped rather than
+    // paired with whatever follows it.
+    for (int index = 0; index + 1 < numbers.size(); index += 2) {
+        points.append(QPoint(numbers.at(index), numbers.at(index + 1)));
+    }
+    return points;
+}
+
 /// PAGE describes a word as an outline rather than a rectangle, because a word
 /// on a slanted line is not a rectangle. Milah draws rectangles, so the outline
 /// is reduced here, once, rather than everywhere it is used.
@@ -129,6 +156,7 @@ RecognisedPage parseAlto(QXmlStreamReader &reader, QString *error)
 {
     RecognisedPage page;
     int line = -1;
+    bool insideString = false;
     bool insideLine = false;
     bool sizeSeen = false;
 
@@ -171,7 +199,27 @@ RecognisedPage parseAlto(QXmlStreamReader &reader, QString *error)
             if (name == QLatin1String("TextLine")) {
                 ++line;
                 insideLine = true;
+                // What the segmenter drew, which is what a recogniser cuts its
+                // training strips from. See RecognisedLine.
+                RecognisedLine found;
+                found.index = line;
+                found.baseline =
+                    parsePoints(attribute(reader.attributes(), QLatin1String("BASELINE")));
+                page.lines.append(found);
                 continue;
+            }
+
+            if (name == QLatin1String("String")) {
+                insideString = true;
+            }
+
+            // The line's own outline, not a word's. Kraken gives a String no
+            // Shape, but a writer that does would otherwise overwrite the line
+            // with the last word of it.
+            if (name == QLatin1String("Polygon") && insideLine && !insideString
+                && !page.lines.isEmpty()) {
+                page.lines.last().boundary =
+                    parsePoints(attribute(reader.attributes(), QLatin1String("POINTS")));
             }
 
             if (name == QLatin1String("String")) {
@@ -190,9 +238,13 @@ RecognisedPage parseAlto(QXmlStreamReader &reader, QString *error)
             continue;
         }
 
-        if (token == QXmlStreamReader::EndElement
-            && reader.name() == QLatin1String("TextLine")) {
-            insideLine = false;
+        if (token == QXmlStreamReader::EndElement) {
+            if (reader.name() == QLatin1String("TextLine")) {
+                insideLine = false;
+            }
+            if (reader.name() == QLatin1String("String")) {
+                insideString = false;
+            }
         }
     }
 
@@ -236,7 +288,25 @@ RecognisedPage parsePage(QXmlStreamReader &reader, QString *error)
             if (name == QLatin1String("TextLine")) {
                 ++line;
                 insideLine = true;
+                // PAGE spells the same two things as child elements rather than
+                // as attributes -- <Baseline points=> and <Coords points=> --
+                // so the line is opened here and filled in below.
+                RecognisedLine found;
+                found.index = line;
+                page.lines.append(found);
                 continue;
+            }
+
+            // A line's own, not a word's: a Word carries Coords too, and taking
+            // it would leave the line outlined round its last word.
+            if (insideLine && !insideWord && !page.lines.isEmpty()) {
+                if (name == QLatin1String("Baseline")) {
+                    page.lines.last().baseline =
+                        parsePoints(attribute(reader.attributes(), QLatin1String("points")));
+                } else if (name == QLatin1String("Coords")) {
+                    page.lines.last().boundary =
+                        parsePoints(attribute(reader.attributes(), QLatin1String("points")));
+                }
             }
 
             if (name == QLatin1String("Word")) {

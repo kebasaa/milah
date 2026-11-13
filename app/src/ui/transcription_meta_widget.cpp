@@ -2,14 +2,17 @@
 
 #include "core/manuscript_catalogue.h"
 #include "transcription_controller.h"
+#include "ui/training_set.h"
 
 #include <QComboBox>
+#include <QCompleter>
 #include <QFormLayout>
 #include <QGroupBox>
 #include <QLineEdit>
 #include <QPlainTextEdit>
 #include <QPushButton>
 #include <QSignalBlocker>
+#include <QStringListModel>
 #include <QVBoxLayout>
 
 #include <algorithm>
@@ -96,6 +99,18 @@ TranscriptionMetaWidget::TranscriptionMetaWidget(
         form,
         QStringLiteral("Copy of"),
         QStringLiteral("Copied from Cambridge MS Oo.1.32"));
+    m_hand = field(form, QStringLiteral("Hand"), QStringLiteral("Ashkenazi semi-cursive"));
+    m_hand->setToolTip(QStringLiteral(
+        "The script it is written in. Training sets in the same hand are taught "
+        "together, and a model is named after the hand it reads."));
+    // Offers the hands already in use, so one hand is not saved under three
+    // spellings. Reread when the sets change, not on every edit: it reads disk.
+    auto *hands = new QStringListModel(TrainingSet::knownHands(), m_hand);
+    auto *completer = new QCompleter(hands, m_hand);
+    completer->setCaseSensitivity(Qt::CaseInsensitive);
+    m_hand->setCompleter(completer);
+    connect(m_controller, &TranscriptionController::trainingSetChanged, hands,
+            [hands] { hands->setStringList(TrainingSet::knownHands()); });
     m_language = field(form, QStringLiteral("Language"), QStringLiteral("he"));
 
     m_notes = new QPlainTextEdit;
@@ -125,6 +140,7 @@ TranscriptionMetaWidget::TranscriptionMetaWidget(
                             m_provenance,
                             m_translatedFrom,
                             m_exemplar,
+                            m_hand,
                             m_language}) {
         connect(
             edit,
@@ -170,6 +186,7 @@ QString TranscriptionMetaWidget::fingerprint() const
         m_translatedFrom->text(),
         m_translatedFromCertainty->currentData().toString(),
         m_exemplar->text(),
+        m_hand->text(),
         m_language->text(),
         m_notes->toPlainText(),
     }
@@ -204,6 +221,7 @@ void TranscriptionMetaWidget::refresh()
         const QSignalBlocker blockTranslatedFrom(m_translatedFrom);
         const QSignalBlocker blockCertainty(m_translatedFromCertainty);
         const QSignalBlocker blockExemplar(m_exemplar);
+        const QSignalBlocker blockHand(m_hand);
         const QSignalBlocker blockLanguage(m_language);
         const QSignalBlocker blockNotes(m_notes);
 
@@ -222,6 +240,7 @@ void TranscriptionMetaWidget::refresh()
         m_translatedFromCertainty->setCurrentIndex(
             std::max(0, m_translatedFromCertainty->findData(metadata.translatedFromCertainty)));
         m_exemplar->setText(metadata.exemplar);
+        m_hand->setText(metadata.hand);
         m_language->setText(metadata.language);
         m_notes->setPlainText(metadata.notes);
     }
@@ -253,6 +272,7 @@ void TranscriptionMetaWidget::save()
     metadata.translatedFromCertainty =
         m_translatedFromCertainty->currentData().toString();
     metadata.exemplar = m_exemplar->text().trimmed();
+    metadata.hand = m_hand->text().trimmed();
     metadata.language = m_language->text().trimmed();
     metadata.notes = m_notes->toPlainText();
 

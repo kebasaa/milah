@@ -2,6 +2,7 @@
 
 #include "app_controller.h"
 #include "core/books.h"
+#include "core/line_fill.h"
 #include "core/recent_files.h"
 #include "core/tokenize.h"
 #include "core/transcription.h"
@@ -9,10 +10,12 @@
 #include "ui/about_dialog.h"
 #include "ui/htr_last_run_dialog.h"
 #include "ui/icons.h"
+#include "ui/training_set.h"
 #include "ui/notes_widget.h"
 #include "ui/source_settings_widget.h"
 #include "ui/transcription_meta_widget.h"
 #include "ui/transcription_notes_widget.h"
+#include "ui/transcription_training_widget.h"
 #include "ui/transcription_widget.h"
 #include "ui/verse_grid_widget.h"
 
@@ -157,12 +160,30 @@ void describeShortcut(QAction *action)
 }
 
 /// Drops an action's label while keeping it for the tooltip and for assistive
-/// technology. Used for the chapter arrows and the history pair, whose glyphs
-/// say nothing worth the width beside an icon.
+/// technology. Used for the history pair, whose glyphs say nothing worth the
+/// width beside an icon.
 void showIconOnly(QToolBar *toolBar, QAction *action)
 {
     if (auto *button = qobject_cast<QToolButton *>(toolBar->widgetForAction(action))) {
         button->setToolButtonStyle(Qt::ToolButtonIconOnly);
+    }
+}
+
+/// An arrow with a word under it: "prev", "next".
+///
+/// **An arrow alone cannot say which way is forward in a Hebrew manuscript.** A
+/// left-pointing arrow means "back" to anyone reading these interfaces and
+/// "onward" to anyone reading the folio in front of them, and the transcriber is
+/// doing both at once. The word settles it and costs a few pixels.
+///
+/// `label` goes in the action's iconText, which is what a toolbar draws when it
+/// is showing text — the full label stays on the menu entry, the tooltip and the
+/// accessible name, where there is room to say "Previous folio".
+void showArrowWithWord(QToolBar *toolBar, QAction *action, const QString &label)
+{
+    action->setIconText(label);
+    if (auto *button = qobject_cast<QToolButton *>(toolBar->widgetForAction(action))) {
+        button->setToolButtonStyle(Qt::ToolButtonTextUnderIcon);
     }
 }
 
@@ -173,24 +194,6 @@ void showIconOnly(QToolBar *toolBar, QAction *action)
 /// characters and a pixel count that suits one interface font clips at the
 /// next — and because a field that is too narrow here silently truncates the
 /// name of the book being transcribed.
-/// An abbreviation fit to stand in a verse id.
-///
-/// A verse is addressed as book, chapter and number with dots between them, so
-/// a book carrying a dot of its own would make "Tob.it.1.1" out of Tobit and
-/// there would be no reading it back. Whitespace goes for the same reason.
-/// Stripped rather than refused: the transcriber meant a book, not a syntax.
-QString sanitisedBookId(const QString &raw)
-{
-    QString id;
-    id.reserve(raw.size());
-    for (const QChar character : raw) {
-        if (!character.isSpace() && character != QLatin1Char('.')) {
-            id.append(character);
-        }
-    }
-    return id;
-}
-
 int fieldWidthFor(const QWidget *field, const QStringList &entries)
 {
     const QFontMetrics metrics(field->font());
@@ -347,6 +350,10 @@ MainWindow::MainWindow(QWidget *parent)
     // Beneath the codex's details, the way the comparison puts a word's notes
     // beneath its sources: what is being worked on, then what is said about it.
     metaLayout->addWidget(new TranscriptionNotesWidget(m_transcriptionController));
+    // And beneath those, how far the folio and the hand are from being worth
+    // training on. Here because a training set is kept per shelfmark, and the
+    // shelfmark is the field three inches above it.
+    metaLayout->addWidget(new TranscriptionTrainingWidget(m_transcriptionController));
     metaLayout->addStretch(1);
 
     m_metadataDock = new QDockWidget(QStringLiteral("Manuscript"), this);
@@ -391,6 +398,11 @@ MainWindow::MainWindow(QWidget *parent)
     });
     connect(
         m_controller,
+        &AppController::sourcesChanged,
+        this,
+        &MainWindow::updateWindowTitle);
+    connect(
+        m_controller,
         &AppController::historyChanged,
         this,
         &MainWindow::updateHistoryActions);
@@ -418,6 +430,28 @@ MainWindow::MainWindow(QWidget *parent)
         // takes, and a QIcon has no notion of being crossed out.
         m_overlayAction->setIcon(appIcon(
             shown ? QStringLiteral("eye") : QStringLiteral("eye-off"), palette()));
+        // The switch between the two views lives or dies with the overlay it
+        // switches, and nothing else on this path would notice.
+        updateTranscriptionActions();
+    });
+
+    connect(m_lineBoxesAction, &QAction::toggled, this, [this](bool lines) {
+        m_transcription->setLineBoxesVisible(lines);
+        m_lineBoxesAction->setIcon(appIcon(
+            lines ? QStringLiteral("boxes-line") : QStringLiteral("boxes-word"),
+            palette()));
+        // Asking for the lines is asking for the overlay. Through the action so
+        // that the eye's own icon and state stay one thing — the same route
+        // overlayWanted takes. Only on the way on: turning the switch back to
+        // word boxes is not a reason to stop drawing them.
+        if (lines && !m_overlayAction->isChecked()) {
+            m_overlayAction->setChecked(true);
+        }
+    });
+
+    // Through the action, so the eye's own state and the overlay stay one thing.
+    connect(m_transcription, &TranscriptionWidget::overlayWanted, this, [this] {
+        m_overlayAction->setChecked(true);
     });
 
     connect(
@@ -444,6 +478,14 @@ MainWindow::MainWindow(QWidget *parent)
         &TranscriptionController::dirtyChanged,
         this,
         [this](bool) { updateWindowTitle(); });
+    // The file's name is in the title now, and opening one when nothing was
+    // dirty changes the name without changing the flag — so the document itself
+    // has to say when it has been replaced.
+    connect(
+        m_transcriptionController,
+        &TranscriptionController::documentChanged,
+        this,
+        &MainWindow::updateWindowTitle);
     connect(
         m_transcriptionController,
         &TranscriptionController::historyChanged,
@@ -855,11 +897,32 @@ void MainWindow::createTranscriptionActions()
         "Draws each recognised word over the ink it was read from, so you can "
         "see at a glance what was read where."));
 
-    connect(
-        m_transcribeAction,
-        &QAction::triggered,
-        m_transcriptionController,
-        &TranscriptionController::transcribeFolio);
+    m_lineBoxesAction = new QAction(QStringLiteral("Show lines"), this);
+    // Word boxes are the state it opens in, so the icon shows those — the same
+    // bargain the eye makes, where the picture is what you are looking at rather
+    // than what pressing it would give you.
+    m_lineBoxesAction->setIcon(appIcon(QStringLiteral("boxes-word"), windowPalette));
+    m_lineBoxesAction->setCheckable(true);
+    m_lineBoxesAction->setToolTip(QStringLiteral(
+        "Draws one box per line of the manuscript instead of one per word, with "
+        "the line's whole reading written just above the ink it was laid onto and "
+        "the baseline the training strip is cut along. Turns the overlay on if it "
+        "is off.<p>What it is for: on a hand "
+        "the recogniser was not trained for it groups the ink into lines wrongly — "
+        "running two lines together, or cutting one in two — and nothing in the "
+        "word boxes shows that, because each box looks right on its own. "
+        "Right-click a line to say where it really ends, or to join it to the one "
+        "below.</p><p>Read a line against the ink and press Space to accept it "
+        "and move to the next — the number beside each line says how many of its "
+        "words are still unread. Enter says the line ends before the selected "
+        "word; Backspace pulls a line's first word up onto the line above.</p>"));
+
+    // Through a lambda, not straight at the slot: triggered carries a bool, and
+    // both of these now take an argument that a bool would quietly become —
+    // a window pointer in one case and a line number in the other.
+    connect(m_transcribeAction, &QAction::triggered, this, [this] {
+        m_transcriptionController->transcribeFolio();
+    });
 
     m_htrInstallAction = new QAction(this);
     connect(
@@ -885,6 +948,77 @@ void MainWindow::createTranscriptionActions()
         &QAction::triggered,
         m_transcriptionController,
         &TranscriptionController::showLastRecognition);
+
+    m_previewStripsAction =
+        new QAction(QStringLiteral("See what training will be shown…"), this);
+    connect(
+        m_previewStripsAction,
+        &QAction::triggered,
+        m_transcriptionController,
+        &TranscriptionController::previewTrainingStrips);
+
+    m_saveForTrainingAction =
+        new QAction(QStringLiteral("Save this folio for HTR training"), this);
+    connect(
+        m_saveForTrainingAction,
+        &QAction::triggered,
+        m_transcriptionController,
+        &TranscriptionController::saveFolioForTraining);
+
+    m_vouchFolioAction =
+        new QAction(QStringLiteral("Mark every line of this folio read…"), this);
+    m_vouchFolioAction->setToolTip(QStringLiteral(
+        "Once you have read the whole folio against the ink: marks every line read "
+        "at once instead of a press of Space per line. Notes in the margin are left "
+        "alone."));
+    connect(
+        m_vouchFolioAction,
+        &QAction::triggered,
+        m_transcriptionController,
+        &TranscriptionController::markFolioChecked);
+
+    m_fillRemainingAction =
+        new QAction(QStringLiteral("Fill the remaining folios…"), this);
+    m_fillRemainingAction->setToolTip(QStringLiteral(
+        "Carries the text on from this folio across every one after it, reading "
+        "each first. Stops at the first folio somebody has worked on."));
+    connect(
+        m_fillRemainingAction,
+        &QAction::triggered,
+        m_transcriptionController,
+        &TranscriptionController::fillRemainingFolios);
+
+    m_saveAllForTrainingAction =
+        new QAction(QStringLiteral("Save every folio for training"), this);
+    connect(
+        m_saveAllForTrainingAction,
+        &QAction::triggered,
+        m_transcriptionController,
+        &TranscriptionController::saveEveryFolioForTraining);
+
+    m_trainAction = new QAction(QStringLiteral("Train a model…"), this);
+    connect(
+        m_trainAction,
+        &QAction::triggered,
+        m_transcriptionController,
+        &TranscriptionController::showTraining);
+
+    // No menu entry for the fill. Where a published transcription starts on the
+    // leaf is a thing you point at, so the folio's own right-click is the whole
+    // of it — a menu entry could only ever offer the same job with the pointing
+    // left out.
+
+    m_recoverReadingsAction =
+        new QAction(QStringLiteral("Recover the machine's readings"), this);
+    m_recoverReadingsAction->setToolTip(QStringLiteral(
+        "Reads this folio again to fill in what the machine read at each box, "
+        "and changes nothing else. For a folio read before Milah kept them, "
+        "where holding a box out of the work has nothing to put back."));
+    connect(
+        m_recoverReadingsAction,
+        &QAction::triggered,
+        m_transcriptionController,
+        &TranscriptionController::recoverReadings);
 
     m_htrRemoveAction = new QAction(QStringLiteral("Remove Kraken…"), this);
     m_htrRemoveAction->setToolTip(QStringLiteral(
@@ -1004,6 +1138,14 @@ void MainWindow::buildMenuBar()
     m_htrMenu->addSeparator();
     m_htrMenu->addAction(m_lastRunAction);
     m_htrMenu->addSeparator();
+    m_htrMenu->addAction(m_recoverReadingsAction);
+    m_htrMenu->addAction(m_fillRemainingAction);
+    m_htrMenu->addAction(m_vouchFolioAction);
+    m_htrMenu->addAction(m_previewStripsAction);
+    m_htrMenu->addAction(m_saveForTrainingAction);
+    m_htrMenu->addAction(m_saveAllForTrainingAction);
+    m_htrMenu->addAction(m_trainAction);
+    m_htrMenu->addSeparator();
     m_htrMenu->addAction(m_htrInstallAction);
     m_htrMenu->addAction(m_htrRemoveAction);
 
@@ -1039,6 +1181,88 @@ void MainWindow::buildMenuBar()
         // Nothing to show before the first run, and saying so by being grey is
         // kinder than a window with three empty tabs in it.
         m_lastRunAction->setEnabled(HtrLastRunDialog::hasRun());
+
+        // Nothing to teach a recogniser until a line has been checked all the
+        // way through. Asked here rather than kept up to date because the
+        // answer reads the folio, and a menu is opened far less often than a
+        // word is committed.
+        // Only where something was read: there is nothing to recover on a folio
+        // nobody has run a recogniser over.
+        m_recoverReadingsAction->setEnabled(
+            m_transcriptionController->hasRecognisedWords());
+
+        const int lines = m_transcriptionController->trainableLineCount();
+        // The same gate the save has, because it previews the save. Its own
+        // tooltip, though: the two answer different questions about the same
+        // lines, and an entry that reads like its neighbour is one nobody
+        // presses.
+        m_previewStripsAction->setEnabled(lines > 0);
+        m_previewStripsAction->setToolTip(
+            lines > 0
+                ? QStringLiteral("Cuts this folio's %1 finished line(s) the way "
+                                 "training cuts them — straightened along the "
+                                 "baseline and masked to the outline — and shows "
+                                 "you the pictures a model would be taught from, "
+                                 "with the lines Kraken refuses and why.")
+                      .arg(lines)
+                : QStringLiteral("No line of this folio has been checked all the "
+                                 "way through yet, so there is nothing training "
+                                 "would be shown."));
+        // Also offered with nothing finished where the set still holds lines of
+        // this folio from before: saving is then how they come out again.
+        const bool held = lines == 0 && m_transcriptionController->trainingSaved().present;
+        m_saveForTrainingAction->setEnabled(lines > 0 || held);
+        m_saveForTrainingAction->setToolTip(
+            lines > 0
+                ? QStringLiteral("Puts this folio's %1 finished line(s) into this "
+                                 "manuscript's training set.")
+                      .arg(lines)
+            : held
+                ? QStringLiteral("Nothing on this folio is finished any more, but the "
+                                 "training set still holds lines of it from before. "
+                                 "Saving takes them out.")
+                : QStringLiteral("No line of this folio has been checked all the way "
+                                 "through yet — a line counts once every word on it "
+                                 "has been looked at."));
+        // Not gated on this folio: the point of it is the folios that are not
+        // open. Enabled whenever there is a transcription with more than the one
+        // leaf in it, and it says for itself which of them had nothing to give.
+        const TranscribedPage *open = m_transcriptionController->currentPage();
+        m_vouchFolioAction->setEnabled(open && unvouchedWords(*open) > 0);
+        m_fillRemainingAction->setEnabled(
+            open && m_transcriptionController->resumePoint().isValid()
+            && m_transcriptionController->currentPageIndex() + 1
+                < m_transcriptionController->document().pages.size());
+        m_saveAllForTrainingAction->setEnabled(
+            m_transcriptionController->document().pages.size() > 1);
+        m_saveAllForTrainingAction->setToolTip(QStringLiteral(
+            "Goes through every folio of this transcription, saves the ones with "
+            "lines read all the way through, and passes over the rest. Saving "
+            "replaces a folio rather than adding beside it, so this is also how "
+            "to catch up the ones you corrected after saving."));
+
+        // And nothing worth hours of processor until enough has been gathered.
+        // The best set decides, because that is the one that would be trained
+        // on; the dialog says the rest.
+        int best = 0;
+        QString bestLabel;
+        for (const TrainingSet::Set &set : TrainingSet::known()) {
+            if (set.lines > best) {
+                best = set.lines;
+                bestLabel = set.label;
+            }
+        }
+        m_trainAction->setEnabled(best >= TrainingSet::EnoughLines);
+        m_trainAction->setToolTip(
+            best >= TrainingSet::EnoughLines
+                ? QStringLiteral("Teaches a model this hand, from what you have "
+                                 "saved. Hours, and worth them.")
+                : best == 0
+                ? QStringLiteral("Nothing saved for training yet.")
+                : QStringLiteral("%1 has %2 of the %3 lines training needs.")
+                      .arg(bestLabel)
+                      .arg(best)
+                      .arg(TrainingSet::EnoughLines));
     });
 
     m_transcriptionFileMenu->addSeparator();
@@ -1318,7 +1542,13 @@ void MainWindow::updateTranscriptionActions()
     // shows none, which reads as a recogniser that failed silently.
     m_overlayAction->setEnabled(
         transcribing && m_transcriptionController->hasRecognisedWords());
+    // Not gated on the eye. Wanting to see the lines is a perfectly good reason
+    // to want the overlay on, and being told to press a different button first
+    // is a rule somebody has to learn before the feature works at all — so the
+    // switch turns it on instead. See the toggled lambda.
+    m_lineBoxesAction->setEnabled(
 
+        transcribing && m_transcriptionController->hasRecognisedLines());
     m_transcriptionUndoAction->setEnabled(
         transcribing && m_transcriptionController->canUndo());
     m_transcriptionRedoAction->setEnabled(
@@ -1410,9 +1640,9 @@ void MainWindow::buildToolBar()
     toolBar->addWidget(m_chapterCombo);
 
     toolBar->addAction(m_previousAction);
-    showIconOnly(toolBar, m_previousAction);
+    showArrowWithWord(toolBar, m_previousAction, QStringLiteral("prev"));
     toolBar->addAction(m_nextAction);
-    showIconOnly(toolBar, m_nextAction);
+    showArrowWithWord(toolBar, m_nextAction, QStringLiteral("next"));
 
     toolBar->addSeparator();
     toolBar->addWidget(new QLabel(QStringLiteral(" Reference ")));
@@ -1566,9 +1796,9 @@ void MainWindow::buildTranscriptionToolBar()
     toolBar->addWidget(m_chapterField);
 
     toolBar->addAction(m_previousImageAction);
-    showIconOnly(toolBar, m_previousImageAction);
+    showArrowWithWord(toolBar, m_previousImageAction, QStringLiteral("prev"));
     toolBar->addAction(m_nextImageAction);
-    showIconOnly(toolBar, m_nextImageAction);
+    showArrowWithWord(toolBar, m_nextImageAction, QStringLiteral("next"));
 
     toolBar->addSeparator();
     toolBar->addAction(m_magnifyAction);
@@ -1588,6 +1818,7 @@ void MainWindow::buildTranscriptionToolBar()
     }
 
     toolBar->addAction(m_overlayAction);
+    toolBar->addAction(m_lineBoxesAction);
     showIconOnly(toolBar, m_overlayAction);
     // The magnifier is wired to the workspace in the constructor rather than
     // here: the toolbar is built before the page it acts on exists, and a
@@ -1685,7 +1916,7 @@ void MainWindow::commitBookAcronym()
         statusBar()->showMessage(
             QStringLiteral("A book is written as %1: a verse is addressed as "
                            "book, chapter and number separated by dots, so the "
-                           "book itself cannot carry one.")
+                           "book itself can carry only letters and digits.")
                 .arg(id));
     }
     m_transcriptionController->setBook(id, page->bookLabel);
@@ -1807,9 +2038,27 @@ void MainWindow::updateWindowTitle()
     // Either job having unsaved work marks the window, because the window is
     // what would take it away.
     const bool dirty = m_controller->isDirty() || m_transcriptionController->isDirty();
-    setWindowTitle(dirty
-        ? QStringLiteral("Milah •")
-        : QStringLiteral("Milah"));
+    setWindowModified(dirty);
+
+    // Whichever job is in front. Several transcriptions of one codex are open
+    // over an afternoon and they look identical from outside; the file is the
+    // only thing that tells them apart without looking inside one.
+    const bool editing = editingEdition();
+    const QString path = editing ? m_controller->filePath()
+                                 : m_transcriptionController->filePath();
+    const bool open = editing ? !m_controller->sources().isEmpty()
+                              : m_transcriptionController->hasDocument();
+    if (!open) {
+        setWindowTitle(QStringLiteral("Milah[*]"));
+        return;
+    }
+
+    // [*] rather than a bullet written in by hand: it is the placeholder Qt
+    // substitutes per platform, and it puts the mark where that platform's
+    // users look for it.
+    setWindowTitle(QStringLiteral("%1[*] — Milah")
+                       .arg(path.isEmpty() ? QStringLiteral("Untitled")
+                                           : QFileInfo(path).fileName()));
 }
 
 void MainWindow::markCoverage(
@@ -1889,11 +2138,13 @@ void MainWindow::rebuildChapterList()
         // The item carries its place in the flat list, not its own position in
         // this combo, so choosing it needs no second lookup.
         m_chapterCombo->addItem(QString::number(covered.location.chapter), index);
+        const QString partial = partlyHeld(covered.location);
+        const QString absent = missingFrom(covered.location);
         markCoverage(
             m_chapterCombo,
             m_chapterCombo->count() - 1,
-            covered.complete,
-            missingFrom(covered.location));
+            covered.complete && partial.isEmpty(),
+            QStringList({absent, partial}).join(QLatin1Char('\n')).trimmed());
         if (current.has_value() && covered.location == *current) {
             m_chapterCombo->setCurrentIndex(m_chapterCombo->count() - 1);
         }
@@ -1901,6 +2152,32 @@ void MainWindow::rebuildChapterList()
     m_chapterCombo->setEnabled(m_chapterCombo->count() > 0);
 
     updateNavigationActions();
+}
+
+QString MainWindow::partlyHeld(const Location &location) const
+{
+    // A fragment that reaches a chapter usually holds only some of it, and the
+    // chapter combo is where somebody choosing what to read looks first.
+    const DocumentRefs manuscripts = m_controller->manuscripts();
+    const QStringList all = verseIdsAtLocation(manuscripts, location);
+    QStringList partial;
+    for (const SourceDocument *manuscript : manuscripts) {
+        bool reaches = false;
+        for (const SourceVerse &verse : manuscript->verses) {
+            reaches = reaches
+                || (verse.reference.book == location.book
+                    && verse.reference.chapter == location.chapter);
+        }
+        const QString held = reaches ? versesHeld(*manuscript, all) : QString();
+        if (!held.isEmpty()) {
+            partial.append(QStringLiteral("%1 holds verses %2 only.")
+                               .arg(manuscript->metadata.title.isEmpty()
+                                        ? manuscript->name
+                                        : manuscript->metadata.title,
+                                    held));
+        }
+    }
+    return partial.join(QLatin1Char('\n'));
 }
 
 QString MainWindow::missingFrom(const Location &location) const

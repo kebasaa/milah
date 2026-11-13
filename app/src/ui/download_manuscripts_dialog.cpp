@@ -18,6 +18,9 @@
 #include <QSaveFile>
 #include <QTimer>
 #include <QTreeWidget>
+#include <QComboBox>
+#include <QHBoxLayout>
+#include <QTreeWidgetItemIterator>
 #include <QVBoxLayout>
 
 namespace milah {
@@ -52,6 +55,9 @@ constexpr qint64 kFileSizeLimit = 32 * 1024 * 1024;
 
 /// The columns, named rather than counted: seven of them is past where a bare
 /// index in setText() still says which one it means.
+/// Which testament a top-level heading stands for, for the filter.
+constexpr int TestamentRole = Qt::UserRole + 2;
+
 enum Column {
     ColumnTitle = 0,
     ColumnShelfmark,
@@ -227,6 +233,22 @@ DownloadManuscriptsDialog::DownloadManuscriptsDialog(QWidget *parent)
     auto *layout = new QVBoxLayout(this);
     layout->setContentsMargins(18, 16, 18, 14);
     layout->setSpacing(10);
+    // Which part of the library to show. Ticks under a hidden part are not
+    // downloaded: what is out of sight is not what was chosen.
+    m_filter = new QComboBox;
+    m_filter->addItem(QStringLiteral("Everything"), -1);
+    for (const Testament testament : {Testament::Old, Testament::New, Testament::Other}) {
+        m_filter->addItem(testamentName(testament), int(testament));
+    }
+    connect(m_filter, &QComboBox::currentIndexChanged, this, [this] {
+        applyFilter();
+        updateDownloadButton();
+    });
+    auto *filterRow = new QHBoxLayout;
+    filterRow->addWidget(new QLabel(QStringLiteral("Show")));
+    filterRow->addWidget(m_filter);
+    filterRow->addStretch(1);
+    layout->addLayout(filterRow);
     layout->addWidget(m_tree, 1);
     layout->addWidget(m_progress);
     layout->addWidget(m_status);
@@ -389,24 +411,75 @@ void DownloadManuscriptsDialog::showCatalogue()
     // corrected since it was taken.
     const QStringList stale = m_catalogue.updatableFiles(library);
 
-    // Grouped by the book they belong to, so a witness and its translation sit
-    // together and the two Revelation manuscripts can be told apart by title.
-    QHash<QString, QTreeWidgetItem *> books;
+    // Grouped by testament and then by the book they belong to, so a witness
+    // and its translation sit together and the two Revelation manuscripts can
+    // be told apart by title. The headings are made first, in the canon's
+    // order — the Tanakh's for the Hebrew Bible — rather than in whatever order
+    // the manifest happens to list them.
+    const auto bookKey = [](const CatalogueEntry &entry) {
+        const QString id = bookIdFor(entry.book);
+        return id.isEmpty() ? entry.book.trimmed() : id;
+    };
+    QList<QPair<Testament, QString>> headings;
     for (const CatalogueEntry &entry : m_catalogue.entries()) {
-        QTreeWidgetItem *book = books.value(entry.book);
-        if (!book) {
-            book = new QTreeWidgetItem(m_tree, {entry.book});
-            book->setFirstColumnSpanned(true);
-            book->setExpanded(true);
-            // A heading is not a thing to download.
-            book->setFlags(book->flags() & ~Qt::ItemIsUserCheckable);
-            books.insert(entry.book, book);
+        const QPair<Testament, QString> heading{entry.testament, bookKey(entry)};
+        if (!headings.contains(heading)) {
+            headings.append(heading);
         }
+    }
+    std::stable_sort(headings.begin(), headings.end(), [](const auto &left, const auto &right) {
+        if (left.first != right.first) {
+            return int(left.first) < int(right.first);
+        }
+        return (left.first == Testament::Old ? compareTanakh(left.second, right.second)
+                                             : compareBooks(left.second, right.second))
+            < 0;
+    });
+
+    const auto heading = [](QTreeWidgetItem *item) {
+        item->setFirstColumnSpanned(true);
+        item->setExpanded(true);
+        // A heading is not a thing to download.
+        item->setFlags(item->flags() & ~Qt::ItemIsUserCheckable);
+    };
+    QHash<int, QTreeWidgetItem *> testaments;
+    QHash<QPair<int, QString>, QTreeWidgetItem *> books;
+    for (const auto &[testament, book] : headings) {
+        QTreeWidgetItem *part = testaments.value(int(testament));
+        if (!part) {
+            part = new QTreeWidgetItem(m_tree, {testamentName(testament)});
+            part->setData(ColumnTitle, TestamentRole, int(testament));
+            heading(part);
+            QFont bold = part->font(ColumnTitle);
+            bold.setBold(true);
+            part->setFont(ColumnTitle, bold);
+            testaments.insert(int(testament), part);
+        }
+        // By name where the canon knows the book. A file with no book — the
+        // manifest leaves it empty for a whole testament, and older ones wrote
+        // "NT" — is that testament entire; one with no book among the other
+        // texts covers several works.
+        const bool wholeTestament = book.isEmpty()
+            || (testamentOf(book) != Testament::Other && bookIdFor(book).isEmpty());
+        const QString named = !wholeTestament ? bookName(book)
+            : testament == Testament::Other  ? QStringLiteral("Several works")
+                                              : QStringLiteral("Whole %1").arg(testamentName(testament));
+        auto *item = new QTreeWidgetItem(part, {named});
+        heading(item);
+        books.insert({int(testament), book}, item);
+    }
+
+    for (const CatalogueEntry &entry : m_catalogue.entries()) {
+        QTreeWidgetItem *book = books.value({int(entry.testament), bookKey(entry)});
 
         const bool updatable = stale.contains(entry.file);
         const bool alreadyHeld = held.contains(entry.file) && !updatable;
         auto *row = new QTreeWidgetItem(book);
-        row->setText(ColumnTitle, entry.displayTitle());
+        // Said on the row, because a fragment beside full witnesses is the one
+        // thing about a text that changes how its silences are read.
+        row->setText(ColumnTitle,
+                     entry.fragment ? QStringLiteral("%1 — fragment").arg(entry.displayTitle())
+                                    : entry.displayTitle());
         row->setText(ColumnShelfmark, orDash(entry.shelfmark));
         row->setText(ColumnFolios, orDash(entry.folios));
         // The manuscript's age on both rows of a pair. A translation's own date
@@ -451,6 +524,9 @@ void DownloadManuscriptsDialog::showCatalogue()
         if (!entry.exemplar.isEmpty()) {
             detail.append(entry.exemplar);
         }
+        if (entry.fragment) {
+            detail.append(QStringLiteral("A fragment: it holds part of its book only."));
+        }
         if (!entry.covers.isEmpty()) {
             detail.append(QStringLiteral("Covers: %1").arg(entry.covers));
         }
@@ -483,6 +559,8 @@ void DownloadManuscriptsDialog::showCatalogue()
         row->setData(ColumnTitle, Qt::UserRole + 1, updatable);
     }
 
+    applyFilter();
+
     if (m_selectUpdates) {
         m_selectUpdates->setEnabled(!stale.isEmpty());
     }
@@ -500,15 +578,39 @@ void DownloadManuscriptsDialog::showCatalogue()
     updateDownloadButton();
 }
 
+void DownloadManuscriptsDialog::applyFilter()
+{
+    const int wanted = m_filter ? m_filter->currentData().toInt() : -1;
+    for (int index = 0; index < m_tree->topLevelItemCount(); ++index) {
+        QTreeWidgetItem *part = m_tree->topLevelItem(index);
+        part->setHidden(wanted >= 0 && part->data(ColumnTitle, TestamentRole).toInt() != wanted);
+    }
+}
+
+QList<QTreeWidgetItem *> DownloadManuscriptsDialog::rows() const
+{
+    QList<QTreeWidgetItem *> found;
+    for (QTreeWidgetItemIterator it(m_tree); *it; ++it) {
+        QTreeWidgetItem *item = *it;
+        if (item->data(ColumnTitle, Qt::UserRole).toString().isEmpty()) {
+            continue; // A heading.
+        }
+        bool hidden = false;
+        for (QTreeWidgetItem *above = item; above; above = above->parent()) {
+            hidden = hidden || above->isHidden();
+        }
+        if (!hidden) {
+            found.append(item);
+        }
+    }
+    return found;
+}
+
 void DownloadManuscriptsDialog::selectUpdates()
 {
-    for (int book = 0; book < m_tree->topLevelItemCount(); ++book) {
-        QTreeWidgetItem *heading = m_tree->topLevelItem(book);
-        for (int index = 0; index < heading->childCount(); ++index) {
-            QTreeWidgetItem *row = heading->child(index);
-            if (row->data(0, Qt::UserRole + 1).toBool()) {
-                row->setCheckState(0, Qt::Checked);
-            }
+    for (QTreeWidgetItem *row : rows()) {
+        if (row->data(0, Qt::UserRole + 1).toBool()) {
+            row->setCheckState(0, Qt::Checked);
         }
     }
     // Whatever was already ticked stays ticked: this adds the updates, it does
@@ -521,20 +623,16 @@ void DownloadManuscriptsDialog::updateDownloadButton()
     m_queue.clear();
     qint64 total = 0;
 
-    for (int book = 0; book < m_tree->topLevelItemCount(); ++book) {
-        QTreeWidgetItem *heading = m_tree->topLevelItem(book);
-        for (int index = 0; index < heading->childCount(); ++index) {
-            QTreeWidgetItem *row = heading->child(index);
-            if (row->checkState(0) != Qt::Checked || row->isDisabled()) {
-                continue;
-            }
-            const QString file = row->data(0, Qt::UserRole).toString();
-            for (const CatalogueEntry &entry : m_catalogue.entries()) {
-                if (entry.file == file) {
-                    m_queue.append(entry);
-                    total += entry.bytes;
-                    break;
-                }
+    for (QTreeWidgetItem *row : rows()) {
+        if (row->checkState(0) != Qt::Checked || row->isDisabled()) {
+            continue;
+        }
+        const QString file = row->data(0, Qt::UserRole).toString();
+        for (const CatalogueEntry &entry : m_catalogue.entries()) {
+            if (entry.file == file) {
+                m_queue.append(entry);
+                total += entry.bytes;
+                break;
             }
         }
     }

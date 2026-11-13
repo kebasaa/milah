@@ -43,6 +43,12 @@ tab remembers whether you had closed its dock. The two tabs do not share
 unsaved work: leaving one with something unsaved asks before it is discarded,
 independently of the other.
 
+**The window title names the file the tab you are on has open** —
+`JAS_MSOo132.trscrpt — Milah` — and marks it while there is unsaved work in
+either job, since the window is what would take it away. A transcription you
+have not saved yet reads `Untitled`. Several transcriptions of one codex look
+identical from outside, and this is what tells them apart without opening one.
+
 ### Textual criticism
 
 #### Loading manuscripts and translations
@@ -54,6 +60,21 @@ align against a manuscript. **File ▸ Download manuscripts…** fetches
 manuscripts published online into the library, so they need no separate file
 to keep track of. Either dialog can also Browse for a file directly, which is
 how any other OSIS file gets opened.
+
+The library and the download window are divided into **Old Testament**, **New
+Testament** and **Other texts**, then by book — the Hebrew Bible in the Tanakh's
+order, Torah, Prophets and Writings — and the download window's *Show* box
+narrows it to one of them. A text the catalogue marks as a **fragment** says so
+on its row.
+
+**Fragments are collated as what they are.** A witness that does not reach a
+verse takes no part in deciding that verse's Combined reading: its silence is a
+missing leaf, not a vote for leaving the words out. Within a verse, a witness
+whose file marks text as lost (`<milestone type="x-lacuna"/>`, or TEI's
+`<gap/>`) still votes for the words it has, and says nothing about the ones it
+has lost. Text an editor supplied (`<seg type="x-supplied">`, or `<supplied>`)
+is not counted as the witness's own. The chapter list's tooltip names the
+witnesses that hold only part of a chapter, and which verses.
 
 **File ▸ Open project** (**Ctrl+O**) and **File ▸ Save project** (**Ctrl+S**)
 load and write a `.milah` project — see [Project format](#project-format) —
@@ -231,9 +252,15 @@ from that verse on becomes the next chapter — and **Delete this verse**.
 the caret.
 
 Right-clicking a word offers **Add/edit note**, **Remove note** where there is
-one, and **Delete word** — which takes that word off the folio and leaves the
-verse and the words around it where they are. A recogniser that read one word
-too many has not made the verse wrong. Ctrl+Z puts it back.
+one, **Line break after this word** — which says the manuscript's line ends
+there, for training a recogniser, and reaches no export — and **Delete word**,
+which takes that word off the folio and leaves the verse and the words around it
+where they are. A recogniser that read one word too many has not made the verse
+wrong. Ctrl+Z puts any of them back.
+
+Right-clicking the **folio** rather than the text offers to fill it from a
+published transcription — either continuing the one the last folio used, or
+starting a new one where you clicked. See below.
 
 #### Reading a folio with Kraken
 
@@ -249,6 +276,77 @@ overlay is off, and greyed out on a folio that has no readings to show. Words
 still unchecked are outlined with a dashed box. A finished recognition opens the
 overlay itself, since checking a reading against the ink is what happens next;
 shut it again and it stays shut until the next one.
+
+Beside the eye is a switch between **word boxes** and **line boxes**. Word boxes
+are what it opens with, and they answer where each reading landed. Line boxes
+answer the other question: what the recogniser thought a *line* was. It draws
+one box per line — the segmenter's own outline where the folio has it, the
+rectangle round the line's words where it does not — with the line's number and
+the baseline the training strip is cut along faint underneath, and **the line's
+whole reading written just above the ink it was laid onto**, so the words and the
+writing can be read against each other. It sits on the line's *body* — the lowest
+of its upper edges — rather than clear of its tallest letter, which would float
+it a half-letter up and into the line before.
+
+**Pressing it turns the overlay on** if it is not on already. Wanting to see the
+lines is a good enough reason to want the overlay, and being told to press the
+eye first was a rule you had to learn before the switch would do anything.
+Turning it back to word boxes leaves the eye where it is.
+
+The reading is near-black on a pale translucent band. Those are the only two
+colours in the overlay that do not come from the window's palette, and the
+exception is deliberate: everything else is drawn against the window, but the
+reading is drawn against the *folio*, which is pale parchment whatever theme you
+are in. Following the palette gave near-white letters in one theme, and blue ones
+too faint to pick out of the ink in both. The band is see-through so that it
+lightens what it lies over — on a hand whose lines interleave it lands on a
+neighbour's descenders — rather than blotting it out. At the very top of the
+folio, where there is nothing above the first line, its reading goes underneath
+instead.
+
+This is worth looking at because the line, not the word, is what a recogniser
+trains on: it cuts a strip by straightening the ink along that baseline and
+masking away everything outside that outline. On a hand it was not trained for,
+the grouping is where it goes wrong — two lines of the manuscript run into one
+detection, or one line cut into two — and none of that shows in the word boxes,
+because each box looks right on its own.
+
+Reading the words against the ink is also how you find out that the line is the
+wrong *length*. A line takes as many words as the recogniser drew boxes on it,
+and on a rapid cursive that count is not the word count — it splits one word into
+two boxes as readily as it runs two words into one, and either way every word
+below is one place out for the rest of the leaf. So click a word, in the reading
+or on its box, and say so:
+
+| | |
+|---|---|
+| **Space** | You have read this line against the ink and it says what the scribe wrote. Marks every word of it looked at, and moves to the next line that still needs reading. |
+| **Enter** | The line ends **before** this word. The rest of it moves down, and the lines below are laid again. |
+| **Backspace** | With the first word of a line selected, pulls it up onto the line above — one word a press. |
+| **← →** | Back and forward along the reading, in reading order. A line too crowded to write out in full is still walked this way. |
+| **↑ ↓** | To the line above or below, without accepting anything. |
+| **Escape** | Drop the selection. |
+
+The caret beside the selected word shows which side the break falls on. What no
+longer fits at the foot of the leaf is not lost: the folio's recorded end point
+moves back with it, so the next folio's **Continue from the previous
+transcription** begins exactly there, and Milah says how many words went. Ctrl+Z
+takes a break and the whole re-flow back in one press.
+
+**Space is the loop.** A line is worth nothing to the training set until every
+word on it has been looked at, and reading a line is one decision rather than
+twenty — so read it, press Space, and the selection moves to the next line that
+still needs it. The number beside each line says how far off it is: `21·3` is
+line twenty-one with three words nobody has read. Space leaves the **margin
+alone**, deliberately: a note beside the text is the one place the recogniser is
+both likely wrong and unhelped by the poured transcription, so vouching for the
+line does not vouch for a note nobody has transcribed. Such a line trains trimmed
+to what is vouched for, or not at all, until the note is dealt with on its own.
+
+What a line holds is remembered on the folio, so a re-flow started somewhere
+above it does not throw the answer away — and it outlives the fill that prompted
+it, because how many words the scribe wrote on a line is a fact about the leaf
+rather than about which transcription was poured onto it.
 
 The first time Transcribe is pressed, Milah asks before it installs anything:
 
@@ -323,6 +421,10 @@ turns up.
 | **Use model ▸** | The installed models, the running one ticked. |
 | **Manage models…** | Add from the repository or from a file, remove, and choose which runs. |
 | **Show last recognition…** | What Milah ran, what Kraken said, and the layout file that came back. One run's worth, replaced each time, so a reading that goes wrong can be looked at rather than guessed about. |
+| **See what training will be shown…** | This folio's finished lines, cut the way training cuts them, with the ground truth under each and the lines Kraken refuses beside them. Grey until a line has been checked all the way through. |
+| **Save this folio for HTR training** | This folio's checked lines, into its manuscript's training set, with the library's largest scan, and a word on what of it a model will actually see. Grey until a line has been checked all the way through — unless the set still holds lines of the folio from before, which saving then takes out. |
+| **Save every folio for training** | The whole transcription in one go: counts each folio before fetching anything, saves the ones with lines read, and says which were passed over. Also how to catch up the folios you corrected after saving. |
+| **Train a model…** | Teaches a model the hand, from what has been saved. Grey until a set holds 50 lines. |
 | **Install Kraken…** | Only when Kraken is absent. |
 | **Remove Kraken…** | Deletes the Python environment and the models, and leaves WSL2 and your Linux distribution alone. |
 
@@ -330,6 +432,496 @@ Removing a single model in **Manage models…** means one of two things, and the
 confirmation says which: a model Milah downloaded is deleted and its disk
 reclaimed, while a model you chose off your own disk is merely forgotten and the
 file left where it is.
+
+#### When Kraken cannot read the hand
+
+No model has seen every hand, and the gap shows. Reading two of these manuscripts
+with the same model, counting how many of the words it produced are forms the
+Hebrew Bible actually uses:
+
+| | words read | forms the Hebrew Bible uses |
+|---|---|---|
+| Gaster 1616, a square bookhand | 144 | 87 (**60%**) |
+| MS Oo.1.32, a Cochin cursive | 241 | 100 (41%) |
+
+The first reads as Hebrew. The second does not — its 41% is short accidental
+strings. BiblIA and the other Hebrew models are trained on **bookhands**:
+Ashkenazi, Byzantine, Italian, Oriental, Sephardi, Yemenite. A rapid cursive is a
+different letter-form system, and no amount of resolution closes that: the same
+folio read at 1024 px and at its 3948 px master gives 41% and 38%.
+
+**Resolution does not change the boxes either**, which is the part that matters
+when the text comes from a published transcription rather than from the model.
+Measured on 158r of MS Oo.1.32:
+
+| | lines | boxes on text lines |
+|---|---|---|
+| 1024 px | 42 | 493 |
+| 1491×2000 px, the largest single request Cambridge allows | 41 | 505 |
+
+Two per cent more boxes for a fetch nearly half again as large. Asking for
+`/full/2000,/` does not even give 2000 across: the service caps height as well,
+so it returns 1491×2000.
+
+**And the box counts are not the problem.** On the lines that carry James,
+Kraken's segmentation is good: the first line of James on that leaf is thirteen
+words, and Kraken returns thirteen boxes for it. What throws a pour off is
+narrower and easier to miss — see the maqqef below.
+
+**The way through is to teach the model the hand**, which is what Kraken's own
+documentation recommends and what a transcriber correcting a folio is already
+doing the work for. Milah runs it, in two steps.
+
+**The line a model is shown is the one the segmenter drew.** Kraken cuts a
+training strip by dewarping the line along its baseline and masking everything
+outside its boundary, so those two decide what the model learns from. Kraken's
+own ALTO gives both — a sloping, multi-point baseline and a boundary of eighty
+or more points that follows the ink — and Milah keeps them now. It used to read
+neither, and rebuild both from the word boxes: a level line through their
+middles, and a rectangle round the outside.
+
+Measured on 158r of MS Oo.1.32, that substitution was costly. The rectangle
+overlapped its neighbouring lines by **45.7%** of its own area against the
+polygon's 20.9%, taking in 3.2 times as much ink belonging to other lines —
+nearly half of every strip was the line above or below. And a baseline there
+falls a median of 12 pixels across a leaf whose letters are some 30 tall, so a
+level one sheared the strip by a third of a letter's height.
+
+A folio read before Milah kept them still falls back to the invention, since a
+line without a baseline is one Kraken skips in silence. **Recover the machine's
+readings** re-reads such a folio for its geometry and its original readings
+alone, leaving the text untouched — Transcribe would recover them too and
+replace the text doing it, which on a folio already filled from a published
+transcription trades the larger thing for the smaller.
+
+**File ▸ Handwriting recognition ▸ Save this folio for HTR training** puts what
+you have corrected into that manuscript's training set. One folio at a time,
+because that is how anybody works: the set accumulates between sessions and
+between files, so Matthew and James of one manuscript feed one set. Saving a
+folio again replaces it rather than adding beside it — going back over a folio
+makes a better statement of the same lines, not a second folio.
+
+**The Training panel, at the foot of the Manuscript dock**, is where all of this
+is visible at once: how many of this folio's lines have been read, how many the
+hand's set holds against the fifty that open training, and a button for the one
+thing worth pressing next. Every step of the path had a home already — a
+right-click on the picture, Space on a line, an entry three levels into File —
+and nothing anywhere said what the sequence was or how far along it you were.
+The counts existed too, and were spent on greying out a menu item.
+
+**The button is whatever comes next.** On a folio nothing has read it says *Read
+this folio*; once read, *Fill from a transcription…* or *Continue from Jas 1:25*;
+once there is something read, *Save*; once the hand has fifty lines, *Train a
+model…*. It calls exactly what the toolbar and the right-click call — a second
+route to the same things, never a second way of doing them — so the whole path
+from an unread leaf to a trained model is one place you keep pressing.
+
+Under it, a quieter **Train a model…** appears once the hand has enough. The
+button above is what comes next *for this folio*, which meant training was
+reachable from it only on a folio that happened to be saved and unedited since —
+a set of two hundred lines could sit there with the button saying *Read this
+folio*. It is the same window **File ▸ Handwriting recognition ▸ Train a model…**
+opens, and it hides itself when the button above already says the same thing.
+
+It also says **when a folio has been corrected since it was saved**. The set is
+then holding the older reading of a line, and a model taught it learns the older
+one; saving again replaces rather than duplicates, so putting it right costs one
+press and the only thing ever missing was being told. Milah knows because the
+file in the set *is* the training layout: it compares the ground truth there
+with the ground truth the folio would write now. Coordinates are not compared —
+they move with whichever picture the save happened to get — and no picture is
+fetched to answer it, because the answer does not depend on one. The rebuild is
+made at the size the saved file records, so a line that would be written at the
+saved scale is not mistaken for one that would not. And it says so again **on
+the way out of such a folio**, with an *Update set* button — turning the page is
+when a correction is most easily forgotten.
+
+**Which lines, and why.** Under the folio's count, each reason a line will not be
+taught is named and links to the next line held back for it: *3 unchecked · 1 a
+typed word beside it · 1 an unread note mid-line*. The line view colours the
+same verdicts onto the folio — a green outline for a line that will be taught, amber
+for one taught with an unread note trimmed off its end, dashed for one that will
+not — and a line that checking alone will not finish says why on its chip
+(*21·typed word*); clicking the chip puts the caret in the word responsible. All
+of it is the export's own judgement, not a second count that could disagree.
+
+**What's in it…**, beside the set's count, lists the set folio by folio: lines,
+when each was saved, and which the open transcription has corrected since. From
+there a folio's strips can be looked at as the set holds them, or the folio taken
+out.
+
+**File ▸ Handwriting recognition ▸ Save every folio for training** does the whole
+transcription in one go: it counts each folio before fetching anything, so a
+folio with nothing read costs no scan, saves the rest, and says which were passed
+over and why. Because saving replaces a folio rather than adding beside it, this
+is also how to catch up every folio you corrected after saving it — including a
+folio with nothing finished on it any more, whose old lines it takes out of the
+set rather than leave them to be taught. It does not
+ask Kraken what it can make of each one — that is seconds apiece and the point of
+this entry is to be quick; the single-folio save asks, and the strip preview
+shows.
+
+**The picture saved is the largest the library holds, not the one on screen.**
+Milah shows a folio at 1024 px, which a recogniser reads just as well — that was
+measured. But training cuts every line out and shows it to the model again and
+again, and a line stretched from 56 px to the 120 px the model wants is invented
+detail. Libraries cap a single request well below their masters (Cambridge holds
+3948 × 5295 and answers at most 2000 × 2000), so the folio is fetched as a grid
+of regions and put back together — six pieces for Cambridge, twelve for
+Manchester. Where that cannot be done, the picture on screen is used and the
+message says so rather than leaving you to wonder later.
+
+**Only lines where every word has been checked are saved.** A word the recogniser
+read and nobody has looked at is the machine's own guess, and training on it
+teaches the model the mistakes it already makes. A line also needs every word to
+have come from the recogniser — a word typed by hand has no place on the picture,
+so its line cannot be cut out and is left out instead. That includes the second
+half of a word split with Space, and a word typed or pasted in beside a line: its
+letters are on that line or the next, so a word typed at the seam between two
+lines holds back both. Joining the halves of a split again gives the line back.
+
+**A folio whose lines stop being finished is taken out of the set when it is
+saved again.** Re-reading a line, un-checking it, or laying a fill over it again
+means the set's copy is no longer anybody's reading, and the save offers to take
+it out instead of leaving it to be taught.
+
+#### One model per hand
+
+A model reads a hand, not a manuscript, so **name the hand** in the
+Manuscript panel's *Hand* field — *Cochin cursive*, *Sephardi square*. The field
+offers the hands you have already used, so one hand is not saved under three
+spellings, and the training set remembers it as soon as it is named. Then:
+
+- **Train a model…** opens with only the sets in this transcription's hand
+  ticked. Sets in another named hand are never ticked for this one, since two
+  hands taught as one teach neither; sets saved before hands were named are
+  ticked only when no set is in this hand yet.
+- The model is named after the hand (*Cochin-cursive-tuned*), and the next
+  round of training for that hand starts from it rather than from whatever
+  model happens to be in use.
+
+#### Producing training data in bulk
+
+Two entries under **File ▸ Handwriting recognition** take the clicking out of
+a long manuscript:
+
+- **Fill the remaining folios…** carries the text on from the folio on screen
+  across every folio after it, reading each with Kraken first if it has not been
+  read. It stops at the first folio somebody has checked or typed on, or one
+  that cannot be read or filled, and says which. Nothing it pours is marked
+  read.
+- **Mark every line of this folio read…** does for the whole folio what Space
+  does for one line, once you have read it against the ink. It asks first, and
+  leaves notes in the margin for you to read on their own.
+
+**From the command line**, without opening Milah, `milah-training` (installed
+beside it) writes the finished lines of any number of transcriptions out as
+Kraken training data, one folder per hand:
+
+```bash
+milah-training export --out training Cochin-1.trscrpt Cochin-2.trscrpt Gaster.trscrpt
+ketos train -f alto -i base.mlmodel training/Cochin_cursive-*/*/*.xml
+```
+
+`--hand "Cochin cursive"` limits it to one hand. It uses the folio pictures
+saved in each file and fetches nothing, writes only lines somebody marked read,
+and leaves Milah's own training sets alone. It exits non-zero when nothing was
+written, so a script can stop before starting an hour of training on nothing.
+
+
+#### Seeing what the model will be shown
+
+A recogniser learns from neither the folio nor the word boxes. It learns from
+**one picture per line**, cut by straightening the ink along that line's baseline
+and zeroing everything outside its outline. So every question worth asking about
+a training set is a question about those pictures — is this one straight, does it
+hold one line of writing or the bottom of the line above, has the mask taken in a
+descender from somewhere else — and until now not one of them could be answered.
+The geometry could only be argued about.
+
+**File ▸ Handwriting recognition ▸ See what training will be shown…** cuts them
+and shows them, with the text the model is told each one says. It calls Kraken's
+own `extract_polygons` — the function `ketos compile` calls — rather than
+redrawing the idea in Milah, because a preview of what Milah *believes* training
+does is the one thing this must not be. The strips are cut from the same picture
+and the same layout the save would use, and the window says which picture that
+turned out to be.
+
+It also shows the refusals, and those are the other silence. Kraken skips a line
+it cannot cut and carries on with a log warning; `ketos compile` drops a line
+whose text is empty. So a transcriber can save sixty lines, train on forty-five,
+and never be told. Here a refused line keeps its place in the list and says what
+was wrong with it — *Baseline length below minimum 5px*, *Line polygon outside of
+image bounds*.
+
+**Saving asks the same question**, at the moment it matters most. Once the lines
+are written into the set, Milah cuts them and tells you what a model will
+actually see — "all of them cut cleanly", or which ones will not be and why. Only
+where Kraken is installed to ask: the saving does not depend on it and has
+already happened, so this adds a sentence to the answer or nothing at all.
+
+A refused line stays in the set and is still counted there. Taking it back out
+would mean running this cut on every save whether or not Kraken is there; saying
+so does not, and it is what tells you whether a set of eighty is really eighty.
+
+**File ▸ Handwriting recognition ▸ Train a model…** opens once a set holds 50
+lines, about two folios. Kraken keeps a tenth of the data back to measure the
+model against, so fewer leaves nothing to measure with; five folios is where it
+starts to tell. The window lists the sets, and **more than one can be ticked**,
+because a scribe outlives a shelfmark — MS Oo.1.32 and Oo.1.16 are one hand in
+two bindings, and a model shown both sees more of it than a model shown either.
+Each ticked set is copied into a folder of its own, so two sets that both hold a
+*1r* both train.
+
+The window also names **the letters the starting model knows that the ticked
+sets never show it** — a final form, a rare ligature. Training keeps them
+(`--resize union`; `new` would throw away every letter the set happens to lack,
+on a hand that certainly uses them), but learns nothing more about them on this
+hand, so the folios that use them are the ones worth reading next.
+
+Training runs on the processor and takes hours; the window says so before it
+starts, keeps a log and an elapsed clock, and Stop leaves the model you are using
+untouched. What comes out is checked by being loaded, exactly as a downloaded
+model is, and **then becomes the model Transcribe uses** — it used to join the
+list and sit there, so hours of processor could be spent and the next folio still
+read by whatever was running before. Any of the others is one click away under
+the arrow beside Transcribe. **Name it after the hand rather than the
+manuscript** — it is offered on every manuscript you open, which is the point of
+having trained it.
+
+Then do it again: five folios corrected, train, transcribe five more with the
+result, correct those. Each round starts from a better reading than the last.
+
+#### When a transcription already exists
+
+Several of these manuscripts have been transcribed and published — Matthew and
+James of MS Oo.1.32 among them, in `hebrew_manuscripts/manuscripts/`. Typing 250
+words of a cursive to make training data out of a folio whose text is already
+written down is work nobody should do twice.
+
+**Right-click the folio where the transcription begins.** That is the only way
+in, and deliberately: where a published text starts on a leaf is a thing you
+point at, and a menu entry could only ever offer the same job with the pointing
+left out. It works on a folio nothing has read — there are no boxes to name a
+line with then, so what Milah keeps is **the place you clicked**, and it turns
+that into a line once it has read the folio and has lines to choose from.
+
+The menu offers up to two things, and the difference between them is **which
+file**:
+
+| | |
+|---|---|
+| **Continue from the previous transcription (Jas 1:25)…** | the file the last filled folio used, at the verse and word it stopped on |
+| **Fill from a new transcription file starting here…** | choose an `.osis`; its beginning goes on the line you clicked |
+
+The first folio of a book has nothing to continue, so only the second appears.
+**Which of the two it is, is always asked and never guessed** — from the document
+a new book beginning mid-leaf looks exactly like a continuation, so guessing
+wrong lays down the wrong text, which is a bug this had.
+
+**Continuing shows no window at all.** The file, the book, the chapter, the verse,
+the word to start on and the line to start on are all settled before it runs —
+the first five by the folio before it, the last by where you clicked. There is
+nothing to ask, so nothing is asked: **the folio reads itself if nothing has read
+it**, the text goes in, and the status line says what was laid down. The only
+thing that appears is the recogniser's own progress bar, which is a two-minute
+job reporting itself rather than a question, and it can be cancelled.
+**Ctrl+Z puts the folio back exactly as it was**, which is what makes an action
+with no confirmation safe.
+
+**Starting a new transcription is where the choosing lives.** The window opens at
+once, whatever state the folio is in, and the file chooser with it. Then book,
+chapter and verse, and the button says **Read the folio and fill…**: choosing is
+the part that needs a person and needs no recognition whatever, so the minute of
+reading is spent after the deciding rather than in front of it. The window stays
+open while it reads, and the lines appear in it. However poorly Kraken reads a
+hand, **where it found the lines is the part being used**.
+
+**The lines are the fixed thing and the words are laid into them.** Each line is
+given a number of words and its boxes are cut up or joined so that every word
+gets one — including the words Kraken never found, which on a cursive is many of
+them. A box holding three words comes out as three columns of it; a spare box
+joins the word before it. The cut is an even division and is meant to be read as
+a guess: a box drawn round two words does not record where the space between
+them fell. It costs the training nothing, because what training reads is the
+line's own extent.
+
+**A word joined at a maqqef is one word.** `בכל־דרכיו` is one word on the leaf,
+in one box, so it is poured as one. Milah's tokeniser splits it deliberately —
+for collation, where a compound has to line up against a witness that writes two
+words — but a fill is not collation, and pouring it as two lays an extra word on
+the line and puts **everything below it one place late for the rest of the
+folio**. That was the whole of the drift on 158r: read word by word against the
+source, the pour agreed for 95 words and then diverged exactly once, there.
+
+**A verse number is a word.** Oo.1.32 writes its verse numbers into the running
+text as Arabic digits — `2:`, `3:` … `20:` — so the segmenter finds a box for
+each, and a pour that walked past them laid the verse's first word onto the
+numeral's box and put everything after it one place out for the rest of the leaf.
+The same fault as the maqqef, in a third disguise. So each verse opens with its
+own number, taken from the OSIS `n=` attribute.
+
+Two exceptions, both read off the leaves themselves. **Verse 1 carries no
+numeral**: James opens `יעקב עבד ה` with nothing before it, and after the `פרק`
+heading on 159r the next chapter opens the same way — a number tells a verse
+apart from the one before it, and the first verse of a chapter has nothing to be
+told apart from. And **a verse the edition prints empty gets none either**, since
+a number on the leaf for a verse that is not on it takes a box from the verse
+that is; this edition prints Jas 1:21 with no text because the manuscript has
+none.
+
+The colon written beside the digit is not poured. The OSIS does not record it —
+a verse's text begins at its first word — and inventing a character for ground
+truth is worse than leaving a box to type into.
+
+**The OSIS says nothing about folios** — its elements are verse, chapter, note
+and div, with no page mark of any kind — so where on the leaf the text begins is
+the one thing you have to supply. Milah tried to work it out, sliding the
+recognised words along the book and scoring them, and got one folio of three
+right with the correct one's margin no better than the wrong ones'. At 41% noise
+there is not enough in a reading to place it. Measured, then dropped rather than
+shipped as a guess.
+
+So the click is the answer. A click between two lines means the **lower** one,
+because "starts here" means from here on; a click in the margin beside a line
+means that line. The same thing can be said inside the window afterwards — select
+the line and press **The text starts on this line** — which is how you correct it
+once you can see where the pour landed.
+
+**A new transcription starts at its own beginning.** Choose an OSIS and the first
+words of it go on the line you pointed at. Nothing moves that but the four boxes
+in the window, which say the book, the chapter, the first verse, and how many
+words of that verse to skip. Pointing at a line and being answered with mid-book
+text — because the folio before had stopped there — is a bug this had, and the
+fix was to make carrying on something you ask for by name.
+
+A book beginning halfway down its first leaf is the ordinary case, not the
+exception: **the lines above are left exactly as they are**, so a leaf opening
+with the tail of the previous book keeps it, and they go on showing what the
+recogniser read so you can find your place against the picture. Then walk down,
+and where a line is a word over or a word short, **one word more** / **one word
+fewer** re-flows everything below it. About 25 decisions per folio instead of 250
+typed words.
+
+**A book runs on across the leaves.** Where the next leaf picks up is **read off
+the previous one** — its last verse, and how many words of that verse it holds
+right now — rather than taken from a note written when it was filled. That
+matters because filling is only the start: you then walk the folio and correct
+it, and deleting a word the recogniser invented changes what the leaf holds. A
+number written before that correction cannot follow it, and the next folio would
+resume a word late for the rest of the book. Counting what is actually there
+moves with every edit.
+
+It looks back to the **nearest** earlier folio with text on it, so a verso left
+blank or a leaf skipped for later does not send the next one back two places in
+the book. **The transcription also remembers which `.osis` it was filled from**,
+so continuing needs no file dialog. The path is kept and the file is not — the
+text belongs to whoever published it, and a copy carried inside the project would
+go stale the moment the edition was corrected — so a transcription opened on
+another machine, or one written before Milah remembered the source, asks **once**
+and never again.
+
+**A pointed edition onto an unpointed leaf.** The fill window's *Without vowel
+points* and *Without accents* pour the text as the scribe wrote it — the Open
+Scriptures Hebrew Bible, say, onto a manuscript with neither. The choice is
+remembered, and carrying on to the next folio or laying the text again pours
+the same way.
+
+**Works that are not the Bible.** The fill window and *Continue* also take a
+plain UTF-8 `.txt` file: a mishnah, a liturgical poem, a letter. Blank lines
+divide it into sections, numbered from 1, which do for it what verses do for
+the Bible — a place to start from and a place to carry on from — without
+pouring a numeral onto the leaf for each. The book is named after the file.
+
+**Chapters come across with the text.** A leaf running from Jas 1:25 into chapter
+2 numbers those verses 2:1, 2:2 — the chapter break is written where the source
+has it, and the folio records which chapter it opens in.
+
+Nothing is marked checked by filling. A machine put those words there — a better
+machine than the recogniser, but a machine — and that is exactly what unchecked
+means. Walk the folio, confirm the lines, and then save it for training.
+
+**Where a word came out wrong**, right-click its box on the folio and choose
+**Edit this word…**. A small field opens **over the box**, right-to-left and
+prefilled, with the ink you are reading it against directly underneath — Enter
+keeps it, Escape abandons it, clicking away keeps it. It commits by the same
+path the text grid does, so a word corrected on the picture and one corrected in
+the text mean the same thing, including that correcting it is what checks it.
+
+**Where the recogniser got a line wrong**, right-click it on the folio. The
+segmenter fails in two directions and there is an entry for each:
+
+- **The line ends after “…”** — it ran two lines of the manuscript together, and
+  the first of them stops at the word you clicked. The detection is exported as
+  two lines, each with its own strip clipped to its own half.
+- **Join with the line below** — it cut one line of the manuscript in two. The
+  words of the line below come up onto this one and the whole line is laid out
+  again, which is what puts two side-by-side pieces back into a single
+  right-to-left run. The two baselines are joined; the two outlines are given up
+  for the rectangle round the joined line's words, since two separate rings
+  cannot honestly be made into one.
+- **This whole line is not part of the transcribed text** — every word of it
+  held out at once. A margin note or a running header usually has a line to
+  itself, and it is the same mark as the one below, made once instead of nine
+  times.
+
+Both repairs are offered in either view, because the fault is usually noticed in
+the word boxes — where the poured text stops matching the ink — and understood
+in the line boxes. Neither reaches the exports of the *text*: OSIS and Word
+carry a work, not a page. What they change is the training data, and the same
+right-click still carries **Line break after this word** from the text grid,
+which is the same mark under an older name.
+
+### Marginalia, which the published text does not have
+
+A recogniser segments every mark with ink in it. A published transcription holds
+the *work*, and normally no marginalia at all. So a note in the margin is one
+more box on the leaf, and a fill treats it as one more slot in the running text —
+a word of James lands on it and **every word after it shifts by one for the rest
+of the folio**. The note is destroyed and the line breaks go wrong, which for
+training data is worse than losing the note.
+
+**Right-click the box on the folio** (or the word in the text) and mark **Not
+part of the transcribed text**. **The box greys out** — a dotted grey outline
+with a faint wash over it, plainly not the dashed outline of a word merely
+waiting to be checked — **the box goes back to what the recogniser read there**,
+and the words below it move up one place —
+the word of the work that was poured onto the note is given back to the passage,
+and one more word is drawn from the transcription at the foot of the leaf. Lines
+above the note are untouched, so anything you corrected up there is safe; if
+you have already checked anything below it, Milah asks before replacing it.
+Ctrl+Z takes the mark, the reading and the whole re-flow back in one press.
+
+The reading stays legible under the grey, dimmed rather than hidden: it is what
+you type over to turn the note into training data.
+
+**A folio filled before Milah recorded where its text began cannot re-flow**, and
+says so in the status line — the box is still held out, and filling the folio
+again gives it back the ability. The same goes for an edition that has moved
+since: the mark stands either way, because it is a statement about the leaf
+rather than about the fill.
+
+From then on:
+
+- **a fill steps over it.** The line takes one word fewer and the boxes are cut
+  to fit what remains, so the note keeps its place and the text flows past it.
+  The words are woven back into reading order, so a note in the middle of a line
+  stays in the middle of it;
+- **the exports carry it as a note, not as a word.** It leaves the running text
+  and its reading joins the note on the last word of its line — which is where a
+  marginal gloss actually attaches — and rides out as an OSIS note. A note the
+  recogniser gave a line of its own, which is most of them, attaches to the line
+  above;
+- **training uses it once you have read it.** Its ink is in the picture, so the
+  ground truth has to account for it. Type what it says and check it, and the
+  line goes out whole with the note in place — a model that learns marginalia
+  beats one taught to ignore letters it can plainly see. Leave it unchecked and
+  it is trimmed off the end of its line instead, polygon and text together;
+  a line with an unread note stuck in the *middle* is left out altogether, since
+  there is no way to cut it that does not leave the ink unaccounted for.
+
+The word keeps its reading and stays editable throughout. Marking it says where
+it belongs, not that it is worthless.
 
 **File ▸ Import recognised layout…** reads an ALTO or PAGE file produced
 elsewhere — an institution's own eScriptorium export, or a folio processed on
@@ -345,6 +937,11 @@ The right-hand dock records what the folio is, as against what it says, all
 optional: **Manuscript**, **Transcriber**, **Origin**, **Library**,
 **Shelfmark**, **Date**, **Language**, **Notes**, then **Save details**.
 
+Beneath them sits the **Training** panel — this folio's finished lines, the
+hand's set against the fifty that open training, and the next thing to press.
+Here because a set is kept per shelfmark, and the shelfmark is the field three
+inches above it.
+
 #### Exporting
 
 **File ▸ Export to OSIS** (**Ctrl+E**) writes the transcription out — see
@@ -354,11 +951,14 @@ optional: **Manuscript**, **Transcriber**, **Origin**, **Library**,
 
 **File:** Open Image, Get Online Manuscript Scan, Open Transcription Project,
 Open Recent, Save Transcription project │ Import recognised layout, Handwriting
-recognition (Use model, Manage models, Show last recognition, Install Kraken,
-Remove Kraken) │ Export to OSIS, Export to Word,
+recognition (Use model, Manage models, Show last recognition, See what training
+will be shown, Save this folio for HTR training, Save every folio for training,
+Train a model, Install Kraken, Remove Kraken) | Export to OSIS,│ Export to OSIS,
+Export to Word,
 Add to my library, Close Transcription Project │ Quit.
 **Edit:** Undo, Redo │ Move verse to new chapter │ Define word in my dictionary.
-**Toolbar:** Book, " as " acronym, Chapter, ← →, Magnify, Transcribe, eye.
+**Toolbar:** Book, " as " acronym, Chapter, ← →, Magnify, Transcribe, eye,
+word boxes / line boxes.
 
 ### Exports
 
@@ -414,26 +1014,27 @@ restore it.
 
 ### Requirements
 
-- Windows 10 or 11.
-- Qt 6.6 or newer with Core, Gui, Widgets and Network, built for MinGW.
-- The MinGW toolchain, CMake 3.24+ and Ninja. A default Qt installation
-  supplies all three under `Tools/`.
+- Windows 10 or 11, Linux, or macOS 12+.
+- Qt 6.6 or newer with Core, Gui, Widgets and Network. On Windows, the MinGW
+  kit.
+- CMake 3.25+ and Ninja. On Windows a default Qt installation supplies both,
+  and the MinGW toolchain, under `Tools/`.
 
-ZLIB and QuaZip are built automatically by the build script; nothing else is
-needed.
+QuaZip, and zlib where the system has none, are fetched and built by CMake
+itself; nothing else is needed.
 
 ### Build
 
-From the repository root:
+On Windows, from the repository root:
 
 ```powershell
 .\build_milah_windows.ps1
 ```
 
-The script discovers Qt, MinGW, CMake and Ninja by itself, builds the ZLIB and
-QuaZip dependencies under `build\deps\`, builds Milah, and assembles a
-self-contained `milah-portable\` folder with `windeployqt`. Nothing needs to be
-on `PATH` beforehand.
+The script discovers Qt, MinGW, CMake and Ninja by itself, configures and
+builds with the `windows-mingw` preset, and assembles a self-contained
+`milah-portable\` folder with `cmake --install`, which runs Qt's own deployment
+script. Nothing needs to be on `PATH` beforehand.
 
 Qt is looked for under `C:\Qt` first and then `%USERPROFILE%\Qt` — the
 system-wide and the per-user location the online installer offers — taking the
@@ -443,15 +1044,27 @@ other root and finally to `PATH`, so an installation split across the two still
 builds. `-QtRoot` pins the search to a single directory instead.
 
 Useful switches: `-Configuration Debug`, `-Tests`, `-Clean`, `-SkipPortable`,
-`-KeepBuildArtifacts`, `-NoDownload`. Paths can be forced with `-QtBin`,
-`-MinGwBin`, `-CMake`, `-Ninja`, `-QuaZipRoot` and `-ZlibRoot`.
+`-NoDownload` (build from the already-fetched QuaZip and zlib sources). Paths
+can be forced with `-QtBin`, `-MinGwBin`, `-CMake` and `-Ninja`.
 
-To build by hand instead:
+Anywhere else, or by hand, use the presets in `app/CMakePresets.json`
+(`windows-mingw`, `linux`, `macos`) with the tools on `PATH`:
 
-```powershell
-cmake -S app -B build/milah -G Ninja -DCMAKE_PREFIX_PATH="<qt-kit>;<quazip>;<zlib>"
-cmake --build build/milah
+```bash
+cd app
+cmake --preset linux -DCMAKE_PREFIX_PATH=<qt-kit>
+cmake --build --preset linux
+ctest --preset linux
+cmake --install ../build/linux --prefix <where-to-put-it>
 ```
+
+The install lays Milah out the way each platform expects: a portable folder
+with `data\` beside `Milah.exe` on Windows, `Milah.app` with the data in
+`Contents/Resources/data` on macOS, and `bin/Milah` with `share/milah/data` on
+Linux.
+
+GitHub Actions builds and tests every push and pull request on all three
+(`.github/workflows/build.yml`) and keeps the installed result as an artifact.
 
 ### Running
 
@@ -475,10 +1088,15 @@ status bar says which directories were searched when that happens.
 .\build_milah_windows.ps1 -Tests
 ```
 
-Thirteen QTest binaries run under `ctest`, covering OSIS import and note
+Each area has its own QTest binary under `ctest` — OSIS import and note
 anchoring, alignment and its scoring, consensus, coverage, the apparatus,
-transcription, the manuscript catalogue, word markers, the lexicon, the
-spelling suggestions, the grapheme diff, acronyms and the `.milah` round trip.
+transcription and its exports, filling and training data, the manuscript and
+scan catalogues, word markers, the lexicon, the spelling suggestions, the
+grapheme diff, acronyms, data-file lookup and the `.milah` round trip. They
+need no display. A few also check themselves against the published corpus,
+and skip when the
+[hebrew_manuscripts](https://github.com/kebasaa/hebrew_manuscripts) repository
+is not checked out beside this one.
 
 The comparison logic lives in `app/src/core/` and is built as a `MilahCore`
 static library, so the tests exercise it without a display.

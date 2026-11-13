@@ -323,6 +323,85 @@ private slots:
         // written through.
         parseRecognisedPage(QByteArrayLiteral("<nonsense/>"), nullptr);
     }
+
+    /// The line the segmenter actually drew, which is what a recogniser cuts
+    /// its training strips from.
+    ///
+    /// Kraken writes a sloping, many-point baseline and a boundary that follows
+    /// the ink. Milah used to read neither and rebuild both from the word boxes
+    /// -- a level line through their middles and a rectangle round them. On 158r
+    /// of MS Oo.1.32 a real baseline falls a median of 12 pixels across a leaf
+    /// whose letters are some 30 tall, and a real boundary covers 0.65 of its
+    /// bounding rectangle, so that substitution shears the strip and fills it
+    /// with the neighbouring lines' ascenders.
+    void theLineTheSegmenterDrewIsKept()
+    {
+        const QByteArray alto = fixture(QStringLiteral(R"(<?xml version="1.0" encoding="UTF-8"?>
+<alto xmlns="http:SLASHESwww.loc.gov/standards/alto/ns-v4#">
+  <Description><MeasurementUnit>pixel</MeasurementUnit></Description>
+  <Layout><Page WIDTH="1000" HEIGHT="1400"><PrintSpace HPOS="0" VPOS="0" WIDTH="1000" HEIGHT="1400">
+    <TextBlock ID="b">
+      <TextLine ID="l0" BASELINE="588 73 658 72 720 66">
+        <Shape><Polygon POINTS="597 54 660 57 666 93 679 103 597 95"/></Shape>
+        <String CONTENT="alpha" HPOS="600" VPOS="55" WIDTH="50" HEIGHT="30"/>
+      </TextLine>
+    </TextBlock>
+  </PrintSpace></Page></Layout>
+</alto>)"));
+
+        QString error;
+        const RecognisedPage page = parseRecognisedPage(alto, &error);
+        QVERIFY2(error.isEmpty(), qPrintable(error));
+        QCOMPARE(page.lines.size(), 1);
+        QCOMPARE(page.lines.first().index, 0);
+        // Sloping, and every point of it: two would be the invention this
+        // replaces.
+        QCOMPARE(page.lines.first().baseline.size(), 3);
+        QCOMPARE(page.lines.first().baseline.first(), QPoint(588, 73));
+        QCOMPARE(page.lines.first().baseline.last(), QPoint(720, 66));
+        QCOMPARE(page.lines.first().boundary.size(), 5);
+        QCOMPARE(page.lines.first().boundary.at(3), QPoint(679, 103));
+    }
+
+    /// A word's own outline is not the line's. Kraken gives a String no Shape,
+    /// but a writer that did would otherwise leave the line outlined round its
+    /// last word.
+    void aWordsOutlineIsNotTheLines()
+    {
+        const QByteArray alto = fixture(QStringLiteral(R"(<?xml version="1.0" encoding="UTF-8"?>
+<alto xmlns="http:SLASHESwww.loc.gov/standards/alto/ns-v4#">
+  <Description><MeasurementUnit>pixel</MeasurementUnit></Description>
+  <Layout><Page WIDTH="1000" HEIGHT="1400"><PrintSpace HPOS="0" VPOS="0" WIDTH="1000" HEIGHT="1400">
+    <TextBlock ID="b">
+      <TextLine ID="l0" BASELINE="100 50 900 50">
+        <Shape><Polygon POINTS="100 20 900 20 900 60 100 60"/></Shape>
+        <String CONTENT="alpha" HPOS="600" VPOS="25" WIDTH="50" HEIGHT="30">
+          <Shape><Polygon POINTS="600 25 650 25 650 55 600 55"/></Shape>
+        </String>
+      </TextLine>
+    </TextBlock>
+  </PrintSpace></Page></Layout>
+</alto>)"));
+
+        QString error;
+        const RecognisedPage page = parseRecognisedPage(alto, &error);
+        QCOMPARE(page.lines.size(), 1);
+        QCOMPARE(page.lines.first().boundary.size(), 4);
+        QCOMPARE(page.lines.first().boundary.first(), QPoint(100, 20));
+    }
+
+    /// A file that records none reads as none, rather than as a line at the
+    /// origin -- which would put a training strip in the corner of the folio.
+    void aFileWithNoLineGeometryHasNone()
+    {
+        QString error;
+        const RecognisedPage page = parseRecognisedPage(krakenAlto(), &error);
+        QVERIFY2(error.isEmpty(), qPrintable(error));
+        QVERIFY(!page.words.isEmpty());
+        for (const RecognisedLine &line : page.lines) {
+            QVERIFY(line.isEmpty());
+        }
+    }
 };
 
 QTEST_MAIN(PageLayoutTest)

@@ -30,6 +30,13 @@ public:
 public slots:
     void setMagnifierEnabled(bool enabled);
     void setOverlayVisible(bool visible);
+    void setLineBoxesVisible(bool visible);
+
+signals:
+    /// Asks for the readings to be shown. Sent rather than done, because the
+    /// eye on the toolbar is what holds that state and a view that turned it on
+    /// behind the button's back would leave the two disagreeing.
+    void overlayWanted();
 
 private:
     void showCurrentPage();

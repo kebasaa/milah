@@ -93,8 +93,27 @@ ManuscriptCatalogue ManuscriptCatalogue::fromJson(const QJsonObject &document)
         entry.book = record.value(QStringLiteral("book")).toString();
         entry.language = record.value(QStringLiteral("language")).toString();
         entry.date = record.value(QStringLiteral("date")).toString();
-        // Absent from a third of the published texts, and only ever displayed.
-        entry.covers = record.value(QStringLiteral("covers")).toString();
+        // What the edition covers, twice over in a current manifest: as OSIS
+        // references in `covers`, for working with, and as the edition's own
+        // sentence in `contents`, for reading. An older manifest has only the
+        // sentence, and had it under `covers`.
+        const QJsonValue covers = record.value(QStringLiteral("covers"));
+        if (covers.isArray()) {
+            for (const QJsonValue &reference : covers.toArray()) {
+                if (!reference.toString().trimmed().isEmpty()) {
+                    entry.coverage.append(reference.toString().trimmed());
+                }
+            }
+        }
+        entry.covers = record.value(QStringLiteral("contents")).toString().trimmed();
+        if (entry.covers.isEmpty() && covers.isString()) {
+            entry.covers = covers.toString().trimmed();
+        }
+        // A manifest written before categories existed says nothing, and the
+        // book then decides — which is right for every text it has published.
+        entry.testament =
+            testamentFromCategory(record.value(QStringLiteral("category")).toString(), entry.book);
+        entry.fragment = record.value(QStringLiteral("fragment")).toBool(false);
         // Trimmed rather than taken raw, the same way rights is: these come out
         // of prose in an OSIS header and a stray newline in a table column is
         // a row that no longer lines up with the ones around it.

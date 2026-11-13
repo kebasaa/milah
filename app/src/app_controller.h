@@ -3,6 +3,7 @@
 #include "core/alignment.h"
 #include "core/collation_docx.h"
 #include "core/coverage.h"
+#include "core/versification.h"
 #include "core/serialize.h"
 #include "core/suggestions.h"
 #include "core/types.h"
@@ -112,6 +113,9 @@ public:
     const QList<AlignedVerse> &alignedVerses() const { return m_alignedVerses; }
 
     bool isDirty() const { return m_dirty; }
+    /// The project file this came from, for the window to name. Recorded and
+    /// nothing more — saving still asks where every time, as it always has.
+    QString filePath() const { return m_filePath; }
 
     /// Asks what to do about unsaved work before it is thrown away.
     ///
@@ -413,6 +417,7 @@ private:
 
     ReviewFilters m_filters;
     bool m_dirty = false;
+    QString m_filePath;
     QString m_message;
     QString m_dataWarning;
     QString m_lastError;

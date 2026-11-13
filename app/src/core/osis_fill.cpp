@@ -1,0 +1,334 @@
+#include "core/osis_fill.h"
+
+#include "core/hebrew_forms.h"
+#include "core/line_fill.h"
+#include "core/books.h"
+#include "core/osis.h"
+#include "core/tokenize.h"
+
+#include <QRegularExpression>
+
+#include <QFile>
+#include <QFileInfo>
+
+#include <algorithm>
+
+namespace milah {
+namespace {
+
+/// Whether this token carries the joiner that binds it to the one after it.
+///
+/// The tokeniser leaves a maqqef or hyphen on the *first* piece of a compound —
+/// see core/tokenize.cpp, which explains why it belongs there — so a token
+/// ending in one is half of a word rather than a word.
+bool joinsToTheNext(const QString &token)
+{
+    if (token.isEmpty()) {
+        return false;
+    }
+    const QChar last = token.back();
+    return last == QChar(0x05BE) || last == QLatin1Char('-');
+}
+
+/// Whether this token is punctuation on its own, with no word in it.
+///
+/// The tokeniser ends with a fallback that matches any single character it did
+/// not otherwise recognise, so a sof pasuq or gershayim written against a word —
+/// `רעים׃` — comes out as the word and then the mark. That is right for
+/// collation, which wants to align the words; it is wrong here, because the
+/// scribe wrote the mark against the word, in the same box, and a token of its
+/// own would take a box from the line and push everything after it along.
+bool isPunctuationAlone(const QString &token)
+{
+    for (const QChar character : token) {
+        if (character.isLetterOrNumber()) {
+            return false;
+        }
+    }
+    return !token.isEmpty();
+}
+
+/// The number the scribe wrote on the leaf to open this verse, or empty where
+/// there is none to write.
+///
+/// **A word of the manuscript, not a label.** In Oo.1.32 the verse numbers are
+/// written into the running text as Arabic digits — `2:`, `3:` … `20:` — so the
+/// segmenter finds a box for each, and a fill that walks past them lays the
+/// verse's first word onto the number's box and puts everything after it one
+/// place out for the rest of the leaf. That is the same fault the maqqef and the
+/// sof pasuq had, in a third disguise.
+///
+/// From the OSIS `n=` attribute, which core/osis.cpp keeps as `label` and fills
+/// in from the verse number where the file omits it. **Not** from `altNumber`:
+/// that carries whatever `subType="x-alt-…"` says, which in this edition is
+/// another edition's reference — `2.15-16` — and pouring that would put a
+/// citation on the folio where a digit belongs.
+///
+/// **Verse 1 gets nothing.** Twice on these folios the numbering starts at 2:
+/// James opens `יעקב עבד ה` with no numeral, and after the `פרק` heading on 159r
+/// the next chapter opens the same way. The number introduces a verse against
+/// the one before it, and the first verse of a chapter has nothing to be told
+/// apart from.
+///
+/// The colon written beside the digit is not poured. The OSIS does not record
+/// it — a verse's text begins at its first word — and inventing a character for
+/// ground truth is worse than leaving a box for the transcriber to type into.
+QString verseMarker(const SourceVerse &verse)
+{
+    if (verse.reference.verse.toInt() <= 1) {
+        return QString();
+    }
+    return verse.label.isEmpty() ? verse.reference.verse : verse.label;
+}
+
+} // namespace
+
+QString bookNamed(const SourceDocument &source, const QString &book)
+{
+    if (book.isEmpty()) {
+        return QString();
+    }
+    for (const SourceVerse &verse : source.verses) {
+        if (verse.reference.book.compare(book, Qt::CaseInsensitive) == 0) {
+            // The source's spelling, not the one asked with: everything
+            // downstream compares against the source's own books.
+            return verse.reference.book;
+        }
+    }
+    return QString();
+}
+
+Passage gatherPassage(
+    const SourceDocument &source,
+    const QString &book,
+    int chapter,
+    int firstVerse,
+    int skip)
+{
+    Passage passage;
+    const QString wanted = bookNamed(source, book);
+    if (wanted.isEmpty()) {
+        return passage;
+    }
+
+    bool started = false;
+    for (const SourceVerse &verse : source.verses) {
+        if (verse.reference.book != wanted) {
+            continue;
+        }
+        if (!started) {
+            const bool here = verse.reference.chapter > chapter
+                || (verse.reference.chapter == chapter
+                    && verse.reference.verse.toInt() >= firstVerse);
+            if (!here) {
+                continue;
+            }
+            started = true;
+        }
+        // Ahead of the verse's own words, because that is where the scribe put
+        // it: the numeral stands between the last word of the verse before and
+        // the first of this one, and it belongs to the verse it opens.
+        //
+        // Laid down on the first word rather than before the loop, so a verse
+        // the edition prints empty gets no numeral. This one prints Jas 1:21
+        // with no text at all, because the manuscript has none — and a number
+        // written onto the leaf for a verse that is not on it would take a box
+        // from the verse that is.
+        bool opened = false;
+        // A plain-text work numbers its sections only so a fill can find its
+        // place; nothing on the leaf says "2", so nothing is poured for it.
+        const QString marker = source.metadata.workType == QLatin1String(kPlainTextWork)
+            ? QString()
+            : verseMarker(verse);
+        for (const SourceToken &token : verse.tokens) {
+            const QString text = token.text.trimmed();
+            if (text.isEmpty()) {
+                continue;
+            }
+            // A compound joined at a maqqef is one word on the leaf, so it is
+            // one word here. core/tokenize.cpp splits it on purpose — for
+            // collation, where אֲנִי־יוֹחָנָן has to line up against a witness
+            // that writes two words — but a fill is not collation. The scribe
+            // wrote it once, in one box, and pouring it as two lays an extra
+            // word on the line and puts everything below it one place late for
+            // the rest of the leaf.
+            //
+            // Before the numeral, and on purpose: a mark that opens a verse in
+            // the source was written against the *previous* verse's last word,
+            // which is where it goes here too.
+            if (!passage.words.isEmpty()
+                && (joinsToTheNext(passage.words.last()) || isPunctuationAlone(text))) {
+                passage.words.last() += text;
+                continue;
+            }
+            if (!opened) {
+                opened = true;
+                if (!marker.isEmpty()) {
+                    passage.words.append(marker);
+                    passage.verses.append(verse.reference.id);
+                }
+            }
+            passage.words.append(text);
+            passage.verses.append(verse.reference.id);
+        }
+    }
+
+    // Dropped here rather than carried alongside as an offset. An offset has to
+    // be remembered by everything downstream and was not: the words the previous
+    // leaf already holds are simply not part of this folio's passage.
+    const int drop = std::clamp(skip, 0, int(passage.words.size()));
+    passage.words = passage.words.mid(drop);
+    passage.verses = passage.verses.mid(drop);
+    return passage;
+}
+
+} // namespace milah
+
+namespace milah {
+
+FolioLines folioLines(const TranscribedPage &page, int fromLine)
+{
+    const QMap<int, QList<QRect>> boxes = fillableLines(page);
+    const QMap<int, int> held = wordCounts(page);
+    FolioLines lines;
+    for (auto entry = boxes.constBegin(); entry != boxes.constEnd(); ++entry) {
+        if (entry.key() < fromLine) {
+            continue;
+        }
+        lines.indices.append(entry.key());
+        lines.boxes.append(entry.value());
+        lines.counts.append(held.value(entry.key(), int(entry.value().size())));
+    }
+    return lines;
+}
+
+Pour pourPassage(const FolioLines &lines,
+                 const QList<int> &counts,
+                 const QStringList &words,
+                 const QStringList &verses,
+                 int startLine)
+{
+    Pour pour;
+    for (const LineFill::Laid &laid :
+         LineFill::layOut(counts, startLine, 0, int(words.size()))) {
+        if (laid.line < 0 || laid.line >= lines.indices.size()) {
+            continue;
+        }
+        FilledLine line;
+        line.index = lines.indices.at(laid.line);
+        line.words = words.mid(laid.from, laid.count);
+        line.boxes = LineFill::place(lines.boxes.at(laid.line), laid.count);
+        if (line.boxes.size() != line.words.size()) {
+            // A line with no boxes at all, which folioLines() cannot produce —
+            // but a box each is what the caller is promised.
+            continue;
+        }
+        pour.wordVerses += verses.mid(laid.from, laid.count);
+        pour.filled.append(line);
+        pour.taken = laid.from + laid.count;
+    }
+    return pour;
+}
+
+} // namespace milah
+
+namespace milah {
+
+std::optional<SourceDocument> readFillSource(const QString &path, QString *error)
+{
+    QFile file(path);
+    if (!file.open(QIODevice::ReadOnly)) {
+        if (error) {
+            *error = QStringLiteral("%1 could not be opened.\n%2")
+                         .arg(QFileInfo(path).fileName(), file.errorString());
+        }
+        return std::nullopt;
+    }
+    // A work that is not in OSIS — most that are not the Bible — as plain text.
+    if (QFileInfo(path).suffix().compare(QLatin1String("txt"), Qt::CaseInsensitive) == 0) {
+        const SourceDocument text = plainTextSource(QString::fromUtf8(file.readAll()),
+                                                    QFileInfo(path).completeBaseName());
+        if (text.verses.isEmpty()) {
+            if (error) {
+                *error = QStringLiteral("%1 holds no text.").arg(QFileInfo(path).fileName());
+            }
+            return std::nullopt;
+        }
+        return text;
+    }
+    try {
+        return parseOsis(QString::fromUtf8(file.readAll()), ParseOptions{});
+    } catch (const OsisError &failure) {
+        if (error) {
+            *error = failure.message();
+        }
+        return std::nullopt;
+    }
+}
+
+} // namespace milah
+
+namespace milah {
+
+Passage withoutMarks(const Passage &passage, bool points, bool accents)
+{
+    if (!points && !accents) {
+        return passage;
+    }
+    Passage plain = passage;
+    for (QString &word : plain.words) {
+        if (accents) {
+            word = withoutAccents(word);
+        }
+        if (points) {
+            word = withoutNiqqud(word);
+        }
+    }
+    return plain;
+}
+
+} // namespace milah
+
+namespace milah {
+
+SourceDocument plainTextSource(const QString &text, const QString &name)
+{
+    QString book = sanitisedBookId(name);
+    if (book.isEmpty()) {
+        book = QStringLiteral("Text");
+    }
+    QString normalised = text;
+    normalised.replace(QStringLiteral("\r\n"), QStringLiteral("\n"));
+    static const QRegularExpression blankLines(QStringLiteral("\\n\\s*\\n"));
+    QStringList sections = normalised.split(blankLines, Qt::SkipEmptyParts);
+    if (sections.size() <= 1) {
+        sections = normalised.split(QLatin1Char('\n'), Qt::SkipEmptyParts);
+    }
+
+    SourceDocument document;
+    document.id = book;
+    document.name = name;
+    document.role = SourceRole::Manuscript;
+    document.metadata.title = name;
+    document.metadata.workType = QLatin1String(kPlainTextWork);
+    int number = 0;
+    for (const QString &section : sections) {
+        const QString collapsed = collapseWhitespace(section);
+        if (collapsed.isEmpty()) {
+            continue;
+        }
+        ++number;
+        SourceVerse verse;
+        verse.reference.book = book;
+        verse.reference.chapter = 1;
+        verse.reference.verse = QString::number(number);
+        verse.reference.id = QStringLiteral("%1.1.%2").arg(book).arg(number);
+        verse.label = verse.reference.verse;
+        verse.text = collapsed;
+        verse.tokens = tokenize(verse.reference.id, collapsed, {}, TokenStyle::Separate);
+        document.appendVerse(verse);
+    }
+    return document;
+}
+
+} // namespace milah

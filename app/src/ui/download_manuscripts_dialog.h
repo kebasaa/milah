@@ -15,6 +15,7 @@ class QNetworkAccessManager;
 class QNetworkReply;
 class QProgressBar;
 class QPushButton;
+class QComboBox;
 class QTreeWidget;
 class QTreeWidgetItem;
 class QUrl;
@@ -48,6 +49,10 @@ private:
     void showCatalogue();
     /// Ticks every row whose held copy differs from the published one.
     void selectUpdates();
+    /// The texts on offer, not their headings, and only those the filter shows.
+    QList<QTreeWidgetItem *> rows() const;
+    /// Hides the parts of the library the Show box leaves out.
+    void applyFilter();
 
     /// Issues a GET through ui/network_fetch.h, which is where the redirect,
     /// timeout and IPv4-fallback policy now lives — shared with the scan
@@ -66,6 +71,7 @@ private:
 
     QNetworkAccessManager *m_network = nullptr;
     QTreeWidget *m_tree = nullptr;
+    QComboBox *m_filter = nullptr;
     QProgressBar *m_progress = nullptr;
     QLabel *m_status = nullptr;
     QPushButton *m_download = nullptr;

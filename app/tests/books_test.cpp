@@ -63,7 +63,6 @@ private slots:
     {
         // Not an error: a transcriber may be reading an apocryphal work, and is
         // then asked what it should be called rather than being refused.
-        QVERIFY(bookIdFor(QStringLiteral("Tobit")).isEmpty());
         QVERIFY(bookIdFor(QStringLiteral("1 Enoch")).isEmpty());
         QVERIFY(bookIdFor(QString()).isEmpty());
         QVERIFY(bookIdFor(QStringLiteral("   ")).isEmpty());
@@ -87,7 +86,68 @@ private slots:
     {
         // bookName's standing promise, relied on by the transcription toolbar
         // when it fills the Book field for a work it coined an id for.
-        QCOMPARE(bookName(QStringLiteral("Tob")), QStringLiteral("Tob"));
+        QCOMPARE(bookName(QStringLiteral("1En")), QStringLiteral("1En"));
+    }
+
+    void theTestamentsAreToldApart()
+    {
+        QCOMPARE(testamentOf(QStringLiteral("Gen")), Testament::Old);
+        QCOMPARE(testamentOf(QStringLiteral("Sirach")), Testament::Old);
+        QCOMPARE(testamentOf(QStringLiteral("JAS")), Testament::New);
+        QCOMPARE(testamentOf(QStringLiteral("NT")), Testament::New);
+        QCOMPARE(testamentOf(QStringLiteral("Pirkei Avot")), Testament::Other);
+    }
+
+    void theHebrewBibleCanBeBrowsedInTanakhOrder()
+    {
+        // Chronicles closes the Tanakh; Ruth is among the Writings.
+        QVERIFY(compareTanakh(QStringLiteral("Mal"), QStringLiteral("Ps")) < 0);
+        QVERIFY(compareTanakh(QStringLiteral("Neh"), QStringLiteral("1Chr")) < 0);
+        QVERIFY(compareTanakh(QStringLiteral("2Kgs"), QStringLiteral("Ruth")) < 0);
+        QVERIFY(compareTanakh(QStringLiteral("2Chr"), QStringLiteral("Sir")) < 0);
+    }
+
+    void threeLetterCodesAreUnderstood()
+    {
+        QCOMPARE(bookIdFor(QStringLiteral("MRK")), QStringLiteral("Mark"));
+        QCOMPARE(bookIdFor(QStringLiteral("JOH")), QStringLiteral("John"));
+        QCOMPARE(bookIdFor(QStringLiteral("JHN")), QStringLiteral("John"));
+        QCOMPARE(bookIdFor(QStringLiteral("PSA")), QStringLiteral("Ps"));
+        // Never at the cost of an id or a name.
+        QCOMPARE(bookIdFor(QStringLiteral("Jude")), QStringLiteral("Jude"));
+        QCOMPARE(bookIdFor(QStringLiteral("Judg")), QStringLiteral("Judg"));
+    }
+
+    void theDeuterocanonHasItsOsisIds()
+    {
+        QCOMPARE(bookIdFor(QStringLiteral("Tobit")), QStringLiteral("Tob"));
+        QCOMPARE(bookIdFor(QStringLiteral("Sirach")), QStringLiteral("Sir"));
+        QCOMPARE(bookIdFor(QStringLiteral("1 Maccabees")), QStringLiteral("1Macc"));
+        // Between the testaments.
+        QVERIFY(compareBooks(QStringLiteral("Mal"), QStringLiteral("Sir")) < 0);
+        QVERIFY(compareBooks(QStringLiteral("Sir"), QStringLiteral("Matt")) < 0);
+    }
+
+    void aKnownBookIsStoredUnderItsOsisId()
+    {
+        // Old files and the scan catalogue wrote "JAS"; exported, that was a
+        // second book beside "Jas", and not a valid OSIS id at all.
+        QCOMPARE(normalisedBookId(QStringLiteral("JAS")), QStringLiteral("Jas"));
+        QCOMPARE(normalisedBookId(QStringLiteral("Jas")), QStringLiteral("Jas"));
+        QCOMPARE(normalisedBookId(QStringLiteral("1 kings")), QStringLiteral("1Kgs"));
+    }
+
+    void anUnknownBookKeepsOnlyWhatAnIdCanCarry()
+    {
+        QCOMPARE(normalisedBookId(QStringLiteral("1 Enoch: Book")),
+                 QStringLiteral("1EnochBook"));
+        QCOMPARE(sanitisedBookId(QStringLiteral("Tob.it")), QStringLiteral("Tobit"));
+        QCOMPARE(sanitisedBookId(QStringLiteral("Bar-'Ilan!")),
+                 QStringLiteral("BarIlan"));
+        // Hebrew letters are letters: a work may be named in its own script.
+        QCOMPARE(sanitisedBookId(QStringLiteral("פרקי אבות")),
+                 QStringLiteral("פרקיאבות"));
+        QCOMPARE(normalisedBookId(QString()), QString());
     }
 };
 

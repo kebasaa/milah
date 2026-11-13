@@ -778,8 +778,9 @@ QList<Suggestion> reviewVerse(
         suggestions.append(Suggestion{
             column,
             QString(),
-            QStringLiteral("Not attested in the Hebrew Bible. Correct for a New "
-                           "Testament word — add it to the dictionary to stop asking."),
+            QStringLiteral("Not attested in the Hebrew Bible. If the word is right — a "
+                           "later or a borrowed word — add it to the dictionary to "
+                           "stop asking."),
             SuggestionKind::UnknownForm});
     }
 

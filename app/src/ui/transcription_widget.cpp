@@ -1,5 +1,6 @@
 #include "ui/transcription_widget.h"
 
+#include "core/books.h"
 #include "transcription_controller.h"
 #include "ui/manuscript_image_view.h"
 #include "ui/transcription_grid_widget.h"
@@ -30,6 +31,65 @@ TranscriptionWidget::TranscriptionWidget(
     // Reserving it is the same bargain the verse list makes.
     m_imageArea->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOn);
 
+    connect(m_image, &ManuscriptImageView::fillRequested, this, [this](QPoint folioPixel, bool carryOn) {
+        // Shown, because checking where the pour landed against the ink is the
+        // whole of the job afterwards and the boxes are the only thing on screen
+        // that says where the lines fall. Only when there are any: an eye
+        // toggled onto a folio with nothing to draw shows nothing.
+        if (m_image->hasWordBoxes() && !m_image->overlayVisible()) {
+            emit overlayWanted();
+        }
+        m_controller->fillFromOsis(folioPixel, carryOn);
+    });
+
+    connect(
+        m_image,
+        &ManuscriptImageView::marginalToggled,
+        this,
+        [this](QRect box, bool marginal) { m_controller->setMarginalAt(box, marginal); });
+
+    connect(
+        m_image,
+        &ManuscriptImageView::wordEdited,
+        this,
+        [this](QRect box, QString hebrew) { m_controller->setWordAt(box, hebrew); });
+
+    connect(
+        m_image,
+        &ManuscriptImageView::lineBreakToggled,
+        this,
+        [this](QRect box, bool endsLine) { m_controller->setLineBreakAt(box, endsLine); });
+
+    connect(
+        m_image,
+        &ManuscriptImageView::lineJoinRequested,
+        this,
+        [this](int line) { m_controller->joinLineAt(line); });
+
+    connect(
+        m_image,
+        &ManuscriptImageView::lineMarginalToggled,
+        this,
+        [this](int line, bool marginal) { m_controller->setLineMarginal(line, marginal); });
+
+    connect(
+        m_image,
+        &ManuscriptImageView::lineBrokenBefore,
+        this,
+        [this](QRect box) { m_controller->breakLineBefore(box); });
+
+    connect(
+        m_image,
+        &ManuscriptImageView::wordPulledUp,
+        this,
+        [this](QRect box) { m_controller->pullWordUp(box); });
+
+    connect(
+        m_image,
+        &ManuscriptImageView::lineChecked,
+        this,
+        [this](int line) { m_controller->markLineChecked(line); });
+
     m_grid = new TranscriptionGridWidget(m_controller);
     m_textArea = new QScrollArea;
     m_textArea->setWidget(m_grid);
@@ -37,6 +97,19 @@ TranscriptionWidget::TranscriptionWidget(
     m_textArea->setFrameShape(QFrame::NoFrame);
     // The bands are packed to fit this viewport, for the same reason.
     m_textArea->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOn);
+
+    // A refused line's chip names the word that decided it; the grid is where
+    // every word can be reached, including a typed one with no box to draw.
+    // The training panel asks the same of the controller.
+    connect(m_image, &ManuscriptImageView::refusalChosen, m_controller,
+            &TranscriptionController::showWord);
+
+    connect(m_controller, &TranscriptionController::wordShown, this, [this](int verse, int word) {
+        m_grid->focusWord(verse, word);
+        if (QWidget *cell = m_grid->focusWidget()) {
+            m_textArea->ensureWidgetVisible(cell);
+        }
+    });
 
     m_splitter = new QSplitter(Qt::Vertical);
     m_splitter->setObjectName(QStringLiteral("transcriptionSplitter"));
@@ -91,11 +164,18 @@ void TranscriptionWidget::setOverlayVisible(bool visible)
     m_image->setOverlayVisible(visible);
 }
 
+void TranscriptionWidget::setLineBoxesVisible(bool visible)
+{
+    m_image->setLineBoxesVisible(visible);
+}
+
 void TranscriptionWidget::refreshOverlay()
 {
     const TranscribedPage *page = m_controller->currentPage();
     if (!page) {
         m_image->setWords({});
+        m_image->setLines({});
+        m_image->setContinuation(QString());
         return;
     }
     QList<TranscribedWord> words;
@@ -103,6 +183,14 @@ void TranscriptionWidget::refreshOverlay()
         words.append(verse.words);
     }
     m_image->setWords(words);
+    m_image->setLines(page->lines);
+    m_image->setVerdicts(m_controller->trainingVerdicts());
+
+    // Here because this already runs on every change of folio and every change
+    // of text, and where the folio before this one stopped changes with both.
+    const ResumePoint resume = m_controller->resumePoint();
+    m_image->setContinuation(
+        resume.isValid() ? readableVerseId(resume.verse) : QString());
 }
 
 void TranscriptionWidget::showCurrentPage()

@@ -391,6 +391,85 @@ private slots:
         QCOMPARE(draft.columns.at(0).text.value_or(QString()), QString::fromUtf8("דבר"));
         QCOMPARE(draft.columns.at(0).needsReview, true);
     }
+
+    // --- fragments and lacunae ---------------------------------------------
+
+    void aWitnessWithoutTheVerseDoesNotVoteAgainstIt()
+    {
+        // One witness of three reaches Matt.1.1; the others are fragments of
+        // chapter 2. Their silence used to outvote it and empty the verse.
+        ParseOptions options;
+        options.role = SourceRole::Manuscript;
+        options.id = QStringLiteral("b");
+        const SourceDocument b =
+            parseOsis(milah_test::witnessOsisCovering(QStringLiteral("b"), {QStringLiteral("Matt.2")}), options);
+        options.id = QStringLiteral("c");
+        const SourceDocument c =
+            parseOsis(milah_test::witnessOsisCovering(QStringLiteral("c"), {QStringLiteral("Matt.2")}), options);
+        const QList<SourceDocument> documents = {
+            witness(QStringLiteral("a"), QString::fromUtf8("ספר הולדת")), b, c};
+        const DocumentRefs sources = refs(documents);
+
+        const CombinedDraft draft = generateCombined(
+            alignVerse(QStringLiteral("Matt.1.1"), sources, QStringLiteral("a")),
+            sources, QStringLiteral("a"));
+        QCOMPARE(combinedText(draft), QString::fromUtf8("ספר הולדת"));
+        for (const ConsensusColumn &column : draft.columns) {
+            QVERIFY(!column.needsReview);
+        }
+    }
+
+    void aLostWordIsNotAnOmission()
+    {
+        // a lost its second word to damage, c leaves it out. Without the
+        // lacuna the two silences tie the two readings and the priority
+        // witness — a, silent — wins; with it, a abstains.
+        const auto parsed = [](const QString &id, const QString &text) {
+            ParseOptions options;
+            options.id = id;
+            options.role = SourceRole::Manuscript;
+            return parseOsis(milah_test::witnessOsis(id, text), options);
+        };
+        const QList<SourceDocument> documents = {
+            parsed(QStringLiteral("a"), QString::fromUtf8("ספר <milestone type='x-lacuna'/>")),
+            parsed(QStringLiteral("b"), QString::fromUtf8("ספר הולדת")),
+            parsed(QStringLiteral("c"), QString::fromUtf8("ספר")),
+            parsed(QStringLiteral("d"), QString::fromUtf8("ספר הולדת")),
+        };
+        const DocumentRefs sources = refs(documents);
+        const CombinedDraft draft = generateCombined(
+            alignVerse(QStringLiteral("Matt.1.1"), sources, QStringLiteral("a")),
+            sources, QStringLiteral("a"));
+        QCOMPARE(combinedText(draft), QString::fromUtf8("ספר הולדת"));
+    }
+
+    void suppliedTextIsNotTheWitnesses()
+    {
+        ParseOptions options;
+        options.id = QStringLiteral("a");
+        options.role = SourceRole::Manuscript;
+        const SourceDocument osis = parseOsis(
+            milah_test::witnessOsis(
+                QStringLiteral("a"),
+                QString::fromUtf8("ספר <seg type='x-supplied'>הולדת</seg> ישוע")),
+            options);
+        QCOMPARE(osis.verse(QStringLiteral("Matt.1.1"))->text, QString::fromUtf8("ספר ישוע"));
+
+        // TEI's spelling of the same, with a gap where the leaf is torn.
+        options.id = QStringLiteral("t");
+        const SourceDocument tei = parseOsis(
+            milah_test::witnessOsis(
+                QStringLiteral("t"),
+                QString::fromUtf8("ספר <supplied>הולדת</supplied><gap/> <unclear>ישוע</unclear>")),
+            options);
+        QCOMPARE(tei.verse(QStringLiteral("Matt.1.1"))->text, QString::fromUtf8("ספר ישוע"));
+        QCOMPARE(tei.warnings, QStringList());
+        bool lacuna = false;
+        for (const SourceMilestone &milestone : tei.milestones) {
+            lacuna = lacuna || milestone.type == QLatin1String(kLacunaMilestone);
+        }
+        QVERIFY(lacuna);
+    }
 };
 
 QTEST_MAIN(ConsensusTest)

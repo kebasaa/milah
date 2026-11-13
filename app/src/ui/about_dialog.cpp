@@ -75,8 +75,9 @@ AboutDialog::AboutDialog(QWidget *parent)
     auto *heading = paragraph(
         QStringLiteral(
             "<h3 style='margin:0'>Milah %1</h3>"
-            "<p style='margin:4px 0 0 0'>Comparing Hebrew New Testament "
-            "manuscript witnesses and building a combined edition.</p>"
+            "<p style='margin:4px 0 0 0'>Transcribing and comparing Hebrew "
+            "manuscripts — Old and New Testament and beyond — and building a "
+            "combined edition.</p>"
             "<p style='margin:10px 0 0 0'>Copyright &copy; 2026 "
             "Jonathan D. M&uuml;ller</p>"
             "<p style='margin:2px 0 0 0'>%2</p>")

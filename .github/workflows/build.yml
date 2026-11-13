@@ -1,0 +1,112 @@
+name: Build
+
+on:
+  push:
+    branches: [main, dev]
+  pull_request:
+    branches: [main, dev]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  QT_VERSION: '6.8.3'
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Windows (MinGW)
+            os: windows-2022
+            preset: windows-mingw
+            qt-arch: win64_mingw
+            qt-tools: tools_mingw1310
+          - name: Linux
+            os: ubuntu-24.04
+            preset: linux
+            qt-arch: linux_gcc_64
+            qt-tools: ''
+          - name: macOS
+            os: macos-15
+            preset: macos
+            qt-arch: clang_64
+            qt-tools: ''
+
+    defaults:
+      run:
+        shell: bash
+        working-directory: milah/app
+
+    steps:
+      # Side by side, as on a developer's machine: the corpus tests look for
+      # ../hebrew_manuscripts beside this repository.
+      - name: Check out Milah
+        uses: actions/checkout@v4
+        with:
+          path: milah
+
+      - name: Check out the manuscript corpus
+        uses: actions/checkout@v4
+        with:
+          repository: kebasaa/hebrew_manuscripts
+          path: hebrew_manuscripts
+
+      - name: Install Qt
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: ${{ env.QT_VERSION }}
+          arch: ${{ matrix.qt-arch }}
+          tools: ${{ matrix.qt-tools }}
+          cache: true
+
+      - name: Install build tools (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build libgl1-mesa-dev libxkbcommon-dev \
+            libegl1 libfontconfig1 zlib1g-dev libxml2-utils
+
+      - name: Install build tools (macOS)
+        if: runner.os == 'macOS'
+        run: brew install ninja
+
+      - name: Install build tools (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          choco install ninja --no-progress -y
+          # Qt's own MinGW, the compiler the kit was built with, ahead of any
+          # other GCC the runner image carries.
+          "$env:IQTA_TOOLS\mingw1310_64\bin" | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
+
+      # PowerShell everywhere for the steps that pass paths, so a Windows path
+      # reaches CMake with forward slashes rather than as bash escapes.
+      - name: Configure
+        shell: pwsh
+        run: cmake --preset ${{ matrix.preset }} "-DCMAKE_PREFIX_PATH=$($env:QT_ROOT_DIR -replace '\\','/')"
+
+      - name: Build
+        run: cmake --build --preset ${{ matrix.preset }}
+
+      - name: Test
+        run: ctest --preset ${{ matrix.preset }}
+
+      - name: Install
+        shell: pwsh
+        run: cmake --install ../build/${{ matrix.preset }} --prefix "$($env:GITHUB_WORKSPACE -replace '\\','/')/milah-${{ matrix.preset }}"
+
+      - name: Upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: milah-${{ matrix.preset }}
+          path: milah-${{ matrix.preset }}
+          if-no-files-found: error

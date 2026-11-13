@@ -187,7 +187,15 @@ bool AppController::matchesFilters(const AlignedVerse &aligned) const
         return true;
     }
     if (m_filters.missing) {
-        const DocumentRefs sources = manuscripts();
+        // Among the witnesses that hold this verse: a fragment that does not
+        // reach it is not missing a word, it is missing the verse, and counting
+        // it flagged nearly every verse once a fragment was loaded.
+        DocumentRefs sources;
+        for (const SourceDocument *source : manuscripts()) {
+            if (source->hasVerse(aligned.reference.id)) {
+                sources.append(source);
+            }
+        }
         for (const AlignmentColumn &column : aligned.columns) {
             for (const SourceDocument *source : sources) {
                 if (!column.cell(source->id)) {
@@ -388,7 +396,9 @@ AlignedVerse AppController::alignedFor(
     options.abbreviations = &AbbreviationTable::shared();
     options.lexicon = &HebrewLexicon::shared();
     options.attested = &AttestedForms::shared();
-    options.names = &NameForms::shared();
+    // The names of the testament the verse is in: יהושע is Jesus in Revelation
+    // and Joshua in Joshua.
+    options.names = &NameForms::sharedFor(testamentOf(verseId.section(QLatin1Char('.'), 0, 0)));
 
     return applyColumnSplits(
         alignVerse(verseId, sources, priorityId, options),
@@ -925,9 +935,28 @@ void AppController::loadLibraryFiles(const QStringList &paths)
     // already gone in.
     QStringList manuscripts;
     QStringList translations;
-    for (const QString &path : paths) {
+    // The library keeps no copy of the manifest, so the file says for itself:
+    // by its name, as the library names translations, or by the language its
+    // text is in. A Hebrew witness is written right to left and a modern
+    // translation of it is not — which also catches a translation saved under
+    // some other name.
+    static const QRegularExpression declaredLanguage(
+        QStringLiteral("<osisText[^>]*xml:lang=[\"']([^\"']+)[\"']"));
+    const auto isTranslation = [](const QString &path) {
         if (QFileInfo(path).completeBaseName().endsWith(
                 QStringLiteral("_translation"), Qt::CaseInsensitive)) {
+            return true;
+        }
+        QFile file(path);
+        if (!file.open(QIODevice::ReadOnly)) {
+            return false;
+        }
+        const QRegularExpressionMatch match =
+            declaredLanguage.match(QString::fromUtf8(file.read(4096)));
+        return match.hasMatch() && !isRightToLeft(match.captured(1));
+    };
+    for (const QString &path : paths) {
+        if (isTranslation(path)) {
             translations.append(path);
         } else {
             manuscripts.append(path);
@@ -1029,7 +1058,11 @@ void AppController::loadPaths(SourceRole role, const QStringList &paths)
             options.id = makeSourceId(role, index);
             options.name = opened.at(index).name;
             options.role = role;
-            parsed.append(parseOsis(opened.at(index).content, options));
+            SourceDocument document = parseOsis(opened.at(index).content, options);
+            // The Hebrew Bible is collated in its own numbering, so a witness or
+            // translation numbered the English way is brought into line first.
+            toHebrewNumbering(document);
+            parsed.append(document);
         }
     } catch (const OsisError &error) {
         setMessage(error.message());
@@ -1137,6 +1170,7 @@ void AppController::closeProject()
     // that outlives one. The dictionary, the Strong's row preference and the
     // last-used folder all stay: they belong to the editor, not the edition.
     m_sources.clear();
+    m_filePath.clear();
     m_associations.clear();
     m_priorityId.clear();
     m_combined.clear();
@@ -1239,6 +1273,7 @@ bool AppController::loadProjectFrom(const QString &path)
     m_undoStack.clear();
     m_redoStack.clear();
     setDirty(false);
+    m_filePath = path;
     rememberRecentFile(QLatin1String(RecentProjectsKey), path);
     setMessage(QStringLiteral("Milah project opened."));
     emit historyChanged();
@@ -1285,9 +1320,12 @@ bool AppController::saveProject()
     }
 
     setDirty(false);
-    // Saving counts as much as opening. This class keeps no path of its own, so
-    // every save is a Save As — which makes this the only way a project's
-    // whereabouts is learned other than the open dialog.
+    // Recorded for the window title only: every save is still a Save As, which
+    // is what it has always been, and this does not change where the next one
+    // goes.
+    m_filePath = path;
+    // Saving counts as much as opening for the recent list, which is the only
+    // other way a project's whereabouts is learned.
     rememberRecentFile(QLatin1String(RecentProjectsKey), path);
     rememberDirectory(path);
     setMessage(QStringLiteral("Milah project saved."));

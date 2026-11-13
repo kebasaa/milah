@@ -5,8 +5,11 @@
 
 #include <QDateTime>
 #include <QJsonArray>
+#include <QStringList>
 #include <QJsonObject>
 #include <QRegularExpression>
+
+#include <algorithm>
 
 namespace milah {
 namespace {
@@ -52,6 +55,7 @@ QJsonObject metadataToJson(const TranscriptionMetadata &metadata)
         QStringLiteral("translatedFromCertainty"),
         metadata.translatedFromCertainty);
     put(json, QStringLiteral("exemplar"), metadata.exemplar);
+    put(json, QStringLiteral("hand"), metadata.hand);
     put(json, QStringLiteral("language"), metadata.language);
     put(json, QStringLiteral("notes"), metadata.notes);
 
@@ -81,6 +85,8 @@ TranscriptionMetadata metadataFromJson(const QJsonObject &json)
     metadata.translatedFromCertainty =
         json.value(QStringLiteral("translatedFromCertainty")).toString();
     metadata.exemplar = json.value(QStringLiteral("exemplar")).toString();
+    // Absent from every file written before the hand was asked for.
+    metadata.hand = json.value(QStringLiteral("hand")).toString();
     metadata.language = json.value(QStringLiteral("language")).toString();
     metadata.notes = json.value(QStringLiteral("notes")).toString();
 
@@ -141,7 +147,17 @@ QJsonObject wordToJson(const TranscribedWord &word)
         json.insert(QStringLiteral("englishIsOwn"), true);
     }
     put(json, QStringLiteral("note"), word.note);
+    put(json, QStringLiteral("recognised"), word.recognised);
     put(json, QStringLiteral("box"), boxToText(word.box));
+    if (word.line >= 0) {
+        json.insert(QStringLiteral("line"), word.line);
+    }
+    if (word.marginal) {
+        json.insert(QStringLiteral("marginal"), true);
+    }
+    if (word.endsLine) {
+        json.insert(QStringLiteral("endsLine"), true);
+    }
     if (word.unchecked) {
         json.insert(QStringLiteral("unchecked"), true);
     }
@@ -161,6 +177,17 @@ TranscribedWord wordFromJson(const QJsonObject &json)
     // both mean the right thing when absent: nobody knows where this word is on
     // the picture, and a person typed it.
     word.box = boxFromText(json.value(QStringLiteral("box")).toString());
+    // -1 where it is absent, which is right for every word in every file
+    // written before Milah kept the line: nothing knows which line it was on,
+    // and the training export says so by leaving it out rather than guessing.
+    word.line = json.value(QStringLiteral("line")).toInt(-1);
+    word.endsLine = json.value(QStringLiteral("endsLine")).toBool();
+    // Absent from every file written before a box could be held out of the
+    // work, which reads correctly as "all of this is the text".
+    word.marginal = json.value(QStringLiteral("marginal")).toBool();
+    // Absent from every folio read before the machine's own reading was kept.
+    // Empty reads as "there is nothing to go back to", which is the truth.
+    word.recognised = json.value(QStringLiteral("recognised")).toString();
     word.unchecked = json.value(QStringLiteral("unchecked")).toBool();
     return word;
 }
@@ -196,6 +223,28 @@ TranscribedVerse verseFromJson(const QJsonObject &json)
     return verse;
 }
 
+/// Points as "x y x y", which is how ALTO spells a baseline and so needs no
+/// translating when the training export writes it back out.
+QString pointsToText(const QList<QPoint> &points)
+{
+    QStringList parts;
+    parts.reserve(points.size() * 2);
+    for (const QPoint &point : points) {
+        parts << QString::number(point.x()) << QString::number(point.y());
+    }
+    return parts.join(QLatin1Char(' '));
+}
+
+QList<QPoint> pointsFromText(const QString &text)
+{
+    const QStringList parts = text.split(QLatin1Char(' '), Qt::SkipEmptyParts);
+    QList<QPoint> points;
+    for (int index = 0; index + 1 < parts.size(); index += 2) {
+        points.append(QPoint(parts.at(index).toInt(), parts.at(index + 1).toInt()));
+    }
+    return points;
+}
+
 QJsonObject pageToJson(const TranscribedPage &page)
 {
     QJsonArray verses;
@@ -212,6 +261,52 @@ QJsonObject pageToJson(const TranscribedPage &page)
     put(json, QStringLiteral("book"), page.book);
     put(json, QStringLiteral("bookLabel"), page.bookLabel);
     json.insert(QStringLiteral("firstChapter"), page.firstChapter);
+    // Both or neither: a verse with no word count says where to resume without
+    // saying how far in, which is worse than saying nothing.
+    if (!page.fillEndVerse.isEmpty() && page.fillEndWord >= 0) {
+        json.insert(QStringLiteral("fillEndVerse"), page.fillEndVerse);
+        json.insert(QStringLiteral("fillEndWord"), page.fillEndWord);
+    }
+    if (page.fillStartLine >= 0) {
+        json.insert(QStringLiteral("fillStartLine"), page.fillStartLine);
+    }
+    // What the recogniser drew for each line. Only the lines that have any: a
+    // folio read before Milah kept these writes nothing and reads back empty.
+    QJsonArray lines;
+    for (const TranscribedLine &line : page.lines) {
+        if (line.baseline.isEmpty() && line.boundary.isEmpty()) {
+            continue;
+        }
+        QJsonObject entry;
+        entry.insert(QStringLiteral("line"), line.index);
+        put(entry, QStringLiteral("baseline"), pointsToText(line.baseline));
+        put(entry, QStringLiteral("boundary"), pointsToText(line.boundary));
+        lines.append(entry);
+    }
+    if (!lines.isEmpty()) {
+        json.insert(QStringLiteral("lines"), lines);
+    }
+    // What the transcriber has said a line holds, where they have said it. In
+    // the same shape as the lines above, and for the same reason: a line number
+    // written down beside its value survives a folio being read again, where a
+    // bare list in line order would not.
+    QJsonArray lineWords;
+    for (auto entry = page.lineWords.constBegin(); entry != page.lineWords.constEnd();
+         ++entry) {
+        QJsonObject held;
+        held.insert(QStringLiteral("line"), entry.key());
+        held.insert(QStringLiteral("words"), entry.value());
+        lineWords.append(held);
+    }
+    if (!lineWords.isEmpty()) {
+        json.insert(QStringLiteral("lineWords"), lineWords);
+    }
+    // Both or neither, for the same reason the end pair is: a verse with no word
+    // count says where the pour began without saying how far in.
+    if (!page.fillStartVerse.isEmpty() && page.fillStartWord >= 0) {
+        json.insert(QStringLiteral("fillStartVerse"), page.fillStartVerse);
+        json.insert(QStringLiteral("fillStartWord"), page.fillStartWord);
+    }
     if (!verses.isEmpty()) {
         json.insert(QStringLiteral("verses"), verses);
     }
@@ -228,13 +323,47 @@ TranscribedPage pageFromJson(const QJsonObject &json)
     // reads correctly as "this one came off a disk".
     page.imageUrl = json.value(QStringLiteral("imageUrl")).toString();
     page.imageLabel = json.value(QStringLiteral("imageLabel")).toString();
-    page.book = json.value(QStringLiteral("book")).toString();
+    // Normalised, because files written before ids were checked carry "JAS"
+    // on some folios and "Jas" on others: one book, exported as two.
+    // Only a book the canon knows: an id the transcriber coined is theirs, and
+    // rewriting it would orphan the fill resume points stored against it.
+    {
+        const QString stored = json.value(QStringLiteral("book")).toString();
+        const QString canonical = bookIdFor(stored);
+        page.book = canonical.isEmpty() ? stored : canonical;
+    }
     // Absent from files written before the book could be named as well as
     // abbreviated, which reads correctly as "the canonical name of the id".
     page.bookLabel = json.value(QStringLiteral("bookLabel")).toString();
     // A chapter is never zero, so a manifest that somehow says so is taken to
     // mean it did not say.
     page.firstChapter = std::max(1, json.value(QStringLiteral("firstChapter")).toInt(1));
+    // Absent from every file written before a folio could be filled from a
+    // published transcription, which reads correctly as "none has run here".
+    page.fillEndVerse = json.value(QStringLiteral("fillEndVerse")).toString();
+    page.fillEndWord = json.value(QStringLiteral("fillEndWord")).toInt(-1);
+    page.fillStartLine = json.value(QStringLiteral("fillStartLine")).toInt(-1);
+    for (const QJsonValue &value : json.value(QStringLiteral("lines")).toArray()) {
+        const QJsonObject entry = value.toObject();
+        TranscribedLine line;
+        line.index = entry.value(QStringLiteral("line")).toInt();
+        line.baseline = pointsFromText(entry.value(QStringLiteral("baseline")).toString());
+        line.boundary = pointsFromText(entry.value(QStringLiteral("boundary")).toString());
+        page.lines.append(line);
+    }
+    for (const QJsonValue &value : json.value(QStringLiteral("lineWords")).toArray()) {
+        const QJsonObject entry = value.toObject();
+        // A count of nothing is a real answer — the whole line belongs further
+        // down — so the absent case is the key not being there at all.
+        if (!entry.contains(QStringLiteral("words"))) {
+            continue;
+        }
+        page.lineWords.insert(
+            entry.value(QStringLiteral("line")).toInt(),
+            std::max(0, entry.value(QStringLiteral("words")).toInt()));
+    }
+    page.fillStartVerse = json.value(QStringLiteral("fillStartVerse")).toString();
+    page.fillStartWord = json.value(QStringLiteral("fillStartWord")).toInt(-1);
 
     const QJsonArray verses = json.value(QStringLiteral("verses")).toArray();
     page.verses.reserve(verses.size());
@@ -264,6 +393,117 @@ QString condensedName(const QString &text)
 }
 
 } // namespace
+
+ResumePoint resumeFill(const TranscriptionDocument &document, int page)
+{
+    // Backwards from the folio before this one, stopping at the first leaf that
+    // holds any text rather than running on to the earliest — a verso left blank
+    // or a folio skipped for later must not send the next leaf back two places
+    // in the book.
+    for (int index = std::min(page, int(document.pages.size())) - 1; index >= 0; --index) {
+        const TranscribedPage &earlier = document.pages.at(index);
+
+        // The last verse with words in it. Trailing empties are ordinary: a
+        // folio always keeps a blank verse at the end for typing into.
+        int last = -1;
+        for (int verse = earlier.verses.size() - 1; verse >= 0; --verse) {
+            if (!earlier.verses.at(verse).words.isEmpty()) {
+                last = verse;
+                break;
+            }
+        }
+        if (last < 0) {
+            continue;
+        }
+
+        if (isPreamble(earlier.verses.at(last).number)) {
+            // An incipit or a scribe's heading to a chapter. It is on the leaf,
+            // but it is not a verse of the source and so says nothing about
+            // where in the source the reading had got to.
+            continue;
+        }
+        const QString id = transcribedVerseId(earlier, last);
+        if (id.isEmpty()) {
+            // Words but no verse number, or a folio with no book: there is text
+            // here, but nothing that says where in the source it sits.
+            continue;
+        }
+        return ResumePoint{id, int(earlier.verses.at(last).words.size())};
+    }
+    return ResumePoint{};
+}
+
+TranscriptionDocument withoutMarginalia(const TranscriptionDocument &document)
+{
+    TranscriptionDocument out = document;
+    for (TranscribedPage &page : out.pages) {
+        // What each line's marginalia say, in the order they were read.
+        QMap<int, QStringList> notes;
+        for (const TranscribedVerse &verse : page.verses) {
+            for (const TranscribedWord &word : verse.words) {
+                if (word.marginal && !word.hebrew.isEmpty()) {
+                    notes[word.line].append(word.hebrew);
+                }
+            }
+        }
+        if (notes.isEmpty()) {
+            continue;
+        }
+
+        // Out of the text, remembering where each line's last remaining word
+        // ended up so a note has something to hang on. Positions rather than
+        // pointers: the lists below are being rebuilt as this goes.
+        QMap<int, QPair<int, int>> anchors;
+        for (int index = 0; index < page.verses.size(); ++index) {
+            QList<TranscribedWord> kept;
+            for (const TranscribedWord &word : page.verses.at(index).words) {
+                if (word.marginal) {
+                    continue;
+                }
+                kept.append(word);
+                if (word.line >= 0) {
+                    anchors.insert(word.line, {index, int(kept.size()) - 1});
+                }
+            }
+            page.verses[index].words = kept;
+        }
+
+        for (auto line = notes.constBegin(); line != notes.constEnd(); ++line) {
+            // Its own line first. A note the recogniser gave a line of its own —
+            // which is most of them, since marginalia sit beside the text block
+            // rather than inside it — has no text on that line to attach to, so
+            // it falls back to the nearest line above, which is the part of the
+            // text it stands next to. Failing that, the nearest below.
+            QPair<int, int> place{-1, -1};
+            if (anchors.contains(line.key())) {
+                place = anchors.value(line.key());
+            } else {
+                for (auto above = anchors.constBegin(); above != anchors.constEnd(); ++above) {
+                    if (above.key() < line.key()) {
+                        place = above.value();
+                    }
+                }
+                if (place.first < 0 && !anchors.isEmpty()) {
+                    place = anchors.constBegin().value();
+                }
+            }
+            if (place.first < 0) {
+                // A folio with nothing on it but marginalia. There is no word
+                // for a note to be a note on, and inventing one would put text
+                // into the export that the transcriber never wrote.
+                continue;
+            }
+
+            TranscribedWord &word = page.verses[place.first].words[place.second];
+            QStringList all = line.value();
+            if (!word.note.isEmpty()) {
+                all.prepend(word.note);
+            }
+            word.note = all.join(QStringLiteral("; "));
+        }
+    }
+    return out;
+}
 
 int chapterOfVerse(const TranscribedPage &page, int verseIndex)
 {
@@ -415,6 +655,65 @@ QList<TranscribedVerse> parseTranscribedText(const QString &text)
     return verses;
 }
 
+void splitWord(QList<TranscribedWord> &words, int column, int caret)
+{
+    if (column < 0 || column >= words.size()) {
+        return;
+    }
+    TranscribedWord &head = words[column];
+    const QString whole = head.hebrew;
+    const int at = std::clamp(caret, 0, int(whole.size()));
+
+    // A word nobody has read yet as far as its reading goes — but on the line
+    // and in the margin it was cut out of, which are facts about the folio and
+    // not about the letters.
+    TranscribedWord tail;
+    tail.hebrew = whole.mid(at);
+    tail.line = head.line;
+    tail.marginal = head.marginal;
+    tail.endsLine = head.endsLine;
+
+    head.hebrew = whole.left(at);
+    head.endsLine = false;
+    words.insert(column + 1, tail);
+}
+
+void joinWithPrevious(QList<TranscribedWord> &words, int column)
+{
+    if (column <= 0 || column >= words.size()) {
+        return;
+    }
+    TranscribedWord &previous = words[column - 1];
+    const TranscribedWord current = words.at(column);
+
+    const bool sameLine =
+        previous.line == current.line || previous.line < 0 || current.line < 0;
+    if (!sameLine || previous.box.isNull()) {
+        previous.box = QRect();
+    } else if (!current.box.isNull()) {
+        previous.box = previous.box.united(current.box);
+    }
+    if (previous.line < 0) {
+        previous.line = current.line;
+    }
+
+    previous.hebrew += current.hebrew;
+    if (!previous.recognised.isEmpty() && !current.recognised.isEmpty()) {
+        previous.recognised += current.recognised;
+    }
+    previous.unchecked = previous.unchecked || current.unchecked;
+    previous.endsLine = previous.endsLine || current.endsLine;
+    if (!current.note.isEmpty()) {
+        previous.note = previous.note.isEmpty()
+            ? current.note
+            : previous.note + QStringLiteral("; ") + current.note;
+    }
+    // The joined word is not either of the words that made it, so whatever was
+    // said about their meaning is dropped and the lexicon is asked again.
+    previous.englishIsOwn = false;
+    words.removeAt(column);
+}
+
 QString verseHeading(const TranscribedPage &page, int verseIndex)
 {
     if (verseIndex < 0 || verseIndex >= page.verses.size()) {
@@ -461,8 +760,10 @@ QString libraryFileName(const QString &bookOsisId, const QString &manuscriptName
         name = QStringLiteral("Transcription");
     }
 
+    // "Text" for a transcription that names no book: it may be any work, and
+    // the library files it under Other texts rather than claiming a testament.
     return QStringLiteral("%1_%2_hebrew_commented.osis")
-        .arg(book.isEmpty() ? QStringLiteral("NT") : book, name);
+        .arg(book.isEmpty() ? QStringLiteral("Text") : book, name);
 }
 
 QString transcriptionFileStem(const TranscriptionDocument &document, int pageIndex)
@@ -531,6 +832,11 @@ MilahProjectPayload transcriptionPayload(
         {QStringLiteral("metadata"), metadataToJson(document.metadata)},
         {QStringLiteral("pages"), pages},
     };
+    // Only when there is one, so a transcription nobody has filled does not
+    // carry an empty key saying it was.
+    if (!document.fillSource.isEmpty()) {
+        payload.manifest.insert(QStringLiteral("fillSource"), document.fillSource);
+    }
 
     // The folios travel with the text. A transcription read months later on
     // another machine has to show what was being read, and a path into someone
@@ -572,6 +878,9 @@ TranscriptionDocument restoreTranscription(const MilahProjectPayload &payload)
 
     TranscriptionDocument document;
     document.metadata = metadataFromJson(manifest.value(QStringLiteral("metadata")).toObject());
+    // Absent from every file written before the fill remembered its source,
+    // which reads correctly as "ask for it once".
+    document.fillSource = manifest.value(QStringLiteral("fillSource")).toString();
 
     const QJsonArray pages = manifest.value(QStringLiteral("pages")).toArray();
     document.pages.reserve(pages.size());

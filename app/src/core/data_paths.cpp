@@ -31,6 +31,11 @@ QStringList dataSearchPaths()
         paths.append(beside + QStringLiteral("/data"));
         // A portable layout that puts the binary in bin/ keeps data alongside.
         paths.append(beside + QStringLiteral("/../data"));
+        // What `cmake --install` lays down: a macOS bundle keeps it in
+        // Contents/Resources beside Contents/MacOS, and a Linux prefix in
+        // share/milah beside bin/.
+        paths.append(beside + QStringLiteral("/../Resources/data"));
+        paths.append(beside + QStringLiteral("/../share/milah/data"));
     }
 
     return paths;

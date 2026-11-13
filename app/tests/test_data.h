@@ -50,4 +50,13 @@ milah::SourceDocument witness(const QString &id, const QString &text);
 /// list, so it has to outlive the refs.
 milah::DocumentRefs refs(const QList<milah::SourceDocument> &documents);
 
+/// A file of the published OSIS corpus, which lives in the sibling
+/// hebrew_manuscripts repository because each file carries its own licence.
+///
+/// `published` is the name there, without `.osis`: "REV_Sloane237_translation".
+/// Looked for under $MILAH_CORPUS_DIR first, for a corpus kept somewhere else,
+/// then at `<repo>/../hebrew_manuscripts/manuscripts/`. When neither holds it,
+/// the second path comes back anyway, so a skip message names where to put it.
+QString corpusFile(const QString &published);
+
 } // namespace milah_test

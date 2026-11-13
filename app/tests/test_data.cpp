@@ -2,7 +2,9 @@
 
 #include "core/osis.h"
 
+#include <QFileInfo>
 #include <QMap>
+#include <QProcessEnvironment>
 
 namespace milah_test {
 
@@ -103,6 +105,21 @@ milah::DocumentRefs refs(const QList<milah::SourceDocument> &documents)
         result.append(&document);
     }
     return result;
+}
+
+QString corpusFile(const QString &published)
+{
+    const QString name = published + QStringLiteral(".osis");
+    const QString override =
+        QProcessEnvironment::systemEnvironment().value(QStringLiteral("MILAH_CORPUS_DIR"));
+    if (!override.isEmpty()) {
+        const QString path = override + QLatin1Char('/') + name;
+        if (QFileInfo::exists(path)) {
+            return path;
+        }
+    }
+    return QStringLiteral("%1/../hebrew_manuscripts/manuscripts/%2")
+        .arg(QStringLiteral(MILAH_REPO_ROOT), name);
 }
 
 } // namespace milah_test

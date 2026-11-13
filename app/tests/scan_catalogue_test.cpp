@@ -149,14 +149,16 @@ private slots:
         // The images stay on the library's server under the library's licence,
         // which is not Milah's to grant — so losing either of these loses the
         // right to use the scan at all.
-        const ScanEntry &entry = catalogueFrom(sampleManifest()).entries().constFirst();
+        const auto catalogue = catalogueFrom(sampleManifest());
+        const ScanEntry &entry = catalogue.entries().constFirst();
         QCOMPARE(entry.attribution, QStringLiteral("Provided by Cambridge University Library"));
         QVERIFY(entry.licence.contains(QStringLiteral("CC BY-NC 3.0")));
     }
 
     void theFoliosKeepTheirPlaceAndTheirName()
     {
-        const ScanEntry &entry = catalogueFrom(sampleManifest()).entries().constFirst();
+        const auto catalogue = catalogueFrom(sampleManifest());
+        const ScanEntry &entry = catalogue.entries().constFirst();
         QCOMPARE(entry.pages.size(), 2);
         QCOMPARE(entry.pages.at(0).number, 1);
         QCOMPARE(entry.pages.at(0).label, QStringLiteral("front cover"));
@@ -169,7 +171,8 @@ private slots:
 
     void theShelfmarkTellsTwoManuscriptsApart()
     {
-        const ScanEntry &entry = catalogueFrom(sampleManifest()).entries().constFirst();
+        const auto catalogue = catalogueFrom(sampleManifest());
+        const ScanEntry &entry = catalogue.entries().constFirst();
         QCOMPARE(
             entry.displayTitle(),
             QStringLiteral("Hebrew translation of the New Testament (MS Oo.1.32)"));
@@ -179,11 +182,34 @@ private slots:
     {
         // What tells one entry of a codex from another: they share a shelfmark,
         // a repository and a date, and differ only in which leaves they are.
-        const ScanEntry &book = catalogueFrom(sampleManifest()).entries().at(1);
+        const auto catalogue = catalogueFrom(sampleManifest());
+        const ScanEntry &book = catalogue.entries().at(1);
         QCOMPARE(book.title, QStringLiteral("Mark"));
         QCOMPARE(book.book, QStringLiteral("MRK"));
         QCOMPARE(book.folios, QStringLiteral("22r..33v"));
         QCOMPARE(book.shelfmark, QStringLiteral("MS Oo.1.32"));
+        // An older manifest's own code still files it under its testament.
+        QCOMPARE(book.testament, Testament::New);
+    }
+
+    void aCurrentManifestFilesEveryScanByTestament()
+    {
+        // As the live manifest writes them: an OSIS book, and a category on
+        // every row — including a codex of many books, which has no book.
+        const ScanCatalogue catalogue = catalogueFrom(QByteArrayLiteral(
+            "{\"scans\":["
+            "{\"id\":\"a\",\"title\":\"Mark\",\"book\":\"Mark\",\"category\":\"nt\","
+            " \"pages\":[{\"n\":1,\"image\":\"IMG/a\"}]},"
+            "{\"id\":\"b\",\"title\":\"A codex\",\"book\":\"\",\"category\":\"nt\","
+            " \"pages\":[{\"n\":1,\"image\":\"IMG/b\"}]},"
+            "{\"id\":\"c\",\"title\":\"Psalms\",\"book\":\"Ps\","
+            " \"pages\":[{\"n\":1,\"image\":\"IMG/c\"}]}"
+            "]}"));
+        QCOMPARE(catalogue.entries().size(), 3);
+        QCOMPARE(catalogue.entries().at(0).testament, Testament::New);
+        QCOMPARE(catalogue.entries().at(1).testament, Testament::New);
+        // No category: the book decides.
+        QCOMPARE(catalogue.entries().at(2).testament, Testament::Old);
     }
 
     void theBooksOfOneCodexAreReadAsOneManuscript()

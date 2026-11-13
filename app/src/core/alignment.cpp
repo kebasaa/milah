@@ -4,6 +4,7 @@
 #include "core/tokenize.h"
 
 #include <QHash>
+#include <QSet>
 
 #include <algorithm>
 
@@ -392,11 +393,45 @@ CombinedDraft generateCombined(
     const DocumentRefs &manuscripts,
     const QString &priorityId)
 {
+    // Only the witnesses that hold this verse vote on it. A fragment, or a
+    // codex that lost a leaf, is silent here because the text is not there to
+    // read — not because the scribe left it out — and counting that silence as
+    // a vote for "nothing" used to empty the Combined verse wherever fewer than
+    // half the witnesses survive. With none holding it, everyone votes as
+    // before, which keeps the old answer for a verse nobody has.
+    DocumentRefs voters;
+    QSet<QString> damaged;
+    for (const SourceDocument *source : manuscripts) {
+        const SourceVerse *verse = source->verse(aligned.reference.id);
+        if (!verse || verse->tokens.isEmpty()) {
+            continue;
+        }
+        voters.append(source);
+        for (const SourceMilestone &milestone : source->milestones) {
+            if (milestone.type == QLatin1String(kLacunaMilestone) && milestone.verseId
+                && *milestone.verseId == aligned.reference.id) {
+                damaged.insert(source->id);
+            }
+        }
+    }
+    if (voters.isEmpty()) {
+        voters = manuscripts;
+    }
+
     CombinedDraft draft;
     draft.reference = aligned.reference;
     draft.columns.reserve(aligned.columns.size());
     for (const AlignmentColumn &column : aligned.columns) {
-        draft.columns.append(chooseConsensus(column, manuscripts, priorityId));
+        // Within a damaged verse, a witness says nothing about a word it has
+        // no cell for: the gap may be where the text was lost.
+        DocumentRefs here;
+        for (const SourceDocument *source : voters) {
+            if (!damaged.contains(source->id) || column.cell(source->id)) {
+                here.append(source);
+            }
+        }
+        draft.columns.append(
+            chooseConsensus(column, here.isEmpty() ? voters : here, priorityId));
     }
     return draft;
 }

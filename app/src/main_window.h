@@ -152,6 +152,8 @@ private:
     /// Names the manuscripts with nothing at this location, for the tooltip on
     /// an italicised chapter.
     QString missingFrom(const Location &location) const;
+    /// Which witnesses hold only part of the chapter, and which part.
+    QString partlyHeld(const Location &location) const;
     void rebuildPriorityList();
     void rebuildVerseList();
     void refreshVerse(const QString &verseId);
@@ -245,6 +247,7 @@ private:
     /// icon, which is what puts the stroke through it.
     QAction *m_transcribeAction = nullptr;
     QAction *m_overlayAction = nullptr;
+    QAction *m_lineBoxesAction = nullptr;
     /// Takes an ALTO or PAGE file made elsewhere. Lives in the File menu rather
     /// than on the toolbar: it is the occasional way in, not the daily one.
     QAction *m_importLayoutAction = nullptr;
@@ -252,6 +255,9 @@ private:
     /// moment, which is the whole of the state the menu has to convey.
     QMenu *m_htrMenu = nullptr;
     QAction *m_htrInstallAction = nullptr;
+    /// Reads a folio again for the machine's own readings alone, leaving the
+    /// text alone. See TranscriptionController::recoverReadings().
+    QAction *m_recoverReadingsAction = nullptr;
     QAction *m_htrRemoveAction = nullptr;
     /// Its own action, and that is the fix rather than a tidying. The way to
     /// the model chooser used to *be* m_htrInstallAction, which the menu greys
@@ -260,6 +266,16 @@ private:
     QAction *m_manageModelsAction = nullptr;
     /// What the last run did. Live only once there has been one.
     QAction *m_lastRunAction = nullptr;
+    /// This folio's corrected lines, into its manuscript's training set. Live
+    /// only once a line has been checked all the way through.
+    QAction *m_previewStripsAction = nullptr;
+    QAction *m_saveForTrainingAction = nullptr;
+    QAction *m_saveAllForTrainingAction = nullptr;
+    QAction *m_vouchFolioAction = nullptr;
+    QAction *m_fillRemainingAction = nullptr;
+    /// And training a model on what has been gathered. Live only once some set
+    /// has enough in it to be worth the hours.
+    QAction *m_trainAction = nullptr;
     /// The installed models, offered in two places at once: under the Transcribe
     /// button's own arrow, where somebody about to press it is already looking,
     /// and in the File menu beside the rest of the recognition settings. One

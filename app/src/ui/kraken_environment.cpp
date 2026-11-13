@@ -1,5 +1,6 @@
 #include "ui/kraken_environment.h"
 
+#include <QCoreApplication>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
@@ -10,6 +11,7 @@
 #include <QRegularExpression>
 #include <QSettings>
 #include <QStandardPaths>
+#include <QTemporaryDir>
 
 #include <algorithm>
 #include <cstdint>
@@ -54,6 +56,73 @@ const QLatin1String kPythonVersion("3.12");
 /// are. Deciding which of them read Hebrew, or read anything at all, belongs to
 /// the dialog — the question has a parameter now (which script?), and one rule
 /// in one place beats the same rule stated in two languages.
+/// What the model will actually be shown, cut the way training cuts it.
+///
+/// **Kraken's own code, not an imitation of it.** `extract_polygons` is the
+/// function `ketos compile` calls: it dewarps the line along its baseline and
+/// zeroes everything outside its boundary. Redrawing that here in C++ would
+/// produce a picture of what Milah believes training does, which is the one
+/// thing a preview must not be.
+///
+/// A line at a time rather than the whole page in one call, because the whole
+/// page is where the silence is. `_extract_line` catches per line and carries
+/// on with a log warning, so a folio of forty lines can compile to thirty-five
+/// and say nothing; asking for each line on its own turns that into an
+/// exception with a message, which is what the transcriber needs to read.
+const char *const kStripSource = R"PY(import dataclasses
+import json
+import sys
+
+try:
+    from PIL import Image
+    from kraken.lib.xml import XMLPage
+    from kraken.lib.segmentation import extract_polygons
+except Exception as problem:
+    print("MILAH-ERROR kraken is not available: %s" % problem, file=sys.stderr)
+    raise SystemExit(1)
+
+
+def main(alto, image, out):
+    try:
+        page = XMLPage(alto, filetype="alto").to_container()
+    except Exception as problem:
+        print("MILAH-ERROR the layout file could not be read: %s" % problem,
+              file=sys.stderr)
+        raise SystemExit(1)
+    try:
+        picture = Image.open(image)
+    except Exception as problem:
+        print("MILAH-ERROR the folio could not be opened: %s" % problem,
+              file=sys.stderr)
+        raise SystemExit(1)
+
+    lines = []
+    for index, line in enumerate(page.lines):
+        print("MILAH-PROGRESS %d %d" % (index, len(page.lines)),
+              file=sys.stderr, flush=True)
+        record = {"id": line.id, "text": line.text or ""}
+        alone = dataclasses.replace(page, lines=[line])
+        try:
+            strip, _ = next(iter(extract_polygons(picture, alone)))
+        except StopIteration:
+            record["refused"] = ("kraken passed over this line without saying "
+                                 "why.")
+        except Exception as problem:
+            record["refused"] = "%s: %s" % (type(problem).__name__, problem)
+        else:
+            name = "strip_%s.png" % line.id
+            strip.save("%s/%s" % (out, name))
+            record["file"] = name
+            record["width"], record["height"] = strip.size
+        lines.append(record)
+
+    print(json.dumps({"lines": lines}))
+
+
+if __name__ == "__main__":
+    main(sys.argv[1], sys.argv[2], sys.argv[3])
+)PY";
+
 const char *const kHelperSource = R"PY(import dataclasses
 import glob
 import json
@@ -248,11 +317,51 @@ def do_fetch(doi, into):
     sys.stdout.write("\n")
 
 
+def do_check(path):
+    """The same question do_fetch asks of a download, asked of a file already
+    on disk — a model somebody chose themselves, or one training just made."""
+    loadable, why = verify(path)
+    json.dump({"path": path, "loadable": loadable, "why": why}, sys.stdout)
+    sys.stdout.write("\n")
+
+
+def do_alphabet(path):
+    """Every character the model can write, so Milah can say which of them a
+    training set never shows it. Asked of whichever loader this kraken has;
+    an answer of null means none of them would say, not that it knows none."""
+    labels = None
+    try:
+        from kraken.lib import models
+        labels = list(models.load_any(path).codec.c2l.keys())
+    except Exception:
+        try:
+            from kraken.models.loaders import load_models
+            loaded = load_models(path)
+            for model in (loaded if isinstance(loaded, (list, tuple)) else [loaded]):
+                codec = getattr(model, "codec", None)
+                if codec is None:
+                    codec = getattr(getattr(model, "nn", None), "codec", None)
+                if codec is not None:
+                    labels = list(codec.c2l.keys())
+                    break
+        except Exception:
+            labels = None
+    alphabet = None
+    if labels is not None:
+        alphabet = "".join(sorted(set("".join(str(label) for label in labels))))
+    json.dump({"path": path, "alphabet": alphabet}, sys.stdout)
+    sys.stdout.write("\n")
+
+
 try:
     if len(sys.argv) > 1 and sys.argv[1] == "list":
         do_list()
+    elif len(sys.argv) > 2 and sys.argv[1] == "alphabet":
+        do_alphabet(sys.argv[2])
     elif len(sys.argv) > 3 and sys.argv[1] == "fetch":
         do_fetch(sys.argv[2], sys.argv[3])
+    elif len(sys.argv) > 2 and sys.argv[1] == "check":
+        do_check(sys.argv[2])
     else:
         print("MILAH-ERROR unknown request", file=sys.stderr)
         raise SystemExit(2)
@@ -273,6 +382,23 @@ QString quoted(const QString &text)
     QString escaped = text;
     escaped.replace(QLatin1String("'"), QLatin1String("'\\''"));
     return QLatin1Char('\'') + escaped + QLatin1Char('\'');
+}
+
+/// A path Milah has stored, made safe for a shell line the same way — except
+/// that a leading `$HOME/` is left outside the quotes for the shell to expand.
+///
+/// Under WSL a model that training made is remembered as
+/// `$HOME/.milah-htr/models/…`, because that is all Milah knows of where the
+/// distro keeps its home. quoted() alone hands that to kraken literally, and
+/// the model training had just spent hours on could not be found to be checked,
+/// used, or trained on further.
+QString shellPath(const QString &path)
+{
+    static const QString home = QStringLiteral("$HOME/");
+    if (path.startsWith(home)) {
+        return QStringLiteral("\"$HOME\"/") + quoted(path.mid(home.size()));
+    }
+    return quoted(path);
 }
 
 } // namespace
@@ -331,7 +457,14 @@ QString KrakenEnvironment::firstDistro()
 #ifdef Q_OS_WIN
     QProcess wsl;
     wsl.start(QStringLiteral("wsl.exe"), {QStringLiteral("-l"), QStringLiteral("-q")});
-    if (!wsl.waitForFinished(ProbeTimeoutMs) || wsl.exitCode() != 0) {
+    if (!wsl.waitForFinished(ProbeTimeoutMs)) {
+        // Left running, it would be destroyed mid-flight, which QProcess
+        // complains about and which leaves wsl.exe to finish on its own.
+        wsl.kill();
+        wsl.waitForFinished(1000);
+        return QString();
+    }
+    if (wsl.exitCode() != 0) {
         return QString();
     }
     const QByteArray raw = wsl.readAllStandardOutput();
@@ -386,7 +519,7 @@ KrakenEnvironment::State KrakenEnvironment::refresh()
                        "exit 0\n")
             .arg(quotedPath(),
                  quotedPath(QStringLiteral("venv/bin/kraken")),
-                 quoted(modelPath())),
+                 shellPath(modelPath())),
         &found);
 
     // Anything at all on disk, whether or not it works. What lets Remove
@@ -456,15 +589,32 @@ QString KrakenEnvironment::pathFor(const QString &local)
 #endif
 }
 
+namespace {
+
+/// A folder of this process's own for the helper scripts, so two Milahs open at
+/// once never run each other's half-written copy. Removed again when Milah
+/// exits; the temporary directory itself if it cannot be made.
+QDir scratchDirectory()
+{
+    static QTemporaryDir directory(QDir(QDir::tempPath()).filePath(QStringLiteral("milah-XXXXXX")));
+    return QDir(directory.isValid() ? directory.path() : QDir::tempPath());
+}
+
+} // namespace
+
 QString KrakenEnvironment::writeHelperScript() const
 {
     const QString local =
-        QDir(QDir::tempPath()).filePath(QStringLiteral("milah-htr-models.py"));
+        scratchDirectory().filePath(QStringLiteral("milah-htr-models.py"));
     QFile file(local);
     if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
         return QString();
     }
-    file.write(kHelperSource);
+    // Checked, so a full disk is not a mystery later.
+    const QByteArray source(kHelperSource);
+    if (file.write(source) != source.size()) {
+        return QString();
+    }
     file.close();
     // As the environment will see it: under WSL the temporary directory is on
     // the Windows disk, which the distribution reaches through /mnt.
@@ -478,6 +628,36 @@ QStringList KrakenEnvironment::listCommand(const QString &script) const
     return commandFor(QStringLiteral("PYTHONUNBUFFERED=1 %1 %2 list")
                           .arg(quotedPath(QStringLiteral("venv/bin/python")),
                                quoted(script)));
+}
+
+QString KrakenEnvironment::writeStripScript() const
+{
+    const QString local =
+        scratchDirectory().filePath(QStringLiteral("milah-htr-strips.py"));
+    QFile file(local);
+    if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+        return QString();
+    }
+    const QByteArray source(kStripSource);
+    if (file.write(source) != source.size()) {
+        return QString();
+    }
+    file.close();
+    return pathFor(local);
+}
+
+QStringList KrakenEnvironment::stripsCommand(
+    const QString &script,
+    const QString &alto,
+    const QString &image,
+    const QString &directory) const
+{
+    return commandFor(QStringLiteral("PYTHONUNBUFFERED=1 %1 %2 %3 %4 %5")
+                          .arg(quotedPath(QStringLiteral("venv/bin/python")),
+                               quoted(script),
+                               quoted(pathFor(alto)),
+                               quoted(pathFor(image)),
+                               quoted(pathFor(directory))));
 }
 
 QStringList KrakenEnvironment::fetchCommand(const QString &script, const QString &doi) const
@@ -512,7 +692,106 @@ QStringList KrakenEnvironment::recognitionCommand(
             .arg(quotedPath(QStringLiteral("venv/bin/kraken")),
                  quoted(pathFor(image)),
                  quoted(pathFor(alto)),
-                 quoted(modelPath())));
+                 shellPath(modelPath())));
+}
+
+QStringList KrakenEnvironment::verifyCommand(
+    const QString &script, const QString &model) const
+{
+    return commandFor(QStringLiteral("%1 %2 check %3")
+                          .arg(quotedPath(QStringLiteral("venv/bin/python")),
+                               quoted(script),
+                               shellPath(model)));
+}
+
+QStringList KrakenEnvironment::alphabetCommand(
+    const QString &script, const QString &model) const
+{
+    return commandFor(QStringLiteral("%1 %2 alphabet %3")
+                          .arg(quotedPath(QStringLiteral("venv/bin/python")),
+                               quoted(script),
+                               shellPath(model)));
+}
+
+QString KrakenEnvironment::trainingOutputDirectory() const
+{
+    return rootDirectory() + QStringLiteral("/training/out");
+}
+
+QString KrakenEnvironment::trainedModelPath(const QString &name) const
+{
+    return QStringLiteral("%1/models/%2/%2.mlmodel").arg(rootDirectory(), name);
+}
+
+QStringList KrakenEnvironment::trainingCommand(
+    const QStringList &sets, const QString &base) const
+{
+    const QString work = quotedPath(QStringLiteral("training"));
+
+    // Emptied first. A set the transcriber has since removed a folio from must
+    // not go on training from the copy of it left behind last time.
+    QStringList lines{
+        QStringLiteral("rm -rf %1 && mkdir -p %1").arg(work),
+    };
+    // Each set into a folder of its own. Two sets may well hold a folio of the
+    // same name — every codex has a 1r — and copied into one folder the second
+    // silently replaced the first. Kraken finds a layout's picture beside the
+    // layout, so a folder each changes nothing else. Only the pairs: the set's
+    // about file is not ground truth.
+    for (int index = 0; index < sets.size(); ++index) {
+        const QString into = QStringLiteral("%1/%2").arg(work).arg(index);
+        lines.append(QStringLiteral("mkdir -p %1 && find %2 -maxdepth 1 -type f "
+                                    "\\( -name '*.xml' -o -name '*.jpg' \\) "
+                                    "-exec cp {} %1/ \\;")
+                         .arg(into, quoted(pathFor(sets.at(index)))));
+    }
+
+    // -d cpu said out loud rather than left to auto: there is no CUDA here, and
+    // a device that cannot be found is an error hours after the button.
+    lines.append(
+        QStringLiteral("%1 train -f alto --resize union -d cpu -i %2 -o %3 %4/*/*.xml")
+            .arg(quotedPath(QStringLiteral("venv/bin/ketos")),
+                 shellPath(base),
+                 quotedPath(QStringLiteral("training/out")),
+                 work));
+
+    return commandFor(lines.join(QStringLiteral(" && ")));
+}
+
+QStringList KrakenEnvironment::checkpointsCommand() const
+{
+    // The metric is in the file's own name — checkpoint_<epoch>-<metric>.ckpt —
+    // so which one is best is read rather than guessed. Sorted so the last line
+    // is the one to take.
+    return commandFor(
+        QStringLiteral(
+            "for f in %1/checkpoint_*.ckpt; do "
+            "[ -e \"$f\" ] || continue; "
+            "m=${f##*-}; m=${m%%.ckpt}; "
+            "printf '%s %s\\n' \"$m\" \"$f\"; "
+            "done | sort -n")
+            .arg(quotedPath(QStringLiteral("training/out"))));
+}
+
+QStringList KrakenEnvironment::convertCommand(
+    const QString &checkpoint, const QString &name) const
+{
+    const QString folder = QStringLiteral("models/%1").arg(name);
+    return commandFor(
+        QStringLiteral("mkdir -p %1 && %2 convert --weights-format coreml -o %3 %4")
+            .arg(quotedPath(folder),
+                 quotedPath(QStringLiteral("venv/bin/ketos")),
+                 quotedPath(QStringLiteral("%1/%2.mlmodel").arg(folder, name)),
+                 quoted(checkpoint)));
+}
+
+void KrakenEnvironment::finishIfNeverStarted(QProcess *process)
+{
+    QObject::connect(process, &QProcess::errorOccurred, process, [process](QProcess::ProcessError error) {
+        if (error == QProcess::FailedToStart) {
+            emit process->finished(-1, QProcess::NormalExit);
+        }
+    });
 }
 
 QString KrakenEnvironment::rootDirectory() const
@@ -760,7 +1039,7 @@ bool KrakenEnvironment::deleteModelFiles(const QString &path) const
                        "  %2/models/*/*) rm -rf \"$(dirname %1)\" && echo deleted ;;\n"
                        "  *) echo kept ;;\n"
                        "esac\n")
-            .arg(quoted(path), quotedPath()),
+            .arg(shellPath(path), quotedPath()),
         &said);
     return said.contains(QLatin1String("deleted"));
 }
@@ -818,12 +1097,15 @@ bool KrakenEnvironment::openConsole(const QString &line) const
     // CreateProcess, once by cmd and once by the shell — which is three chances
     // to arrive as something else.
     const QString script =
-        QDir(QDir::tempPath()).filePath(QStringLiteral("milah-kraken-setup.sh"));
+        QDir(QDir::tempPath()).filePath(QStringLiteral("milah-kraken-setup-%1.sh").arg(QCoreApplication::applicationPid()));
     QFile file(script);
     if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
         return false;
     }
-    file.write(line.toUtf8());
+    const QByteArray script8 = line.toUtf8();
+    if (file.write(script8) != script8.size()) {
+        return false;
+    }
     file.close();
 
     QProcess console;
@@ -1018,6 +1300,19 @@ bool KrakenEnvironment::remove(QString *error)
     // The venv and the models, and nothing else. Not WSL2, not the distro, not
     // any Python: a transcriber who asks Milah to remove Kraken has not asked
     // it to remove their Ubuntu.
+#ifndef Q_OS_WIN
+    // Off Windows the root comes from QStandardPaths, which can come back
+    // empty; the result would then be the relative path `htr`, deleted from
+    // whatever directory Milah happened to be started in.
+    const QString root = rootDirectory();
+    if (!QDir::isAbsolutePath(root) || !root.endsWith(QStringLiteral("/htr"))) {
+        if (error) {
+            *error = QStringLiteral("Milah could not work out where Kraken is installed, "
+                                    "so it deleted nothing.");
+        }
+        return false;
+    }
+#endif
     const int code = run(QStringLiteral("rm -rf %1").arg(quotedPath()), &output);
     if (code != 0) {
         if (error) {

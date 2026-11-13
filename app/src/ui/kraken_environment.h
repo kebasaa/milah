@@ -4,6 +4,8 @@
 #include <QString>
 #include <QStringList>
 
+class QProcess;
+
 namespace milah {
 
 /// Where kraken lives, how to reach it, and how to put it there or take it away.
@@ -103,9 +105,38 @@ public:
     /// Answers with the path of the model file it settled on.
     QStringList fetchCommand(const QString &script, const QString &doi) const;
 
+    /// Whether this Kraken can load `model`, answered as the same JSON a
+    /// download is judged by — so a model that training made and one that
+    /// arrived off the repository are held to one standard.
+    QStringList verifyCommand(const QString &script, const QString &model) const;
+    /// Every character `model` can write, as `{"alphabet": "…"}` — or null for
+    /// the alphabet, where this kraken's loaders would not say.
+    QStringList alphabetCommand(const QString &script, const QString &model) const;
+    /// Writes the strip-cutting helper out, and answers with its path as the
+    /// environment will see it. See kStripSource: it cuts each line the way
+    /// training cuts it, using kraken's own function rather than an imitation.
+    QString writeStripScript() const;
+    /// Cutting one folio's training lines out for somebody to look at.
+    ///
+    /// `alto` is the training layout Milah would save, `image` the picture it
+    /// would save it against, and `directory` where the strips and the manifest
+    /// are to land. What comes back on stdout is
+    /// `{"lines": [{"id", "text", "file"|"refused"}, …]}`.
+    QStringList stripsCommand(
+        const QString &script,
+        const QString &alto,
+        const QString &image,
+        const QString &directory) const;
+
     /// The prefix a progress line carries on stderr, so the two readers agree.
     static const char *progressMarker() { return "MILAH-PROGRESS"; }
     static const char *errorMarker() { return "MILAH-ERROR"; }
+
+    /// QProcess emits no finished() for a program that never starts — wsl.exe
+    /// missing, say — so a dialog waiting on finished() would stay busy for
+    /// ever with nothing to cancel. After this call such a process finishes
+    /// like any failed one, with exit code -1.
+    static void finishIfNeverStarted(QProcess *process);
 
     /// The command that reads one folio into an ALTO file, as a program and
     /// argument list ready for QProcess. Both paths are local; the conversion
@@ -115,6 +146,49 @@ public:
     /// ALTO, which is the format that carries a box per word, and `segment -bl`
     /// is baseline segmentation, which is what these hands need.
     QStringList recognitionCommand(const QString &image, const QString &alto) const;
+
+    /// Fine-tunes `base` on the ground truth in `sets`, which are local
+    /// directories of matching `.jpg`/`.xml` pairs.
+    ///
+    /// The files are **copied into the environment first**. Training reads every
+    /// line image again on every epoch, for hours, and on Windows the bridge to
+    /// the Windows disk is why the models live inside the distro too. One copy
+    /// of a few megabytes buys all of that back.
+    ///
+    /// `ketos train -f alto --resize union`: ALTO because that is what Milah
+    /// writes, and `--resize` because a hand outside the base model's training
+    /// brings characters its codec has never seen — without it Kraken refuses
+    /// every line carrying one.
+    ///
+    /// `union` rather than `new`. `new` also throws away every character the
+    /// set happens not to contain, and a set of a few hundred lines rarely has
+    /// a final tsade or a final pe in it — the model that came out could no
+    /// longer write them at all, on a hand that certainly uses them.
+    ///
+    /// Each set is copied into a folder of its own, so two sets that both
+    /// hold a `1r` both train.
+    QStringList trainingCommand(const QStringList &sets, const QString &base) const;
+
+    /// Where `trainingCommand` leaves its checkpoints, as the environment sees
+    /// it. Kraken names them `checkpoint_<epoch>-<val_metric>.ckpt` and keeps
+    /// the ten best, so the highest metric in the names is the model to take.
+    QString trainingOutputDirectory() const;
+
+    /// Lists the checkpoints, best last. One line each: the metric, a space,
+    /// then the path.
+    QStringList checkpointsCommand() const;
+
+    /// Turns `checkpoint` into a `.mlmodel` under the models folder, named
+    /// `name`, and answers with where it put it.
+    ///
+    /// A separate step because `ketos train` writes Lightning checkpoints in
+    /// safetensors, and what `kraken ocr -m` takes is coreml. Nothing says so
+    /// but `ketos convert --help`.
+    QStringList convertCommand(const QString &checkpoint, const QString &name) const;
+
+    /// Where convertCommand puts a model called `name`, as the environment sees
+    /// it — which is what gets remembered as the installed model's path.
+    QString trainedModelPath(const QString &name) const;
 
     /// The directory everything is installed into, as the environment sees it.
     QString rootDirectory() const;

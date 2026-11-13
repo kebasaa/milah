@@ -51,6 +51,7 @@ NameForms NameForms::fromJson(const QJsonObject &document)
                               .trimmed()
                               .normalized(QString::NormalizationForm_C);
         group.note = entry.value(QStringLiteral("note")).toString().trimmed();
+        group.testament = entry.value(QStringLiteral("testament")).toString().trimmed().toLower();
 
         // A group with no id cannot be replaced by an editor's own file, and
         // one with no preferred form has nothing to offer. Dropped rather than
@@ -107,6 +108,27 @@ NameForms NameForms::fromFile(const QString &path)
         return NameForms();
     }
     return fromJson(QJsonDocument::fromJson(file.readAll()).object());
+}
+
+const NameForms &NameForms::sharedFor(Testament testament)
+{
+    const auto only = [](Testament wanted) {
+        NameForms filtered;
+        const QString code = wanted == Testament::Old   ? QStringLiteral("ot")
+            : wanted == Testament::New                   ? QStringLiteral("nt")
+                                                         : QString();
+        for (const NameGroup &group : shared().groups()) {
+            if (group.testament.isEmpty() || group.testament == code) {
+                filtered.m_groups.append(group);
+            }
+        }
+        filtered.reindex();
+        return filtered;
+    };
+    static const NameForms old = only(Testament::Old);
+    static const NameForms fresh = only(Testament::New);
+    static const NameForms other = only(Testament::Other);
+    return testament == Testament::Old ? old : testament == Testament::New ? fresh : other;
 }
 
 const NameForms &NameForms::shared()

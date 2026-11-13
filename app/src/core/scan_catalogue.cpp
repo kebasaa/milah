@@ -1,6 +1,7 @@
 #include "core/scan_catalogue.h"
 
-#include <QCollator>
+#include "core/books.h"
+
 #include <QHash>
 #include <QJsonArray>
 #include <QJsonObject>
@@ -54,6 +55,7 @@ ScanCatalogue ScanCatalogue::fromJson(const QJsonObject &document)
         entry.attribution = text(record, "attribution");
         entry.licence = text(record, "licence");
         entry.book = text(record, "book");
+        entry.testament = testamentFromCategory(text(record, "category"), entry.book);
         entry.folios = text(record, "folios");
         entry.translatedFrom = text(record, "translatedFrom");
         // Lowercased so a manifest written either way matches the vocabulary
@@ -144,20 +146,22 @@ QList<ScanManuscript> scanManuscripts(const QList<ScanEntry> &entries)
 
     // As a reader reads them: case ignored, and digits by their value rather
     // than their characters, so MS Oo.1.16 comes before MS Oo.1.32.
-    QCollator collator;
-    collator.setCaseSensitivity(Qt::CaseInsensitive);
-    collator.setNumericMode(true);
-
+    //
+    // Not QCollator: its numeric mode depends on the system locale and does
+    // nothing under the C locale a build server runs in, where "MS 10" then
+    // sorted before "ms 2". The comparison the exports already use is
+    // locale-independent on purpose.
+    //
     // Stable, so two manuscripts a library gave the same name keep the order the
     // manifest gave them rather than swapping about between runs.
     std::stable_sort(
         manuscripts.begin(),
         manuscripts.end(),
-        [&collator](const ScanManuscript &left, const ScanManuscript &right) {
+        [](const ScanManuscript &left, const ScanManuscript &right) {
             if (left.available != right.available) {
                 return left.available;
             }
-            return collator.compare(left.name, right.name) < 0;
+            return compareNumericAware(left.name.toCaseFolded(), right.name.toCaseFolded()) < 0;
         });
 
     return manuscripts;

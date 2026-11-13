@@ -128,7 +128,8 @@ private slots:
     {
         // The four columns the download window shows beside a title. Without
         // them the window is a list of names, which is what it was.
-        const CatalogueEntry &witness = catalogueFrom(sampleManifest()).entries().first();
+        const auto catalogue = catalogueFrom(sampleManifest());
+        const CatalogueEntry &witness = catalogue.entries().first();
         QCOMPARE(witness.shelfmark, QStringLiteral("British Library, Sloane MS 237"));
         QCOMPARE(witness.folios, QStringLiteral("1r-4v"));
         QCOMPARE(witness.translatedFrom, QStringLiteral("Translated from the Greek"));
@@ -673,6 +674,59 @@ private slots:
             QVERIFY2(shown.endsWith(QStringLiteral("  (English translation)")),
                      qPrintable(shown));
         }
+    }
+
+    void aManifestSaysWhichPartOfTheLibraryATextBelongsIn()
+    {
+        const ManuscriptCatalogue catalogue = catalogueFrom(QByteArrayLiteral(
+            "{\"manuscripts\":["
+            "{\"file\":\"a.osis\",\"role\":\"manuscript\",\"book\":\"Gen\",\"category\":\"ot\","
+            " \"fragment\":true,\"covers\":[\"Gen.1.1-Gen.2.3\",\"Gen.4.1\"],\"contents\":\"Genesis 1:1 to 2:3, and 4:1.\"},"
+            "{\"file\":\"b.osis\",\"role\":\"manuscript\",\"book\":\"\",\"category\":\"other\"}"
+            "]}"));
+        QCOMPARE(catalogue.entries().size(), 2);
+        const CatalogueEntry &genesis = catalogue.entries().at(0);
+        QCOMPARE(genesis.testament, Testament::Old);
+        QVERIFY(genesis.fragment);
+        QCOMPARE(genesis.coverage, QStringList({QStringLiteral("Gen.1.1-Gen.2.3"),
+                                                QStringLiteral("Gen.4.1")}));
+        // The prose is the edition's own sentence, not the references run together.
+        QCOMPARE(genesis.covers, QStringLiteral("Genesis 1:1 to 2:3, and 4:1."));
+        QCOMPARE(catalogue.entries().at(1).testament, Testament::Other);
+        QVERIFY(!catalogue.entries().at(1).fragment);
+    }
+
+    void aWholeTestamentHasNoBookButKnowsItsTestament()
+    {
+        // As the live manifest writes Delitzsch: no book, one range a book.
+        const ManuscriptCatalogue catalogue = catalogueFrom(QByteArrayLiteral(
+            "{\"manuscripts\":[{\"file\":\"NT_Delitzsch_hebrew.osis\",\"role\":\"manuscript\","
+            "\"book\":\"\",\"category\":\"nt\",\"fragment\":false,"
+            "\"covers\":[\"Matt.1.1-Matt.28.20\",\"Mark.1.1-Mark.16.20\"]}]}"));
+        const CatalogueEntry &delitzsch = catalogue.entries().first();
+        QCOMPARE(delitzsch.testament, Testament::New);
+        QCOMPARE(delitzsch.coverage.size(), 2);
+        // No contents given, so no prose: the references are not shown as it.
+        QVERIFY(delitzsch.covers.isEmpty());
+    }
+
+    void anOlderManifestIsSortedByItsBook()
+    {
+        // No category: the book decides, in the codes the library used to
+        // write — "JOH", "MAT", "NT" — as well as in OSIS ids.
+        const ManuscriptCatalogue catalogue = catalogueFrom(QByteArrayLiteral(
+            "{\"manuscripts\":["
+            "{\"file\":\"j.osis\",\"role\":\"manuscript\",\"book\":\"JOH\",\"covers\":\"John 1-4\"},"
+            "{\"file\":\"n.osis\",\"role\":\"manuscript\",\"book\":\"NT\"},"
+            "{\"file\":\"p.osis\",\"role\":\"manuscript\",\"book\":\"Ps\"},"
+            "{\"file\":\"x.osis\",\"role\":\"manuscript\",\"book\":\"Avot\"}"
+            "]}"));
+        QCOMPARE(catalogue.entries().at(0).testament, Testament::New);
+        QCOMPARE(catalogue.entries().at(0).covers, QStringLiteral("John 1-4"));
+        QVERIFY(catalogue.entries().at(0).coverage.isEmpty());
+        QCOMPARE(catalogue.entries().at(1).testament, Testament::New);
+        QCOMPARE(catalogue.entries().at(2).testament, Testament::Old);
+        QCOMPARE(catalogue.entries().at(3).testament, Testament::Other);
     }
 };
 
