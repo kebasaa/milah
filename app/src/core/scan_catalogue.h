@@ -1,5 +1,7 @@
 #pragma once
 
+#include "core/books.h"
+
 #include <QList>
 #include <QString>
 
@@ -52,6 +54,10 @@ struct ScanEntry
     /// The OSIS book code, where the scan is of one book. Empty for a codex
     /// covering many, which most are.
     QString book;
+    /// Which part of the library it belongs in: the manifest's `category`, else
+    /// worked out from the book. A codex of many books has no book to go by,
+    /// and the category is what files it.
+    Testament testament = Testament::Other;
     /// Which part of the codex this is, as the library labels its folios —
     /// "22r..33v". Empty where the entry is the whole of it. One binding may be
     /// offered whole and book by book at once, and then several entries share a

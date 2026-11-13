@@ -455,11 +455,15 @@ void DownloadManuscriptsDialog::showCatalogue()
             part->setFont(ColumnTitle, bold);
             testaments.insert(int(testament), part);
         }
-        // By name where the canon knows the book; a collection code such as
-        // "NT", or an empty one, is a file of a whole testament.
+        // By name where the canon knows the book. A file with no book — the
+        // manifest leaves it empty for a whole testament, and older ones wrote
+        // "NT" — is that testament entire; one with no book among the other
+        // texts covers several works.
         const bool wholeTestament = book.isEmpty()
             || (testamentOf(book) != Testament::Other && bookIdFor(book).isEmpty());
-        const QString named = wholeTestament ? QStringLiteral("Whole testament") : bookName(book);
+        const QString named = !wholeTestament ? bookName(book)
+            : testament == Testament::Other  ? QStringLiteral("Several works")
+                                              : QStringLiteral("Whole %1").arg(testamentName(testament));
         auto *item = new QTreeWidgetItem(part, {named});
         heading(item);
         books.insert({int(testament), book}, item);

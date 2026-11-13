@@ -188,6 +188,28 @@ private slots:
         QCOMPARE(book.book, QStringLiteral("MRK"));
         QCOMPARE(book.folios, QStringLiteral("22r..33v"));
         QCOMPARE(book.shelfmark, QStringLiteral("MS Oo.1.32"));
+        // An older manifest's own code still files it under its testament.
+        QCOMPARE(book.testament, Testament::New);
+    }
+
+    void aCurrentManifestFilesEveryScanByTestament()
+    {
+        // As the live manifest writes them: an OSIS book, and a category on
+        // every row — including a codex of many books, which has no book.
+        const ScanCatalogue catalogue = catalogueFrom(QByteArrayLiteral(
+            "{\"scans\":["
+            "{\"id\":\"a\",\"title\":\"Mark\",\"book\":\"Mark\",\"category\":\"nt\","
+            " \"pages\":[{\"n\":1,\"image\":\"IMG/a\"}]},"
+            "{\"id\":\"b\",\"title\":\"A codex\",\"book\":\"\",\"category\":\"nt\","
+            " \"pages\":[{\"n\":1,\"image\":\"IMG/b\"}]},"
+            "{\"id\":\"c\",\"title\":\"Psalms\",\"book\":\"Ps\","
+            " \"pages\":[{\"n\":1,\"image\":\"IMG/c\"}]}"
+            "]}"));
+        QCOMPARE(catalogue.entries().size(), 3);
+        QCOMPARE(catalogue.entries().at(0).testament, Testament::New);
+        QCOMPARE(catalogue.entries().at(1).testament, Testament::New);
+        // No category: the book decides.
+        QCOMPARE(catalogue.entries().at(2).testament, Testament::Old);
     }
 
     void theBooksOfOneCodexAreReadAsOneManuscript()

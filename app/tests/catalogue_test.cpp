@@ -681,7 +681,7 @@ private slots:
         const ManuscriptCatalogue catalogue = catalogueFrom(QByteArrayLiteral(
             "{\"manuscripts\":["
             "{\"file\":\"a.osis\",\"role\":\"manuscript\",\"book\":\"Gen\",\"category\":\"ot\","
-            " \"fragment\":true,\"covers\":[\"Gen.1.1-Gen.2.3\",\"Gen.4.1\"]},"
+            " \"fragment\":true,\"covers\":[\"Gen.1.1-Gen.2.3\",\"Gen.4.1\"],\"contents\":\"Genesis 1:1 to 2:3, and 4:1.\"},"
             "{\"file\":\"b.osis\",\"role\":\"manuscript\",\"book\":\"\",\"category\":\"other\"}"
             "]}"));
         QCOMPARE(catalogue.entries().size(), 2);
@@ -690,9 +690,24 @@ private slots:
         QVERIFY(genesis.fragment);
         QCOMPARE(genesis.coverage, QStringList({QStringLiteral("Gen.1.1-Gen.2.3"),
                                                 QStringLiteral("Gen.4.1")}));
-        QCOMPARE(genesis.covers, QStringLiteral("Gen.1.1-Gen.2.3, Gen.4.1"));
+        // The prose is the edition's own sentence, not the references run together.
+        QCOMPARE(genesis.covers, QStringLiteral("Genesis 1:1 to 2:3, and 4:1."));
         QCOMPARE(catalogue.entries().at(1).testament, Testament::Other);
         QVERIFY(!catalogue.entries().at(1).fragment);
+    }
+
+    void aWholeTestamentHasNoBookButKnowsItsTestament()
+    {
+        // As the live manifest writes Delitzsch: no book, one range a book.
+        const ManuscriptCatalogue catalogue = catalogueFrom(QByteArrayLiteral(
+            "{\"manuscripts\":[{\"file\":\"NT_Delitzsch_hebrew.osis\",\"role\":\"manuscript\","
+            "\"book\":\"\",\"category\":\"nt\",\"fragment\":false,"
+            "\"covers\":[\"Matt.1.1-Matt.28.20\",\"Mark.1.1-Mark.16.20\"]}]}"));
+        const CatalogueEntry &delitzsch = catalogue.entries().first();
+        QCOMPARE(delitzsch.testament, Testament::New);
+        QCOMPARE(delitzsch.coverage.size(), 2);
+        // No contents given, so no prose: the references are not shown as it.
+        QVERIFY(delitzsch.covers.isEmpty());
     }
 
     void anOlderManifestIsSortedByItsBook()

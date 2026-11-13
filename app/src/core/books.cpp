@@ -419,3 +419,22 @@ int compareTanakh(const QString &left, const QString &right)
 }
 
 } // namespace milah
+
+namespace milah {
+
+Testament testamentFromCategory(const QString &category, const QString &book)
+{
+    const QString code = category.trimmed().toLower();
+    if (code == QLatin1String("ot")) {
+        return Testament::Old;
+    }
+    if (code == QLatin1String("nt")) {
+        return Testament::New;
+    }
+    if (code == QLatin1String("other")) {
+        return Testament::Other;
+    }
+    return testamentOf(book);
+}
+
+} // namespace milah

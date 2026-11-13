@@ -55,6 +55,7 @@ ScanCatalogue ScanCatalogue::fromJson(const QJsonObject &document)
         entry.attribution = text(record, "attribution");
         entry.licence = text(record, "licence");
         entry.book = text(record, "book");
+        entry.testament = testamentFromCategory(text(record, "category"), entry.book);
         entry.folios = text(record, "folios");
         entry.translatedFrom = text(record, "translatedFrom");
         // Lowercased so a manifest written either way matches the vocabulary

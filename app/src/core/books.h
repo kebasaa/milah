@@ -50,6 +50,11 @@ Testament testamentOf(const QString &book);
 /// "Old Testament", "New Testament", "Other texts".
 QString testamentName(Testament testament);
 
+/// A catalogue's own `category` ("ot", "nt", "other", any case) where it gives
+/// one, else testamentOf(`book`) — which is right for every manifest written
+/// before categories existed.
+Testament testamentFromCategory(const QString &category, const QString &book);
+
 /// Orders the books of the Hebrew Bible as the Tanakh does — Torah, Nevi'im,
 /// Ketuvim, ending with Chronicles — for browsing Hebrew manuscripts, which
 /// follow it. Anything else falls back to compareBooks().
